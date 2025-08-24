@@ -1,7 +1,10 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
-  swcMinify: true, // Du kan behålla detta
+  experimental: {
+    // OBS: ta bort om du inte använder appDir
+    // appDir: true, 
+  },
 };
 
 module.exports = nextConfig;
