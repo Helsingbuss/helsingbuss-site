@@ -1,10 +1,7 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
-  experimental: {
-    appDir: false, // säkerställer att Next inte letar efter "app/"
-  },
-  pageExtensions: ["tsx", "ts", "jsx", "js"], // ser till att .tsx används
+  swcMinify: true, // Du kan behålla detta
 };
 
 module.exports = nextConfig;
