@@ -7,7 +7,7 @@ interface LogoProps {
 export default function Logo({ className }: LogoProps) {
   return (
     <Image
-      src="/vit_logo.png"
+      src="/logo.png"
       alt="Helsingbuss"
       width={350}
       height={50}
