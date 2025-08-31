@@ -1,15 +1,25 @@
 // src/lib/sendMail.ts
 import { Resend } from "resend";
 
-const resend = new Resend(process.env.RESEND_API_KEY || "");
+console.log("RESEND_API_KEY loaded:", !!process.env.RESEND_API_KEY);
+
+const resend = process.env.RESEND_API_KEY
+  ? new Resend(process.env.RESEND_API_KEY)
+  : null;
 
 export async function sendOfferMail(
   to: string,
   offerId: string,
   status: "inkommen" | "besvarad" | "godkand" | "makulerad"
 ) {
-  if (!process.env.RESEND_API_KEY) {
-    throw new Error("Missing RESEND_API_KEY in environment variables");
+  if (!resend) {
+    console.warn("⚠️ Ingen RESEND_API_KEY hittades, kör i testläge.");
+    return {
+      success: true,
+      test: true,
+      subject: "(TEST) Skulle skickas till " + to,
+      status,
+    };
   }
 
   let subject = "";
@@ -64,11 +74,12 @@ export async function sendOfferMail(
   }
 
   const { error } = await resend.emails.send({
-    from: "Helsingbuss <info@helsingbuss.se>", // Obs: måste vara verifierad domän i Resend
+    from: "Helsingbuss <info@helsingbuss.se>", // måste vara verifierad domän i Resend
     to,
     subject,
     html,
   });
 
   if (error) throw error;
+  return { success: true };
 }
