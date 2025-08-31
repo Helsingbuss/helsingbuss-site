@@ -58,12 +58,12 @@ export default function OfferInkommen({ offer }: any) {
         </div>
 
         <div className="max-w-5xl mx-auto px-6 py-10 space-y-8">
-          {/* Titel */}
-          <div className="text-center space-y-2">
+          {/* Titel + Badge */}
+          <div className="text-center space-y-3">
             <h1 className="text-3xl font-bold text-[#0f172a]">
-              Offertförfrågan ({offer?.offer_number})
+              Offertförfrågan ({offer?.offer_number || "HB25007"})
             </h1>
-            <p className="text-green-700 font-medium">Status: Inkommen</p>
+            <StatusBadge status="inkommen" />
           </div>
 
           <h2 className="text-lg font-semibold text-center text-[#194C66]">

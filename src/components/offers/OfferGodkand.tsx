@@ -63,9 +63,8 @@ export default function OfferGodkand({ offer }: OfferGodkandProps) {
           {/* Titel */}
           <div className="text-center space-y-2">
             <h1 className="text-3xl font-bold text-[#0f172a]">
-              Offert ({offer?.offer_number || "–"})
-            </h1>
-            <p className="text-green-700 font-medium">Status: Godkänd</p>
+              </h1>
+          <StatusBadge status="godkand" />
           </div>
 
           <h2 className="text-lg font-semibold text-center text-[#194C66]">

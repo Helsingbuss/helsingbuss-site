@@ -1,28 +1,36 @@
-// src/components/offers/OfferBesvarad.tsx
+// src/components/offers/OfferMakulerad.tsx
 import StatusBadge from "@/components/StatusBadge";
 import Image from "next/image";
 import { Bus } from "lucide-react";
 
-export default function OfferBesvarad({ offer }: any) {
-  const roundTrip = offer?.round_trip || false;
-  const withinSweden = offer?.trip_type !== "utrikes";
+type Trip = {
+  title: string;
+  date: string;
+  time: string;
+  from: string;
+  to: string;
+};
 
-  const trips = [
+export default function OfferMakulerad({ offer }: any) {
+  const roundTrip = offer?.round_trip || false;
+  const withinSweden = offer?.within_sweden ?? true;
+
+  const trips: Trip[] = [
     {
       title: roundTrip ? "Utresa" : "Bussresa",
-      date: offer?.departure_date,
-      time: offer?.departure_time,
-      from: offer?.departure_place,
-      to: offer?.destination,
+      date: offer?.departure_date || "2025-02-10",
+      time: offer?.departure_time || "08:00",
+      from: offer?.departure_place || "Startplats",
+      to: offer?.destination || "Slutplats",
     },
     ...(roundTrip
       ? [
           {
             title: "Återresa",
-            date: offer?.return_date,
-            time: offer?.return_time,
-            from: offer?.destination,
-            to: offer?.departure_place,
+            date: offer?.return_date || "2025-02-12",
+            time: offer?.return_time || "18:00",
+            from: offer?.destination || "Slutplats",
+            to: offer?.departure_place || "Startplats",
           },
         ]
       : []),
@@ -58,14 +66,14 @@ export default function OfferBesvarad({ offer }: any) {
         <div className="max-w-5xl mx-auto px-6 py-10 space-y-8">
           {/* Titel */}
           <div className="text-center space-y-2">
-            <h1 className="text-3xl font-bold text-[#0f172a]">
-              Offert ({offer?.offer_number})
-            </h1>
-            <p className="text-blue-700 font-medium">Status: Besvarad</p>
+            <h1 className="text-3xl font-bold text-[#0f172a] mb-4">
+            Offert ({offer?.offer_number})
+          </h1>
+          <StatusBadge status="makulerad" />
           </div>
 
           <h2 className="text-lg font-semibold text-center text-[#194C66]">
-            Vi har rattat ihop ditt erbjudande – dags att titta på färdplanen.
+            Tyvärr har er offert markerats som makulerad och är därmed inte längre giltig.
           </h2>
 
           {/* Offert- & kundinformation */}
@@ -78,10 +86,6 @@ export default function OfferBesvarad({ offer }: any) {
               <p><strong>Er referens:</strong> {offer?.customer_reference}</p>
               <p><strong>Vår referens:</strong> {offer?.internal_reference}</p>
               <p><strong>Fakturareferens:</strong> {offer?.invoice_reference || "-"}</p>
-              <p>
-                <strong>Betalningsvillkor:</strong>{" "}
-                {offer?.payment_terms || "-"}
-              </p>
             </div>
 
             {/* Kundinformation */}
@@ -90,7 +94,7 @@ export default function OfferBesvarad({ offer }: any) {
               <p><strong>Kundnummer:</strong> {offer?.customer_id}</p>
               <p><strong>Kund:</strong> {offer?.contact_person}</p>
               <p><strong>Telefon:</strong> {offer?.contact_phone}</p>
-              <p><strong>Adress:</strong> {offer?.customer_address || "-"}</p>
+              <p><strong>Adress:</strong> Testadress 21B, 123 45 Teststad</p>
             </div>
           </div>
 
@@ -106,10 +110,12 @@ export default function OfferBesvarad({ offer }: any) {
               {trips.map((trip, idx) => (
                 <div key={idx} className="border rounded-lg p-4 bg-gray-50">
                   <h3 className="font-semibold">{trip.title}</h3>
-                  <p><strong>Avresa:</strong> {trip.date} kl {trip.time}</p>
+                  <p>
+                    <strong>Avresa:</strong> {trip.date} kl {trip.time}
+                  </p>
                   <p><strong>Från:</strong> {trip.from}</p>
                   <p><strong>Till:</strong> {trip.to}</p>
-                  <p><strong>Antal passagerare:</strong> {offer?.passengers}</p>
+                  <p><strong>Antal passagerare:</strong> {offer?.passengers || "-"}</p>
                 </div>
               ))}
             </div>
@@ -119,28 +125,6 @@ export default function OfferBesvarad({ offer }: any) {
               <h3 className="font-semibold">Övrig information</h3>
               <p>{offer?.notes || "Ingen information angiven."}</p>
             </div>
-          </div>
-
-          {/* Resans kostnad */}
-          <div className="bg-white p-6 rounded-xl shadow">
-            <h2 className="font-semibold text-lg mb-4">Resans kostnad</h2>
-            <p>1 st á: {offer?.price_per_unit || "X XXX"} kr</p>
-            <p>Pris exkl. moms: {offer?.price_ex_vat || "X XXX"} kr</p>
-            <p>Moms: {offer?.vat || "X XXX"} kr</p>
-            <p className="font-bold mt-2">Totalt: {offer?.price_total || "X XXX"} kr</p>
-          </div>
-
-          {/* Call to actions */}
-          <div className="flex flex-col md:flex-row justify-center gap-4 mt-8">
-            <button className="bg-[#194C66] text-white px-6 py-3 rounded-lg font-medium hover:bg-[#163b4d]">
-              Boka
-            </button>
-            <button className="bg-yellow-500 text-white px-6 py-3 rounded-lg font-medium hover:bg-yellow-600">
-              Ändra din offert
-            </button>
-            <button className="bg-red-600 text-white px-6 py-3 rounded-lg font-medium hover:bg-red-700">
-              Avböj
-            </button>
           </div>
 
           {/* Footer */}

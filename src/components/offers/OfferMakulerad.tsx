@@ -66,10 +66,10 @@ export default function OfferMakulerad({ offer }: any) {
         <div className="max-w-5xl mx-auto px-6 py-10 space-y-8">
           {/* Titel */}
           <div className="text-center space-y-2">
-            <h1 className="text-3xl font-bold text-[#0f172a]">
-              Offert ({offer?.offer_number || "HBXXXX"})
-            </h1>
-            <p className="text-red-600 font-medium">Status: Makulerad</p>
+            <h1 className="text-3xl font-bold text-[#0f172a] mb-4">
+            Offert ({offer?.offer_number})
+          </h1>
+          <StatusBadge status="makulerad" />
           </div>
 
           <h2 className="text-lg font-semibold text-center text-[#194C66]">
