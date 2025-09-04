@@ -8,27 +8,122 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(405).json({ error: "Method not allowed" });
   }
 
-  const { customer_name, customer_email, customer_phone, notes } = req.body;
+  try {
+    const {
+      // 🔹 Basinfo
+      customer_name,
+      customer_email,
+      customer_phone,
+      passengers,
+      departure_place,
+      destination,
+      departure_date,
+      departure_time,
+      notes,
 
-  const offerNumber = `HB${Date.now().toString().slice(-5)}`;
+      // 🔹 Checkbox: "Jag vill…"
+      options, // ["tur-retur", "stopover", "use-on-site"]
 
-  const { data, error } = await supabase
-    .from("offers")
-    .insert([
-      {
-        offer_number: offerNumber,
-        customer_reference: customer_name,
-        contact_phone: customer_phone,
-        notes,
-        status: "inkommen",
-      },
-    ])
-    .select("*")
-    .single();
+      // 🔹 Tur & Retur
+      return_departure,
+      return_destination,
+      return_date,
+      return_time,
 
-  if (error) return res.status(500).json({ error: error.message });
+      // 🔹 Mellanstopp
+      stopover_places,
 
-  await sendOfferMail(customer_email, offerNumber, "inkommen");
+      // 🔹 Använda bussen på plats
+      plans_description,
+      final_destination,
+      end_date,
+      end_time,
 
-  return res.status(200).json({ success: true, offer: data });
+      // 🔹 Kundtyp
+      customer_type, // privatperson | foretag | forening
+
+      // 🔹 Företag/Förening
+      company,
+      association,
+      org_number,
+      invoice_ref,
+
+      // 🔹 Kontaktperson
+      contact_person,
+    } = req.body;
+
+    // Skapa offertnummer (enkelt auto-ID)
+    const offerNumber = `HB${Date.now().toString().slice(-5)}`;
+
+    // Lägg in i Supabase
+    const { data, error } = await supabase
+      .from("offers")
+      .insert([
+        {
+          offer_number: offerNumber,
+
+          // 🔹 Bas
+          customer_name,
+          contact_email: customer_email,
+          contact_phone: customer_phone,
+          passengers,
+          departure_place,
+          destination,
+          departure_date,
+          departure_time,
+          notes,
+
+          // 🔹 Options
+          options,
+
+          // 🔹 Tur & retur
+          return_departure,
+          return_destination,
+          return_date,
+          return_time,
+
+          // 🔹 Mellanstopp
+          stopover_places,
+
+          // 🔹 Använda bussen på plats
+          plans_description,
+          final_destination,
+          end_date,
+          end_time,
+
+          // 🔹 Kundtyp
+          customer_type,
+
+          // 🔹 Företag/Förening
+          company,
+          association,
+          org_number,
+          invoice_ref,
+
+          // 🔹 Kontaktperson
+          contact_person,
+
+          // Status
+          status: "inkommen",
+        },
+      ])
+      .select("*")
+      .single();
+
+    if (error) {
+      return res.status(500).json({ error: error.message });
+    }
+
+    // Skicka bekräftelsemail
+    await sendOfferMail(customer_email, offerNumber, "inkommen");
+
+    // Returnera JSON
+    return res.status(200).json({
+      success: true,
+      offerId: offerNumber,
+      offer: data,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message || "Något gick fel" });
+  }
 }

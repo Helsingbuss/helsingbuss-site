@@ -73,13 +73,33 @@ export async function sendOfferMail(
       break;
   }
 
-  const { error } = await resend.emails.send({
-    from: "Helsingbuss <info@helsingbuss.se>", // måste vara verifierad domän i Resend
+  // 1. Skicka till kunden
+  await resend.emails.send({
+    from: "Helsingbuss <info@helsingbuss.se>",
     to,
     subject,
     html,
   });
 
-  if (error) throw error;
+  // 2. Skicka notis till admin
+  await resend.emails.send({
+    from: "Helsingbuss Offertsystem <info@helsingbuss.se>",
+    to: "offert@helsingbuss.se",
+    subject: `📩 Ny offertförfrågan (${offerId}) från ${to}`,
+    html: `
+      <h2>Ny offertförfrågan har inkommit</h2>
+      <p>En ny offert (${offerId}) har precis skickats in via hemsidan.</p>
+      <p><strong>Kundens e-post:</strong> ${to}</p>
+      <p>👉 Klicka på knappen nedan för att se detaljerna:</p>
+      <p>
+        <a href="https://login.helsingbuss.se" 
+           style="display:inline-block;padding:10px 20px;background:#194C66;color:#fff;text-decoration:none;border-radius:6px;">
+          Öppna Admin
+        </a>
+      </p>
+      <p>— Helsingbuss Offertsystem</p>
+    `,
+  });
+
   return { success: true };
 }
