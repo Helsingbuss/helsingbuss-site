@@ -14,12 +14,6 @@ function normalizeDate(dateString: string | undefined) {
   return dateString; // returnera som den är om redan ISO-format
 }
 
-// Hjälpfunktion för att normalisera options till array
-function normalizeOptions(options: any) {
-  if (!options || options === "") return [];
-  return Array.isArray(options) ? options : [options];
-}
-
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Method not allowed" });
@@ -74,14 +68,22 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const normReturnDate = normalizeDate(return_date);
     const normEndDate = normalizeDate(end_date);
 
-    // ✅ Normalisera options (array i Supabase)
-    const normOptions = normalizeOptions(options);
+    // ✅ Hantera passengers → alltid number
+    const normPassengers = passengers ? Number(passengers) : null;
+
+    // ✅ Hantera options → alltid array
+    const normOptions =
+      !options || options.length === 0
+        ? []
+        : Array.isArray(options)
+        ? options
+        : [options]; // Om det är en sträng, gör om till array
 
     console.log("🔍 Parsed data:", {
       customer_name,
       customer_email,
       customer_phone,
-      passengers,
+      passengers: normPassengers,
       departure_place,
       destination,
       departure_date: normDepartureDate,
@@ -118,12 +120,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           customer_reference: customer_name,
           contact_email: customer_email,
           contact_phone: customer_phone,
-          passengers,
+          passengers: normPassengers,
           departure_place,
           destination,
           departure_date: normDepartureDate,
           departure_time,
-          options: normOptions, // 👈 fixad
+          options: normOptions,
           return_departure,
           return_destination,
           return_date: normReturnDate,
