@@ -40,6 +40,17 @@ function buildTicks(max: number): number[] {
   return arr;
 }
 
+type Tip = {
+  // “ankaret” (mitt på stapeln)
+  anchorX: number;
+  anchorY: number;
+  // tooltipens vänstra hörn efter layout
+  boxX: number;
+  boxY: number;
+  label: string;
+  value: number;
+};
+
 export default function OffersBarChart({ series }: Props) {
   const { weeks, offer_answered, offer_unanswered, booking_in, booking_done } = series;
 
@@ -57,15 +68,16 @@ export default function OffersBarChart({ series }: Props) {
 
   const ticks = useMemo(() => buildTicks(maxY), [maxY]);
 
-  // layout-parametrar
+  // === layout-parametrar (samma look) ===
   const height = 260;
   const topPad = 20;
   const bottomPad = 36;
-  const leftPad = 28;  // lite mer plats för y-etiketter
+  const leftPad = 28;  // plats för y-etiketter
   const rightPad = 12;
 
   const innerH = height - topPad - bottomPad;
   const innerW = Math.max(weeks.length * 56, 400); // min bredd, en grupp ≈ 56px
+  const svgW = innerW + leftPad + rightPad;
 
   // varje grupp innehåller 4 bars
   const barWidth = 14;                  // tjockare bars
@@ -74,10 +86,31 @@ export default function OffersBarChart({ series }: Props) {
 
   const y = (val: number) => topPad + innerH * (1 - val / ticks[ticks.length - 1]);
 
-  // Tooltip-state (SVG-baserad)
-  const [tip, setTip] = useState<null | { x: number; y: number; label: string; value: number }>(
-    null
-  );
+  // Tooltip-state (renderas SIDAN OM stapeln, inte ovanpå)
+  const [tip, setTip] = useState<null | Tip>(null);
+
+  // Tooltip-layout: placera rutan höger om stapeln, annars vänster om det blir trångt.
+  function placeTooltip(anchorX: number, anchorY: number, label: string, value: number): Tip {
+    const boxW = 160; // bredd på rutan
+    const boxH = 28;  // höjd på rutan
+    const gap = 10;   // avstånd från stapeln
+
+    // preliminärt höger
+    let boxX = anchorX + gap;
+    // om rutan sticker ut höger → flytta till vänstersida
+    if (boxX + boxW > svgW - 4) {
+      boxX = anchorX - gap - boxW;
+    }
+
+    // vertikal position centreras på stapeln, clamp inom svg
+    let boxY = anchorY - boxH / 2;
+    const minY = topPad + 2;
+    const maxY = height - bottomPad - boxH - 2;
+    if (boxY < minY) boxY = minY;
+    if (boxY > maxY) boxY = maxY;
+
+    return { anchorX, anchorY, boxX, boxY, label, value };
+  }
 
   const groups = weeks.map((w, i) => {
     const gx = leftPad + i * groupWidth + i * 12; // 12px grupp-gap
@@ -86,7 +119,7 @@ export default function OffersBarChart({ series }: Props) {
 
   return (
     <div className="relative w-full overflow-x-auto">
-      <svg width={innerW + leftPad + rightPad} height={height} className="block">
+      <svg width={svgW} height={height} className="block">
         {/* Gridlines + y-ticks */}
         {ticks.map((value, i) => {
           const yPos = y(value);
@@ -121,8 +154,8 @@ export default function OffersBarChart({ series }: Props) {
                 const h = innerH * (b.v / ticks[ticks.length - 1]);
                 const x = gx + j * (barWidth + barGap);
                 const yTop = topPad + (innerH - h);
-                const cx = x + barWidth / 2; // tooltip-ankare mitt i stapeln
-                const cy = yTop - 6;
+                const cx = x + barWidth / 2;      // ankare mitt på stapeln
+                const cy = yTop + h / 2;          // vertikalt centrerad på stapeln
 
                 return (
                   <rect
@@ -134,15 +167,10 @@ export default function OffersBarChart({ series }: Props) {
                     fill={b.c}
                     rx={3}
                     onMouseEnter={() =>
-                      setTip({
-                        x: cx,
-                        y: cy,
-                        label: LABELS[b.key],
-                        value: b.v,
-                      })
+                      setTip(placeTooltip(cx, cy, LABELS[b.key], b.v))
                     }
                     onMouseMove={() =>
-                      setTip((t) => (t ? { ...t, x: cx, y: cy } : t))
+                      setTip(placeTooltip(cx, cy, LABELS[b.key], b.v))
                     }
                     onMouseLeave={() => setTip(null)}
                   />
@@ -163,21 +191,28 @@ export default function OffersBarChart({ series }: Props) {
           );
         })}
 
-        {/* SVG-tooltip */}
+        {/* Tooltip: snygg ruta VID SIDAN OM stapeln (auto-flip om trångt) */}
         {tip && (
-          <g transform={`translate(${tip.x}, ${tip.y})`} pointerEvents="none">
+          <g pointerEvents="none">
+            {/* liten “pin”/triangel mot stapeln */}
+            <path
+              d={`M ${tip.anchorX} ${tip.anchorY} L ${tip.boxX < tip.anchorX ? tip.anchorX - 6 : tip.anchorX + 6} ${tip.anchorY - 6} L ${tip.boxX < tip.anchorX ? tip.anchorX - 6 : tip.anchorX + 6} ${tip.anchorY + 6} Z`}
+              fill="white"
+              stroke="#E5E7EB"
+            />
+            {/* själva rutan */}
             <rect
-              x={-70}
-              y={-28}
-              width={140}
-              height={24}
+              x={tip.boxX}
+              y={tip.boxY}
+              width={160}
+              height={28}
               fill="white"
               stroke="#E5E7EB"
               rx={6}
             />
             <text
-              x={0}
-              y={-12}
+              x={tip.boxX + 80}
+              y={tip.boxY + 18}
               textAnchor="middle"
               fontSize="11"
               fill="#111827"

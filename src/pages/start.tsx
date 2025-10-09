@@ -47,16 +47,10 @@ function ymd(d: Date) {
 }
 
 export default function Start() {
-  // Förvalt intervall: idag – 30 dagar bakåt
+  // Förvalt intervall: Från = idag, Till = 2025-12-31
   const today = useMemo(() => new Date(), []);
-  const thirtyAgo = useMemo(() => {
-    const d = new Date();
-    d.setDate(d.getDate() - 30);
-    return d;
-  }, []);
-
-  const [from, setFrom] = useState(ymd(thirtyAgo));
-  const [to, setTo] = useState(ymd(today));
+  const [from, setFrom] = useState(ymd(today));
+  const [to, setTo] = useState("2025-12-31");
 
   const [stats, setStats] = useState<StatsData>(EMPTY_STATS);
   const [unanswered, setUnanswered] = useState<UnansweredRow[]>([]);
