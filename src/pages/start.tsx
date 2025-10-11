@@ -4,6 +4,7 @@ import Header from "@/components/Header";
 import AdminMenu from "@/components/AdminMenu";
 import OffersBarChart, { type Series as ChartSeries } from "@/components/dashboard/OffersBarChart";
 import UnansweredTable from "@/components/dashboard/UnansweredTable";
+import GreetingNews from "@/components/dashboard/GreetingNews";
 
 /* ---------- Typer ---------- */
 type StatsData = {
@@ -47,7 +48,7 @@ function ymd(d: Date) {
 }
 
 export default function Start() {
-  // Förvalt intervall: Från = idag, Till = 2025-12-31
+  // Förvalt intervall: Från = idag, Till = 2025-12-31 (enligt din önskan)
   const today = useMemo(() => new Date(), []);
   const [from, setFrom] = useState(ymd(today));
   const [to, setTo] = useState("2025-12-31");
@@ -99,6 +100,10 @@ export default function Start() {
     if (!from || !to) return;
     loadStats(from, to);
   }
+
+  // TODO (valfritt): hämta namn från Supabase-profiler
+  // ex: const displayName = profile?.first_name ?? "Andreas";
+  const displayName = "Andreas";
 
   return (
     <>
@@ -169,18 +174,17 @@ export default function Start() {
             </section>
 
             <aside className="space-y-6">
-              <div className="bg-white rounded-xl shadow p-4">
-                <div className="text-[#194C66] font-semibold mb-2">Hallå där, Andreas!</div>
-                <ul className="text-sm space-y-2 text-[#194C66]/80">
-                  <li>• Nya betalningsvillkor för privatpersoner</li>
-                  <li>• Ny hemsida lanserad</li>
-                  <li>• Nya resor ligger ute på hemsidan</li>
-                  <li>• Välkommen till Helsingbuss Portal</li>
-                </ul>
-                <a href="#" className="inline-flex items-center gap-2 mt-4 text-sm text-[#194C66] underline">
-                  Visa alla nyheter
-                </a>
-              </div>
+              <GreetingNews
+                name={displayName}
+                role="admin"
+                heightClass="h-[420px]"
+                items={[
+                  { title: "Nya betalningsvillkor för privatpersoner", href: "#" },
+                  { title: "Ny hemsida lanserad", href: "#" },
+                  { title: "Nya resor ligger ute på hemsidan", href: "#" },
+                  { title: "Välkommen till Helsingbuss Portal", href: "#" },
+                ]}
+              />
             </aside>
           </div>
 
@@ -197,13 +201,16 @@ export default function Start() {
             </section>
 
             <aside>
-              <div className="bg-white rounded-xl shadow p-4 h-[320px]">
+              <div className="bg-white rounded-xl shadow p-4 h-[478px]"> 
                 <div className="text-[#194C66] font-semibold mb-2">
                   Intäkter, kostnader och resultat
                 </div>
                 <div className="text-sm text-[#194C66]/70">
                   <p>Visma eEkonomi-integration kommer i nästa steg.</p>
-                  <p>Här lägger vi en modul som hämtar periodiserade värden via API och visar stapeldiagram – precis som i din skiss.</p>
+                  <p>
+                    Här lägger vi en modul som hämtar periodiserade värden via API och visar
+                    stapeldiagram – precis som i din skiss.
+                  </p>
                 </div>
               </div>
             </aside>

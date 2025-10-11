@@ -70,7 +70,8 @@ export default function UnansweredTable({
 
   function goToOffer(row: UnansweredRow) {
     const key = row.id; // eller row.offer_number ?? row.id
-    router.push(`/offert/${key}`);
+    // ⬇️ ENDA ÄNDRINGEN: gå till admin-sidan istället för kundsidan
+    router.push(`/admin/offers/${key}`);
     // Om du vill plocka bort raden direkt lokalt när man klickar:
     if (onAnswered) onAnswered(row.id);
   }
@@ -116,19 +117,18 @@ export default function UnansweredTable({
           </colgroup>
 
           <thead>
-  <tr className="text-left text-sm text-[#194C66]/70 select-none">
-    {/* Rubriker: fet stil + alltid en rad */}
-    <th className="px-4 py-2 font-bold whitespace-nowrap">Offert-ID</th>
-    <th className="px-4 py-2 font-bold whitespace-nowrap">Avresa</th>
-    <th className="px-4 py-2 font-bold whitespace-nowrap">Tid</th>
-    <th className="px-4 py-2 font-bold whitespace-nowrap">Från</th>
-    <th className="px-4 py-2 font-bold whitespace-nowrap">Till</th>
-    <th className="px-4 py-2 font-bold whitespace-nowrap">Passagerare</th>
-    <th className="px-4 py-2 font-bold whitespace-nowrap">Typ av resa</th>
-    <th className="px-4 py-2 font-bold text-right whitespace-nowrap"> </th>
-  </tr>
-</thead>
-
+            <tr className="text-left text-sm text-[#194C66]/70 select-none">
+              {/* Rubriker: fet stil + alltid en rad */}
+              <th className="px-4 py-2 font-bold whitespace-nowrap">Offert-ID</th>
+              <th className="px-4 py-2 font-bold whitespace-nowrap">Avresa</th>
+              <th className="px-4 py-2 font-bold whitespace-nowrap">Tid</th>
+              <th className="px-4 py-2 font-bold whitespace-nowrap">Från</th>
+              <th className="px-4 py-2 font-bold whitespace-nowrap">Till</th>
+              <th className="px-4 py-2 font-bold whitespace-nowrap">Passagerare</th>
+              <th className="px-4 py-2 font-bold whitespace-nowrap">Typ av resa</th>
+              <th className="px-4 py-2 font-bold text-right whitespace-nowrap"> </th>
+            </tr>
+          </thead>
 
           <tbody className="text-[15px] text-[#194C66]">
             {pageRows.length === 0 && (

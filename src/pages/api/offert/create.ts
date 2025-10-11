@@ -3,18 +3,18 @@ import type { NextApiRequest, NextApiResponse } from "next";
 import { supabase } from "@/lib/supabaseClient";
 import { sendOfferMail } from "@/lib/sendMail";
 
-// Hjälpfunktion för att normalisera datumformatet
+/** Normalisera "DD.MM.YYYY" → "YYYY-MM-DD" */
 function normalizeDate(dateString: string | undefined) {
   if (!dateString) return null;
   const parts = dateString.split(".");
   if (parts.length === 3) {
     const [day, month, year] = parts;
-    return `${year}-${month}-${day}`; // YYYY-MM-DD
+    return `${year}-${month}-${day}`;
   }
-  return dateString; // returnera som den är om redan ISO-format
+  return dateString;
 }
 
-// Hjälpfunktion för options → text[]
+/** Säkra options till string[] */
 function normalizeOptions(input: any): string[] {
   if (!input) return [];
   if (Array.isArray(input)) return input.filter(Boolean);
@@ -22,12 +22,16 @@ function normalizeOptions(input: any): string[] {
   return [];
 }
 
+/** HB + YY + NNN (ex. HB25007) */
+function formatOfferNumber(yearYY: string, serial: number) {
+  const pad = String(serial).padStart(3, "0");
+  return `HB${yearYY}${pad}`;
+}
+
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Method not allowed" });
   }
-
-  console.log("📩 Incoming request body:", req.body);
 
   try {
     let {
@@ -60,61 +64,39 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       notes,
     } = req.body;
 
-    // ✅ Slå ihop förnamn/efternamn om customer_name saknas
+    // Slå ihop namn om endast för/efternamn skickats
     if (!customer_name && (first_name || last_name)) {
       customer_name = `${first_name || ""} ${last_name || ""}`.trim();
     }
 
-    // ✅ Validera att viktiga fält finns
+    // Grundvalidering
     if (!customer_email || !customer_phone) {
-      console.error("❌ Missing required fields:", { customer_email, customer_phone });
       return res.status(400).json({ error: "E-post och telefonnummer är obligatoriska" });
     }
 
-    // ✅ Normalisera datum
+    // Normalisering
     const normDepartureDate = normalizeDate(departure_date);
     const normReturnDate = normalizeDate(return_date);
     const normEndDate = normalizeDate(end_date);
-
-    // ✅ Hantera passengers → alltid number
     const normPassengers = passengers ? Number(passengers) : null;
-
-    // ✅ Hantera options → alltid array
     const normOptions = normalizeOptions(options);
 
-    console.log("🔍 Parsed data:", {
-      customer_name,
-      customer_email,
-      customer_phone,
-      passengers: normPassengers,
-      departure_place,
-      destination,
-      departure_date: normDepartureDate,
-      departure_time,
-      options: normOptions,
-      return_departure,
-      return_destination,
-      return_date: normReturnDate,
-      return_time,
-      stopover_places,
-      plans_description,
-      final_destination,
-      end_date: normEndDate,
-      end_time,
-      customer_type,
-      company,
-      association,
-      org_number,
-      invoice_ref,
-      contact_person,
-      notes,
-    });
+    // --- Generera offertnummer i DB (atomiskt) ---
+    const yy = new Date().getFullYear().toString().slice(-2); // "25"
+    const { data: seqData, error: seqErr } = await supabase
+      .rpc("next_offer_serial", { year_in: Number(yy) });
 
-    // Skapa offertnummer
-    const offerNumber = `HB${Date.now().toString().slice(-5)}`;
-    console.log("📝 Genererat offertnummer:", offerNumber);
+    if (seqErr) {
+      console.error("next_offer_serial error:", seqErr);
+      return res.status(500).json({
+        error:
+          "Kunde inte generera offertnummer (saknas DB-funktion next_offer_serial).",
+      });
+    }
 
-    // ✅ Lägg in i Supabase
+    const offerNumber = formatOfferNumber(yy, Number(seqData)); // HB25NNN
+
+    // --- Spara i offers ---
     const { data, error } = await supabase
       .from("offers")
       .insert([
@@ -128,7 +110,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           destination,
           departure_date: normDepartureDate,
           departure_time,
-          options: normOptions, // <---- alltid array
+          options: normOptions,
           return_departure,
           return_destination,
           return_date: normReturnDate,
@@ -152,26 +134,21 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       .single();
 
     if (error) {
-      console.error("❌ Supabase insert error:", error);
+      console.error("Supabase insert error:", error);
       return res.status(500).json({ error: error.message });
     }
 
-    console.log("✅ Supabase insert success:", data);
-
-    // Skicka bekräftelsemail till kund
+    // Mail – exakt som tidigare
     await sendOfferMail(customer_email, offerNumber, "inkommen");
-
-    // Skicka adminnotis till offert@helsingbuss.se
     await sendOfferMail("offert@helsingbuss.se", offerNumber, "inkommen");
 
-    // ✅ Returnera JSON
     return res.status(200).json({
       success: true,
       offerId: offerNumber,
       offer: data,
     });
   } catch (err: any) {
-    console.error("🔥 API error:", err);
+    console.error("API error:", err);
     return res.status(500).json({ error: err.message || "Något gick fel" });
   }
 }
