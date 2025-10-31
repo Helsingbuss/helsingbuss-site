@@ -1,56 +1,88 @@
 // src/pages/api/drivers/[id]/avatar.ts
 import type { NextApiRequest, NextApiResponse } from "next";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-
-// OBS! I v3 av formidable importeras funktion + typer så här:
 import formidable, { File } from "formidable";
-import type { Fields, Files } from "formidable";
-import fs from "fs";
+import fs from "node:fs/promises";
 
-export const config = { api: { bodyParser: false } };
+export const config = {
+  api: { bodyParser: false },
+};
+
+async function ensureBucket(name: string) {
+  try {
+    await supabaseAdmin.storage.createBucket(name, { public: true });
+  } catch {
+    // ignorera "already exists"
+  }
+}
+
+function extFromMime(mime?: string | null) {
+  if (!mime) return "bin";
+  if (mime.includes("png")) return "png";
+  if (mime.includes("jpeg") || mime.includes("jpg")) return "jpg";
+  if (mime.includes("webp")) return "webp";
+  return "bin";
+}
 
 // Promisify: parse multipart/form-data
-function parseForm(req: NextApiRequest): Promise<{ fields: Fields; files: Files }> {
-  const form = formidable({ multiples: false });
+function parseForm(
+  req: NextApiRequest
+): Promise<{
+  fields: Record<string, string | string[]>;
+  files: Record<string, File | File[]>;
+}> {
+  const form = formidable({ multiples: false, keepExtensions: true });
   return new Promise((resolve, reject) => {
-    form.parse(req, (err, fields, files) => (err ? reject(err) : resolve({ fields, files })));
+    form.parse(req, (err, flds, fls) => (err ? reject(err) : resolve({ fields: flds as any, files: fls as any })));
   });
 }
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
+
   try {
     const { id } = req.query as { id?: string };
-    if (!id) return res.status(400).json({ error: "Missing driver id" });
+    if (!id) return res.status(400).json({ error: "Saknar driver-id" });
+
+    await ensureBucket("drivers");
 
     const { files } = await parseForm(req);
 
-    // Tillåt flera fältnamn som kan förekomma i formulär
-    const anyFile = (files as any).file || (files as any).avatar || (files as any).photo;
-    const f: File | undefined = Array.isArray(anyFile) ? anyFile[0] : anyFile;
-    if (!f) return res.status(400).json({ error: "No file uploaded" });
+    // Tillåt flera fältnamn från formulär/klient
+    const cand = files.avatar || files.photo || files.file;
+    const avatar: File | undefined = Array.isArray(cand) ? cand[0] : cand;
+    if (!avatar) return res.status(400).json({ error: "Saknar fil (avatar/photo/file)" });
 
-    const filepath = (f as any).filepath ?? (f as any).path; // kompatibelt med olika formidable-versioner
-    const buffer = await fs.promises.readFile(filepath);
+    const filepath = (avatar as any).filepath ?? (avatar as any).path;
+    if (!filepath) return res.status(400).json({ error: "Uppladdad fil saknar filepath" });
 
-    const ext = f.originalFilename?.split(".").pop()?.toLowerCase() || "jpg";
-    const key = `drivers/${id}/avatar.${ext}`;
+    const buf = await fs.readFile(filepath);
+    const mime = avatar.mimetype || "application/octet-stream";
+    const ext = extFromMime(mime);
+    const storagePath = `avatars/${id}.${ext}`;
 
-    // Ladda upp till Supabase Storage (bucket: "media" – ändra om du använder annan)
-    const { error: upErr } = await supabaseAdmin.storage.from("media").upload(key, buffer, {
+    const up = await supabaseAdmin.storage.from("drivers").upload(storagePath, buf, {
+      contentType: mime,
       upsert: true,
-      contentType: f.mimetype || "application/octet-stream",
     });
-    if (upErr) return res.status(500).json({ error: upErr.message });
+    if (up.error) throw up.error;
 
-    // Skapa signerad URL (1 vecka)
-    const { data: signed, error: signErr } = await supabaseAdmin.storage
-      .from("media")
-      .createSignedUrl(key, 60 * 60 * 24 * 7);
-    if (signErr) return res.status(500).json({ error: signErr.message });
+    const { data: pub } = supabaseAdmin.storage.from("drivers").getPublicUrl(storagePath);
+    const publicUrl = pub?.publicUrl ?? null;
 
-    return res.status(200).json({ ok: true, url: signed.signedUrl });
+    // (valfritt) spara i tabellen om kolumnen finns
+    try {
+      await supabaseAdmin
+        .from("drivers")
+        .update({ photo_url: publicUrl, updated_at: new Date().toISOString() })
+        .eq("id", id);
+    } catch {
+      /* tolerera om kolumn saknas */
+    }
+
+    return res.status(200).json({ ok: true, path: storagePath, url: publicUrl });
   } catch (e: any) {
-    return res.status(500).json({ error: e?.message || "Server error" });
+    console.error("/api/drivers/[id]/avatar error:", e?.message || e);
+    return res.status(500).json({ error: e?.message || "Serverfel" });
   }
 }

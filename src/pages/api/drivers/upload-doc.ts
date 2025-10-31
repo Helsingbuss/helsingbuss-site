@@ -1,11 +1,7 @@
 ﻿// src/pages/api/drivers/upload-doc.ts
 import type { NextApiRequest, NextApiResponse } from "next";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-
-// ✔️ Rätt sätt i v3:
 import formidable, { File } from "formidable";
-import type { Fields, Files } from "formidable";
-
 import fs from "node:fs/promises";
 
 export const config = {
@@ -15,16 +11,17 @@ export const config = {
 async function ensureBucket(name: string) {
   try {
     await supabaseAdmin.storage.createBucket(name, { public: true });
-  } catch (e: any) {
+  } catch {
     // ignore "already exists"
   }
 }
 
-// Promisify form.parse
-function parseForm(req: NextApiRequest): Promise<{ fields: Fields; files: Files }> {
+function parseForm(
+  req: NextApiRequest
+): Promise<{ fields: Record<string, string | string[]>; files: Record<string, File | File[]> }> {
   const form = formidable({ multiples: false, keepExtensions: true });
   return new Promise((resolve, reject) => {
-    form.parse(req, (err, flds, fls) => (err ? reject(err) : resolve({ fields: flds, files: fls })));
+    form.parse(req, (err, flds, fls) => (err ? reject(err) : resolve({ fields: flds as any, files: fls as any })));
   });
 }
 
@@ -39,12 +36,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const driverId = String((fields as any).driver_id || "");
     if (!driverId) return res.status(400).json({ error: "Saknar driver_id" });
 
-    const type = String((fields as any).type || "övrigt"); // 🛠 fixat felkodad text
+    const type = String((fields as any).type || "övrigt");
     const expiresAt = (fields as any).expires_at ? String((fields as any).expires_at) : null;
 
-    // Tillåt flera möjliga fältnamn
-    const candidate = (files as any).doc || (files as any).file || (files as any).document;
-    const doc: File | undefined = Array.isArray(candidate) ? candidate[0] : candidate;
+    const cand = files.doc || files.file || files.document;
+    const doc: File | undefined = Array.isArray(cand) ? cand[0] : cand;
     if (!doc) return res.status(400).json({ error: "Saknar doc" });
 
     const filepath = (doc as any).filepath ?? (doc as any).path;
@@ -64,7 +60,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const { data: pub } = supabaseAdmin.storage.from("driver-docs").getPublicUrl(storagePath);
     const fileUrl = pub?.publicUrl ?? null;
 
-    // Spara rad i driver_documents (tolerant om tabellen/kolumner saknas)
+    // Spara rad i driver_documents (tolerant)
     try {
       const ins = await supabaseAdmin
         .from("driver_documents")
@@ -76,7 +72,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         })
         .select("id")
         .single();
-
       if (ins.error) {
         console.warn("driver_documents insert warning:", ins.error.message);
       }

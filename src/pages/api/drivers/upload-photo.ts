@@ -1,13 +1,8 @@
 ﻿// src/pages/api/drivers/upload-photo.ts
 import type { NextApiRequest, NextApiResponse } from "next";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-
-// ✔️ Rätt sätt i v3:
 import formidable, { File } from "formidable";
-import type { Fields, Files } from "formidable";
-
 import fs from "node:fs/promises";
-import path from "node:path";
 
 export const config = {
   api: { bodyParser: false },
@@ -15,10 +10,9 @@ export const config = {
 
 async function ensureBucket(name: string) {
   try {
-    // Skapa om saknas (public)
     await supabaseAdmin.storage.createBucket(name, { public: true });
-  } catch (e: any) {
-    // Ignorera "Bucket already exists"
+  } catch {
+    // ignore "already exists"
   }
 }
 
@@ -30,11 +24,12 @@ function extFromMime(mime?: string | null) {
   return "bin";
 }
 
-// Promisify form.parse för tydliga typer
-function parseForm(req: NextApiRequest): Promise<{ fields: Fields; files: Files }> {
+function parseForm(
+  req: NextApiRequest
+): Promise<{ fields: Record<string, string | string[]>; files: Record<string, File | File[]> }> {
   const form = formidable({ multiples: false, keepExtensions: true });
   return new Promise((resolve, reject) => {
-    form.parse(req, (err, flds, fls) => (err ? reject(err) : resolve({ fields: flds, files: fls })));
+    form.parse(req, (err, flds, fls) => (err ? reject(err) : resolve({ fields: flds as any, files: fls as any })));
   });
 }
 
@@ -49,9 +44,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const driverId = String((fields as any).driver_id || "");
     if (!driverId) return res.status(400).json({ error: "Saknar driver_id" });
 
-    // Tillåt flera möjliga fältnamn
-    const candidate = (files as any).photo || (files as any).file || (files as any).avatar;
-    const photo: File | undefined = Array.isArray(candidate) ? candidate[0] : candidate;
+    const cand = files.photo || files.file || files.avatar;
+    const photo: File | undefined = Array.isArray(cand) ? cand[0] : cand;
     if (!photo) return res.status(400).json({ error: "Saknar photo" });
 
     const filepath = (photo as any).filepath ?? (photo as any).path;
@@ -66,10 +60,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       contentType: mime,
       upsert: true,
     });
-
     if (up.error) throw up.error;
 
-    // (Valfritt) spara absolut URL i drivers.photo_url om kolumnen finns
     try {
       const { data: pub } = supabaseAdmin.storage.from("drivers").getPublicUrl(filePath);
       await supabaseAdmin
@@ -77,7 +69,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         .update({ photo_url: pub?.publicUrl ?? null, updated_at: new Date().toISOString() })
         .eq("id", driverId);
     } catch {
-      // tolerera om kolumnen photo_url inte finns
+      /* tolerera om kolumn saknas */
     }
 
     return res.status(200).json({ ok: true, path: filePath });
