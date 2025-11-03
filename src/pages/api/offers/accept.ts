@@ -11,36 +11,25 @@ const BASE =
 const ADMIN_TO = process.env.MAIL_ADMIN || "offert@helsingbuss.se";
 const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 
-/** Prova flera statusvärden tills ett går igenom CHECK-constrainten */
 async function updateStatusWithFallback(offerId: string) {
   const variants = [
-    // primärt våra svenska
     { status: "godkand", stampField: "accepted_at" as const },
     { status: "godkänd", stampField: "accepted_at" as const },
-    // vanliga engelska
     { status: "accepted", stampField: "accepted_at" as const },
     { status: "approved", stampField: "accepted_at" as const },
-    // andra som är vanliga i befintliga system
     { status: "bekräftad", stampField: "accepted_at" as const },
     { status: "bekraftad", stampField: "accepted_at" as const },
     { status: "booked", stampField: "accepted_at" as const },
   ];
-
   const tried: string[] = [];
   for (const v of variants) {
     const payload: any = { status: v.status };
     payload[v.stampField] = new Date().toISOString();
-
     const { error } = await supabase.from("offers").update(payload).eq("id", offerId);
     if (!error) return v.status;
-
     const msg = String(error.message || "");
     tried.push(v.status);
-
-    // Om felet INTE handlar om status-checken, kasta direkt
-    if (!/status|check/i.test(msg)) {
-      throw new Error(error.message);
-    }
+    if (!/status|check/i.test(msg)) throw new Error(error.message);
   }
   throw new Error(
     `Inget av statusvärdena tillåts av offers_status_check. Testade: ${tried.join(", ")}`
@@ -51,21 +40,24 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
   try {
-    const { id } = req.query as { id: string };
-    const { customerEmail } = req.body as { customerEmail?: string };
+    const { offerNumber, customerEmail } = req.body as {
+      offerNumber?: string;
+      customerEmail?: string;
+    };
+    if (!offerNumber) return res.status(400).json({ error: "offerNumber is required" });
 
-    // 1) Hämta offert
-    const { data: offer, error } = await supabase.from("offers").select("*").eq("id", id).single();
+    const { data: offer, error } = await supabase
+      .from("offers")
+      .select("*")
+      .eq("offer_number", offerNumber)
+      .single();
     if (error || !offer) return res.status(404).json({ error: "Offer not found" });
 
-    // 2) Uppdatera status med fallback
     const finalStatus = await updateStatusWithFallback(offer.id);
 
-    // 3) Kundmail
     const to = customerEmail || offer.contact_email || offer.customer_email;
     if (to) await sendOfferMail(to, offer.id, "godkand", offer.offer_number);
 
-    // 4) Admin-notis
     if (resend) {
       await resend.emails.send({
         from: process.env.MAIL_FROM || "Helsingbuss <info@helsingbuss.se>",

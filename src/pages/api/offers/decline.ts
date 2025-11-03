@@ -34,10 +34,17 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
   try {
-    const { id } = req.query as { id: string };
-    const { customerEmail } = req.body as { customerEmail?: string };
+    const { offerNumber, customerEmail } = req.body as {
+      offerNumber?: string;
+      customerEmail?: string;
+    };
+    if (!offerNumber) return res.status(400).json({ error: "offerNumber is required" });
 
-    const { data: offer, error } = await supabase.from("offers").select("*").eq("id", id).single();
+    const { data: offer, error } = await supabase
+      .from("offers")
+      .select("*")
+      .eq("offer_number", offerNumber)
+      .single();
     if (error || !offer) return res.status(404).json({ error: "Offer not found" });
 
     const finalStatus = await declineWithFallback(offer.id);

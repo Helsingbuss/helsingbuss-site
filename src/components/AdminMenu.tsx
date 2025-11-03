@@ -57,27 +57,27 @@ export default function AdminMenu() {
               Skapa bokning</Link>
               </li>
               <li>
-                <Link href="#" className={subLink}>
+                <Link href="/admin/orders/new" className={subLink}>
                   Skapa körorder
                 </Link>
               </li>
               <li>
-                <Link href="#" className={subLink}>
-                  Hantera offertförfrågningar
+                <Link href="/admin/orders"  className={subLink}>
+                  Alla körorder
                 </Link>
               </li>
               <li>
-                <Link href="#" className={subLink}>
-                  Hantera bokningsförfrågningar
+                <Link href="/admin/offers" className={subLink}>
+                  Alla offerter
                 </Link>
               </li>
               <li>
-                <Link href="#" className={subLink}>
+                <Link href="/admin/bookings" className={subLink}>
                   Alla bokningar
                 </Link>
               </li>
               <li>
-                <Link href="#" className={subLink}>
+                <Link href="/admin/orders?scope=upcoming" className={subLink}>
                   Kommande körningar
                 </Link>
               </li>
@@ -100,7 +100,7 @@ export default function AdminMenu() {
           {open === "trips" && (
             <ul className="ml-8 mt-2 space-y-1 text-sm text-gray-700">
               <li>
-                <Link href="#" className={subLink}>
+                <Link href="/admin/trips/new" className={subLink}>
                   Lägg upp resa
                 </Link>
               </li>

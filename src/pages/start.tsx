@@ -6,7 +6,7 @@ import OffersBarChart, { type Series as ChartSeries } from "@/components/dashboa
 import UnansweredTable from "@/components/dashboard/UnansweredTable";
 import GreetingNews from "@/components/dashboard/GreetingNews";
 
-/* ---------- Typer ---------- */
+/* ---------- Typer för dashboard ---------- */
 type StatsData = {
   range: string;
   series: ChartSeries;
@@ -48,7 +48,7 @@ function ymd(d: Date) {
 }
 
 export default function Start() {
-  // Förvalt intervall: Från = idag, Till = 2025-12-31 (enligt din önskan)
+  // Förvalt intervall: Från = idag, Till = 2025-12-31
   const today = useMemo(() => new Date(), []);
   const [from, setFrom] = useState(ymd(today));
   const [to, setTo] = useState("2025-12-31");
@@ -57,20 +57,37 @@ export default function Start() {
   const [unanswered, setUnanswered] = useState<UnansweredRow[]>([]);
   const [loadingStats, setLoadingStats] = useState(true);
   const [loadingUnanswered, setLoadingUnanswered] = useState(true);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   async function loadStats(f = from, t = to) {
     try {
       setLoadingStats(true);
-      const url = `/api/dashboard/stats?from=${encodeURIComponent(f)}&to=${encodeURIComponent(t)}`;
-      const res = await fetch(url);
-      const json = (await res.json()) as StatsData;
+      setErrorMsg(null);
+
+      const u = new URL("/api/dashboard/series", window.location.origin);
+      u.searchParams.set("from", f);
+      u.searchParams.set("to", t);
+
+      const res = await fetch(u.toString());
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const s = (await res.json()) as ChartSeries;
+
+      // bygg totals lokalt
+      const totals = {
+        offer_answered: (s.offer_answered || []).reduce((a, b) => a + b, 0),
+        offer_unanswered: (s.offer_unanswered || []).reduce((a, b) => a + b, 0),
+        booking_in: (s.booking_in || []).reduce((a, b) => a + b, 0),
+        booking_done: (s.booking_done || []).reduce((a, b) => a + b, 0),
+      };
+
       setStats({
-        range: json?.range ?? "",
-        series: json?.series ?? EMPTY_SERIES,
-        totals: json?.totals ?? EMPTY_STATS.totals,
+        range: `${f} – ${t}`,
+        series: s || EMPTY_SERIES,
+        totals,
       });
-    } catch {
+    } catch (e: any) {
       setStats(EMPTY_STATS);
+      setErrorMsg(e?.message || "Kunde inte hämta data.");
     } finally {
       setLoadingStats(false);
     }
@@ -79,9 +96,14 @@ export default function Start() {
   async function loadUnanswered() {
     try {
       setLoadingUnanswered(true);
-      const res = await fetch("/api/dashboard/unanswered");
-      const json = await res.json();
-      setUnanswered(json?.rows ?? []);
+      // om denna route saknas hos dig, returneras tom lista utan att sidan går sönder
+      const res = await fetch("/api/dashboard/unanswered").catch(() => null);
+      if (res && res.ok) {
+        const json = await res.json();
+        setUnanswered(json?.rows ?? []);
+      } else {
+        setUnanswered([]);
+      }
     } catch {
       setUnanswered([]);
     } finally {
@@ -101,9 +123,7 @@ export default function Start() {
     loadStats(from, to);
   }
 
-  // TODO (valfritt): hämta namn från Supabase-profiler
-  // ex: const displayName = profile?.first_name ?? "Andreas";
-  const displayName = "Andreas";
+  const displayName = "Andreas"; // ev. hämta från profil
 
   return (
     <>
@@ -114,16 +134,15 @@ export default function Start() {
         <main className="p-6">
           <h1 className="text-xl font-semibold text-[#194C66] mb-4">Översikt</h1>
 
-          {/* RAD 1: Vänster = diagram (med rubrik + datumintervall), Höger = nyheter */}
+          {/* RAD 1: Vänster = diagram, Höger = nyheter */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <section className="lg:col-span-2">
               <div className="bg-white rounded-xl shadow p-4">
-                {/* Rubrik */}
                 <h2 className="text-[#194C66] font-semibold text-lg mb-2">
                   Offerter och bokningar
                 </h2>
 
-                {/* Datumintervall under rubrik */}
+                {/* Datumintervall + Visa-knapp */}
                 <form onSubmit={applyRange} className="flex flex-wrap items-end gap-3 mb-3">
                   <div>
                     <label className="block text-xs text-[#194C66]/70 mb-1">Från</label>
@@ -143,20 +162,23 @@ export default function Start() {
                       className="border rounded px-2 py-1 text-sm"
                     />
                   </div>
-                  <button
-                    type="submit"
-                    className="h-8 px-3 rounded bg-[#194C66] text-white text-sm"
-                  >
+                  <button type="submit" className="h-8 px-3 rounded bg-[#194C66] text-white text-sm">
                     Visa
                   </button>
 
-                  {/* vald period till höger */}
                   {stats.range && (
                     <span className="ml-auto text-sm text-[#194C66]/70">
                       {stats.range}
                     </span>
                   )}
                 </form>
+
+                {/* Ev. felrad (istället för röd "HTTP 500") */}
+                {errorMsg && (
+                  <div className="mb-2 rounded-lg bg-red-50 border border-red-200 text-red-700 p-2 text-sm">
+                    {errorMsg}
+                  </div>
+                )}
 
                 {/* Diagram */}
                 {loadingStats ? (
@@ -188,7 +210,7 @@ export default function Start() {
             </aside>
           </div>
 
-          {/* RAD 2: Vänster = Obesvarade, Höger = Visma placeholder */}
+          {/* RAD 2 */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-6">
             <section className="lg:col-span-2">
               <div className="bg-white rounded-xl shadow">
@@ -201,7 +223,7 @@ export default function Start() {
             </section>
 
             <aside>
-              <div className="bg-white rounded-xl shadow p-4 h-[478px]"> 
+              <div className="bg-white rounded-xl shadow p-4 h-[478px]">
                 <div className="text-[#194C66] font-semibold mb-2">
                   Intäkter, kostnader och resultat
                 </div>

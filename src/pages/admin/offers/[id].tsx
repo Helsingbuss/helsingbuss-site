@@ -86,6 +86,7 @@ export default function AdminOfferDetail() {
   const [loading, setLoading] = useState(true);
   const [offer, setOffer] = useState<Offer | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
 
   useEffect(() => {
     if (!id) return;
@@ -124,6 +125,30 @@ export default function AdminOfferDetail() {
         }
       : null;
 
+  async function createBookingFromOffer() {
+    if (!offer?.id) return;
+    const ok = confirm("Skapa bokning från denna offert?");
+    if (!ok) return;
+
+    try {
+      setCreating(true);
+      const r = await fetch("/api/bookings/from-offer", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ offerId: offer.id }),
+      });
+      const j = await r.json().catch(() => ({} as any));
+      if (!r.ok) throw new Error(j?.error || "Kunde inte skapa bokning.");
+      alert(`Bokning skapad (${j.booking?.booking_number || "BK…"})`);
+      // Gå till listan "Alla bokningar"
+      router.push("/admin/bookings");
+    } catch (e: any) {
+      alert(e?.message || "Ett fel uppstod vid skapande av bokning.");
+    } finally {
+      setCreating(false);
+    }
+  }
+
   return (
     <>
       <AdminMenu />
@@ -131,9 +156,22 @@ export default function AdminOfferDetail() {
         <Header />
 
         <main className="p-6">
-          <h1 className="text-xl font-semibold text-[#194C66] mb-4">
-            Besvara offert{titleSuffix}
-          </h1>
+          <div className="mb-4 flex items-center justify-between">
+            <h1 className="text-xl font-semibold text-[#194C66]">
+              Besvara offert{titleSuffix}
+            </h1>
+
+            {/* Ny knapp – påverkar inte din övriga layout/design */}
+            {offer && (
+              <button
+                onClick={createBookingFromOffer}
+                disabled={creating}
+                className={`px-4 py-2 rounded-[25px] text-sm text-white ${creating ? "bg-gray-400 cursor-not-allowed" : "bg-[#194C66]"}`}
+              >
+                {creating ? "Skapar…" : "Skapa bokning"}
+              </button>
+            )}
+          </div>
 
           <div className="bg-white rounded-xl shadow p-4">
             {loading && <div>Laddar…</div>}

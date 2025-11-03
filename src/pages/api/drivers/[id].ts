@@ -7,7 +7,7 @@ function isMissingColumnOrTable(err: any) {
   const msg = String(err?.message || "").toLowerCase();
   return (
     (msg.includes("does not exist") && (msg.includes("column") || msg.includes("table"))) ||
-    err?.code === "42P01" // undefined_table
+    err?.code === "42P01"
   );
 }
 
@@ -29,21 +29,19 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   try {
     /* =========================
-       GET  – hämta chaufför + dokument
+       GET – hämta chaufför + dokument
        ========================= */
     if (req.method === "GET") {
-      // Försök läsa alla nya fält
       let { data, error } = await supabaseAdmin
         .from("drivers")
         .select(
-          // OBS: Den här SELECT:en antar att kolumnerna finns.
-          // Saknas någon -> vi fångar felet och gör en fallback längre ner.
-          "id, first_name, last_name, phone, email, license_classes, active, employment_type, note, updated_at, national_id, hired_at, avatar_url"
+          // + private_email
+          "id, first_name, last_name, phone, email, private_email, license_classes, active, employment_type, note, updated_at, national_id, hired_at, avatar_url"
         )
         .eq("id", id)
         .single();
 
-      // Fallback om schema saknar nya kolumner
+      // Fallback om schema saknar någon kolumn
       if (error && isMissingColumnOrTable(error)) {
         const fb = await supabaseAdmin
           .from("drivers")
@@ -52,9 +50,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           .single();
         if (fb.error) throw fb.error;
 
-        // Lägg till “nya” fält som null så frontend kan läsa dem säkert
         data = {
           ...fb.data,
+          private_email: null,
           employment_type: "tim",
           national_id: null,
           hired_at: null,
@@ -97,17 +95,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         last_name: p.last_name ?? undefined,
         phone: p.phone ?? undefined,
         email: p.email ?? undefined,
+        private_email: p.private_email !== undefined ? toNull(p.private_email) : undefined, // NYTT
         license_classes: coerceLicenseClasses(p.license_classes),
         active: typeof p.active === "boolean" ? p.active : undefined,
         employment_type: p.employment_type ?? undefined,
         note: p.note ?? undefined,
-        national_id: p.national_id !== undefined ? toNull(p.national_id) : undefined, // personnummer
-        hired_at: p.hired_at !== undefined ? toNull(p.hired_at) : undefined,          // anställd sedan (YYYY-MM-DD)
-        avatar_url: incomingAvatar ?? undefined,                                       // profilbildens path i bucket
+        national_id: p.national_id !== undefined ? toNull(p.national_id) : undefined,
+        hired_at: p.hired_at !== undefined ? toNull(p.hired_at) : undefined,
+        avatar_url: incomingAvatar ?? undefined,
         updated_at: new Date().toISOString(),
       };
 
-      // 1) Försök uppdatera med alla fält (nya kolumner)
+      // 1) Försök uppdatera med alla fält
       let { data, error } = await supabaseAdmin
         .from("drivers")
         .update(update)
@@ -121,6 +120,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         delete update.national_id;
         delete update.hired_at;
         delete update.avatar_url;
+        delete update.private_email;
 
         const fb = await supabaseAdmin
           .from("drivers")

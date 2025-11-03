@@ -1,8 +1,6 @@
 // src/components/dashboard/OffersBarChart.tsx
 import React, { useMemo, useState } from "react";
 
-
-
 export type Series = {
   weeks: string[];
   offer_answered: number[];
@@ -38,38 +36,55 @@ function buildTicks(max: number): number[] {
   return arr;
 }
 
-type Tip = { anchorX: number; anchorY: number; boxX: number; boxY: number; label: string; value: number; };
+type Tip = {
+  anchorX: number;
+  anchorY: number;
+  boxX: number;
+  boxY: number;
+  label: string;
+  value: number;
+};
 
 export default function OffersBarChart({ series }: Props) {
   const { weeks, offer_answered, offer_unanswered, booking_in, booking_done } = series;
 
   const maxY = useMemo(
-    () => Math.max(
-      1,
-      ...(offer_answered.length ? offer_answered : [0]),
-      ...(offer_unanswered.length ? offer_unanswered : [0]),
-      ...(booking_in.length ? booking_in : [0]),
-      ...(booking_done.length ? booking_done : [0])
-    ),
+    () =>
+      Math.max(
+        1,
+        ...(offer_answered.length ? offer_answered : [0]),
+        ...(offer_unanswered.length ? offer_unanswered : [0]),
+        ...(booking_in.length ? booking_in : [0]),
+        ...(booking_done.length ? booking_done : [0])
+      ),
     [offer_answered, offer_unanswered, booking_in, booking_done]
   );
   const ticks = useMemo(() => buildTicks(maxY), [maxY]);
 
-  const height = 260, topPad = 20, bottomPad = 36, leftPad = 28, rightPad = 12;
+  const height = 260,
+    topPad = 20,
+    bottomPad = 36,
+    leftPad = 28,
+    rightPad = 12;
   const innerH = height - topPad - bottomPad;
   const innerW = Math.max(weeks.length * 56, 400);
   const svgW = innerW + leftPad + rightPad;
 
-  const barWidth = 14, barGap = 6, groupWidth = barWidth * 4 + barGap * 3;
+  const barWidth = 14,
+    barGap = 6,
+    groupWidth = barWidth * 4 + barGap * 3;
   const y = (val: number) => topPad + innerH * (1 - val / ticks[ticks.length - 1]);
 
   const [tip, setTip] = useState<null | Tip>(null);
   function placeTooltip(anchorX: number, anchorY: number, label: string, value: number): Tip {
-    const boxW = 160, boxH = 28, gap = 10;
+    const boxW = 160,
+      boxH = 28,
+      gap = 10;
     let boxX = anchorX + gap;
     if (boxX + boxW > svgW - 4) boxX = anchorX - gap - boxW;
     let boxY = anchorY - boxH / 2;
-    const minY = topPad + 2, maxYpx = height - bottomPad - boxH - 2;
+    const minY = topPad + 2,
+      maxYpx = height - bottomPad - boxH - 2;
     if (boxY < minY) boxY = minY;
     if (boxY > maxYpx) boxY = maxYpx;
     return { anchorX, anchorY, boxX, boxY, label, value };
@@ -85,10 +100,13 @@ export default function OffersBarChart({ series }: Props) {
           return (
             <g key={`grid-${i}`}>
               <line x1={leftPad} x2={leftPad + innerW} y1={yPos} y2={yPos} stroke="#E5E7EB" />
-              <text x={leftPad - 7} y={yPos + 4} textAnchor="end" fill="#6B7280" fontSize="10">{value}</text>
+              <text x={leftPad - 7} y={yPos + 4} textAnchor="end" fill="#6B7280" fontSize="10">
+                {value}
+              </text>
             </g>
           );
         })}
+
         {groups.map(({ week, gx }, i) => {
           const bars = [
             { v: booking_done[i] || 0, c: COLORS.booking_done, key: "booking_done" as const },
@@ -125,11 +143,17 @@ export default function OffersBarChart({ series }: Props) {
             </g>
           );
         })}
+
         {tip && (
           <g pointerEvents="none">
             <path
-              d={`M ${tip.anchorX} ${tip.anchorY} L ${tip.boxX < tip.anchorX ? tip.anchorX - 6 : tip.anchorX + 6} ${tip.anchorY - 6} L ${tip.boxX < tip.anchorX ? tip.anchorX - 6 : tip.anchorX + 6} ${tip.anchorY + 6} Z`}
-              fill="white" stroke="#E5E7EB"
+              d={`M ${tip.anchorX} ${tip.anchorY} L ${
+                tip.boxX < tip.anchorX ? tip.anchorX - 6 : tip.anchorX + 6
+              } ${tip.anchorY - 6} L ${
+                tip.boxX < tip.anchorX ? tip.anchorX - 6 : tip.anchorX + 6
+              } ${tip.anchorY + 6} Z`}
+              fill="white"
+              stroke="#E5E7EB"
             />
             <rect x={tip.boxX} y={tip.boxY} width={160} height={28} fill="white" stroke="#E5E7EB" rx={6} />
             <text x={tip.boxX + 80} y={tip.boxY + 18} textAnchor="middle" fontSize="11" fill="#111827">
@@ -152,14 +176,24 @@ export default function OffersBarChart({ series }: Props) {
 function LegendDot({ color, label }: { color: string; label: string }) {
   return (
     <span className="inline-flex items-center gap-2">
-      <span className="inline-block" style={{ width: 10, height: 10, backgroundColor: color, borderRadius: 2 }} />
+      <span
+        className="inline-block"
+        style={{ width: 10, height: 10, backgroundColor: color, borderRadius: 2 }}
+      />
       <span className="text-[#194C66]/80 text-sm">{label}</span>
     </span>
   );
 }
 
-// <-- ändring här: named export, ingen extra default-export
-export function StatCard({ title, value, sub }: { title: string; value: string | number; sub?: string }) {
+export function StatCard({
+  title,
+  value,
+  sub,
+}: {
+  title: string;
+  value: string | number;
+  sub?: string;
+}) {
   return (
     <div className="bg-white rounded-xl shadow p-4">
       <div className="text-sm text-[#194C66]/70">{title}</div>

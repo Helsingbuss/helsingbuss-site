@@ -1,5 +1,4 @@
-// src/pages/admin/bookings/new.tsx
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import AdminMenu from "@/components/AdminMenu";
 import Header from "@/components/Header";
 
@@ -19,6 +18,29 @@ type Leg = {
 type Step = 1 | 2;
 
 type Opt = { id: string; label: string };
+
+// ---- Offert-koppling (options från /api/offers/options)
+type OfferOpt = {
+  id: string;
+  label: string;
+  autofill: {
+    contact_person?: string | null;
+    contact_email?: string | null;
+    contact_phone?: string | null;
+    passengers?: number | null;
+    notes?: string | null;
+
+    out_from?: string | null;
+    out_to?: string | null;
+    out_date?: string | null;
+    out_time?: string | null;
+
+    ret_from?: string | null;
+    ret_to?: string | null;
+    ret_date?: string | null;
+    ret_time?: string | null;
+  };
+};
 
 function todayISO() {
   const d = new Date();
@@ -109,14 +131,107 @@ export default function NewBookingAdmin() {
   const [vehicleId, setVehicleId] = useState<string>("");
   const [driverId, setDriverId] = useState<string>("");
 
+  // --- NYTT: Koppla offert (sök & autofyll) ---
+  const [offerSearch, setOfferSearch] = useState("");
+  const [offerOpts, setOfferOpts] = useState<OfferOpt[]>([]);
+  const [offerLoading, setOfferLoading] = useState(false);
+  const [linkedOfferId, setLinkedOfferId] = useState<string | null>(null);
+  const offersAbortRef = useRef<AbortController | null>(null);
+
+  function normaliseTimeHHMM(v: string | null | undefined) {
+    if (!v) return v;
+    return typeof v === "string" && v.length >= 5 ? v.slice(0, 5) : v;
+  }
+
+  function applyOffer(opt: OfferOpt) {
+    const a = opt.autofill;
+
+    setContact(a.contact_person ?? "");
+    setEmail(a.contact_email ?? "");
+    setPhone(a.contact_phone ?? "");
+    setFreeNotes(a.notes ?? "");
+
+    const first: Leg = {
+      date: a.out_date || todayISO(),
+      start: normaliseTimeHHMM(a.out_time) || "08:00",
+      end: "",
+      onSite: 15,
+      from: a.out_from || "",
+      to: a.out_to || "",
+      via: "",
+      pax: a.passengers ?? undefined,
+      onboardContact: "",
+      notes: a.notes || "",
+    };
+
+    const arr: Leg[] = [first];
+
+    if (a.ret_from || a.ret_to || a.ret_date || a.ret_time) {
+      arr.push({
+        date: a.ret_date || a.out_date || todayISO(),
+        start: normaliseTimeHHMM(a.ret_time) || normaliseTimeHHMM(a.out_time) || "08:00",
+        end: "",
+        onSite: 15,
+        from: a.ret_from || a.out_to || "",
+        to: a.ret_to || a.out_from || "",
+        via: "",
+        pax: a.passengers ?? first.pax,
+        onboardContact: "",
+        notes: a.notes || "",
+      });
+    }
+
+    setLegs(arr);
+    setDraft({
+      date: todayISO(),
+      start: "08:00",
+      end: "",
+      onSite: 15,
+      from: "",
+      to: "",
+      via: "",
+      pax: a.passengers ?? undefined,
+      onboardContact: "",
+      notes: "",
+    });
+
+    setOfferSearch("");
+    setOfferOpts([]);
+    setLinkedOfferId(opt.id);
+  }
+
+  async function searchOffers(q: string) {
+    setOfferSearch(q);
+
+    try {
+      setOfferLoading(true);
+      if (offersAbortRef.current) offersAbortRef.current.abort();
+      const ctrl = new AbortController();
+      offersAbortRef.current = ctrl;
+
+      // baseline när tomt – senaste 20
+      const url = q && q.length >= 1
+        ? `/api/offers/options?search=${encodeURIComponent(q)}`
+        : `/api/offers/options`;
+
+      const r = await fetch(url, { signal: ctrl.signal });
+      const j = await r.json();
+      setOfferOpts(j?.options ?? []);
+    } catch {
+      setOfferOpts([]);
+    } finally {
+      setOfferLoading(false);
+    }
+  }
+
   useEffect(() => {
     // Hämta fordon & chaufförer (enkla list-API:er)
     (async () => {
       try {
-        const v = await fetch("/api/vehicles/list").then((r) => r.json()).catch(() => ({ rows: [] }));
-        const d = await fetch("/api/drivers/list").then((r) => r.json()).catch(() => ({ rows: [] }));
-        setVehicles((v?.rows ?? []).map((x: any) => ({ id: String(x.id), label: x.label })));
-        setDrivers((d?.rows ?? []).map((x: any) => ({ id: String(x.id), label: x.label })));
+        const v = await fetch("/api/vehicles/options").then((r) => r.json()).catch(() => ({ options: [] }));
+        const d = await fetch("/api/drivers/options").then((r) => r.json()).catch(() => ({ options: [] }));
+        setVehicles(v?.options ?? []);
+        setDrivers(d?.options ?? []);
       } catch {
         // tyst
       }
@@ -166,6 +281,9 @@ export default function NewBookingAdmin() {
       // interna tilldelningar
       assigned_vehicle_id: vehicleId || null,
       assigned_driver_id: driverId || null,
+
+      // kopplad offert (frivilligt på backend)
+      source_offer_id: linkedOfferId || null,
 
       // övrigt
       notes: freeNotes || a?.notes || null,
@@ -223,6 +341,57 @@ export default function NewBookingAdmin() {
           {/* STEG 1 */}
           {step === 1 && (
             <div className="bg-white rounded-xl shadow p-4 space-y-4">
+
+              {/* --- NYTT BLOCK: KOPPLA OFFERT --- */}
+              <div className="bg-[#f8fafc] rounded-lg p-4">
+                <div className="text-sm text-[#194C66]/70 mb-2">Koppla offert (valfritt)</div>
+                <input
+                  className="border rounded px-3 py-2 w-full"
+                  placeholder="Sök offert (nummer, kund, från/till)…"
+                  value={offerSearch}
+                  onChange={(e) => searchOffers(e.target.value)}
+                  onFocus={() => {
+                    if (offerOpts.length === 0) searchOffers(offerSearch);
+                  }}
+                />
+
+                {offerLoading && (
+                  <div className="mt-2 text-sm text-[#194C66]/60">Söker…</div>
+                )}
+
+                {!offerLoading && offerOpts.length > 0 && (
+                  <div className="mt-2 border rounded-lg bg-white max-h-64 overflow-auto">
+                    {offerOpts.map((o) => (
+                      <button
+                        key={o.id}
+                        type="button"
+                        onClick={() => applyOffer(o)}
+                        className="block w-full text-left px-3 py-2 hover:bg-[#f5f4f0]"
+                      >
+                        {o.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {!offerLoading && offerSearch && offerOpts.length === 0 && (
+                  <div className="mt-2 text-sm text-[#194C66]/60">Inga träffar.</div>
+                )}
+
+                {linkedOfferId && (
+                  <div className="text-xs text-[#194C66]/70 mt-2">
+                    Kopplad offert: <b>{linkedOfferId}</b>
+                    <button
+                      className="ml-2 underline"
+                      onClick={() => setLinkedOfferId(null)}
+                    >
+                      koppla bort
+                    </button>
+                  </div>
+                )}
+              </div>
+              {/* --- SLUT: KOPPLA OFFERT --- */}
+
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 {/* Vänster */}
                 <div className="space-y-4">

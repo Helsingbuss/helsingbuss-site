@@ -5,7 +5,11 @@ import AdminMenu from "@/components/AdminMenu";
 type DocStatus = { tag: string; days: number };
 type DriverRow = {
   id: string;
-  name: string;
+  // nya fält från API – används före 'name'
+  first_name?: string | null;
+  last_name?: string | null;
+
+  name?: string; // kvar för kompatibilitet
   phone: string;
   email: string;
   license_classes: string[];
@@ -27,7 +31,6 @@ function clsBadge(list: string[]) {
 }
 
 function tagClass(tag: string) {
-  // små badges i samma stil/ton som övriga admin
   switch (tag) {
     case "ok":
       return "bg-green-50 text-green-700 border border-green-200";
@@ -62,7 +65,7 @@ export default function AdminDriversListPage() {
   const [total, setTotal] = useState(0);
   const [error, setError] = useState<string | null>(null);
 
-  // Bygg URL: håll den stabil för useEffect
+  // Bygg URL
   const queryUrl = useMemo(() => {
     const u = new URL("/api/drivers/list", window.location.origin);
     if (search.trim()) u.searchParams.set("search", search.trim());
@@ -103,7 +106,7 @@ export default function AdminDriversListPage() {
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
-  // Reset page till 1 när filter ändras (utom page själv)
+  // Reset page när filter ändras
   useEffect(() => {
     setPage(1);
   }, [search, status, cls, expSoon]);
@@ -206,7 +209,7 @@ export default function AdminDriversListPage() {
                         <th className="text-left px-3 py-2">Status</th>
                         <th className="text-left px-3 py-2">Dokument</th>
                         <th className="text-left px-3 py-2">Uppdaterad</th>
-                        <th className="text-right px-3 py-2" />
+                        <th className="text-left px-3 py-2"></th>
                       </tr>
                     </thead>
                     <tbody>
@@ -217,43 +220,51 @@ export default function AdminDriversListPage() {
                           </td>
                         </tr>
                       )}
-                      {rows.map((r) => (
-                        <tr key={r.id} className="border-b">
-                          <td className="px-3 py-2">{r.name}</td>
-                          <td className="px-3 py-2">{r.phone}</td>
-                          <td className="px-3 py-2">{r.email}</td>
-                          <td className="px-3 py-2">{clsBadge(r.license_classes)}</td>
-                          <td className="px-3 py-2">
-                            <span
-                              className={
-                                "inline-block px-2 py-1 rounded-full text-xs " +
-                                (r.active
-                                  ? "bg-green-50 text-green-700 border border-green-200"
-                                  : "bg-gray-50 text-gray-700 border border-gray-200")
-                              }
-                            >
-                              {r.active ? "Aktiv" : "Inaktiv"}
-                            </span>
-                          </td>
-                          <td className="px-3 py-2">
-                            <span className={`inline-block px-2 py-1 rounded-full text-xs ${tagClass(r.docStatus.tag)}`}>
-                              {r.docStatus.tag}
-                              {Number.isFinite(r.docStatus.days) ? ` (${r.docStatus.days} d)` : ""}
-                            </span>
-                          </td>
-                          <td className="px-3 py-2">
-                            {r.updated_at ? new Date(r.updated_at).toLocaleDateString() : "—"}
-                          </td>
-                          <td className="px-3 py-2 text-right">
-                            <a
-                              href={`/admin/drivers/${r.id}`}
-                              className="text-[#194C66] underline"
-                            >
-                              Öppna
-                            </a>
-                          </td>
-                        </tr>
-                      ))}
+                      {rows.map((r) => {
+                        const prettyName =
+                          (r.first_name || r.last_name)
+                            ? `${r.first_name ?? ""} ${r.last_name ?? ""}`.trim()
+                            : (r.name && r.name !== "—" ? r.name : "(Namn saknas)");
+
+                        return (
+                          <tr key={r.id} className="border-b">
+                            <td className="px-3 py-2">
+                              <a href={`/admin/drivers/${r.id}`} className="underline text-[#194C66]">
+                                {prettyName}
+                              </a>
+                            </td>
+                            <td className="px-3 py-2">{r.phone}</td>
+                            <td className="px-3 py-2">{r.email}</td>
+                            <td className="px-3 py-2">{clsBadge(r.license_classes)}</td>
+                            <td className="px-3 py-2">
+                              <span
+                                className={
+                                  "inline-block px-2 py-1 rounded-full text-xs " +
+                                  (r.active
+                                    ? "bg-green-50 text-green-700 border border-green-200"
+                                    : "bg-gray-50 text-gray-700 border border-gray-200")
+                                }
+                              >
+                                {r.active ? "Aktiv" : "Inaktiv"}
+                              </span>
+                            </td>
+                            <td className="px-3 py-2">
+                              <span className={`inline-block px-2 py-1 rounded-full text-xs ${tagClass(r.docStatus.tag)}`}>
+                                {r.docStatus.tag}
+                                {Number.isFinite(r.docStatus.days) ? ` (${r.docStatus.days} d)` : ""}
+                              </span>
+                            </td>
+                            <td className="px-3 py-2">
+                              {r.updated_at ? new Date(r.updated_at).toLocaleDateString() : "—"}
+                            </td>
+                            <td className="px-3 py-2">
+                              <a href={`/admin/drivers/${r.id}`} className="text-[#194C66] underline">
+                                Öppna
+                              </a>
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
@@ -289,7 +300,7 @@ export default function AdminDriversListPage() {
   );
 }
 
-// Tvinga SSR (förhindrar att Vercel försöker SSG:a sidan under build)
+// Tvinga SSR (hindrar SSG/”window undefined” under build)
 export async function getServerSideProps() {
   return { props: {} };
 }
