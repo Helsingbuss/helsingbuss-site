@@ -1,150 +1,195 @@
-// src/pages/api/bookings/from-offer.ts
 import type { NextApiRequest, NextApiResponse } from "next";
-import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import * as admin from "@/lib/supabaseAdmin";
 
-function isMissingColumnOrTable(err: any) {
-  const msg = String(err?.message || "").toLowerCase();
-  return (
-    (msg.includes("does not exist") && (msg.includes("column") || msg.includes("table"))) ||
-    err?.code === "42703" || // undefined_column
-    err?.code === "42P01"    // undefined_table
+// Fungerar både där du exporterar som supabaseAdmin eller default
+const supabase =
+  (admin as any).supabaseAdmin ||
+  (admin as any).supabase ||
+  (admin as any).default;
+
+type JsonError = { error: string };
+
+function isUUID(s: string) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+    s || ""
   );
 }
 
-function bkFromHb(offerNo?: string | null): string | null {
-  if (!offerNo) return null;
-  const m = offerNo.trim().toUpperCase().match(/^HB(\d{2})(\d+)$/);
-  if (!m) return null;
-  return `BK${m[1]}${m[2]}`;
-}
-
-async function nextBkNumber(): Promise<string> {
-  const yy = String(new Date().getFullYear()).slice(-2);
-  // hämta senaste BKyyNNN och öka
-  const { data } = await supabaseAdmin
-    .from("bookings")
-    .select("booking_number")
-    .ilike("booking_number", `BK${yy}%`)
-    .order("booking_number", { ascending: false })
-    .limit(1);
-
-  const last = data?.[0]?.booking_number as string | undefined;
-  const m = last?.match(/^BK(\d{2})(\d+)$/);
-  const next = m && m[1] === yy ? String(parseInt(m[2], 10) + 1).padStart(m[2].length, "0") : "0001";
-  return `BK${yy}${next}`;
-}
-
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
+export default async function handler(
+  req: NextApiRequest,
+  res: NextApiResponse<any | JsonError>
+) {
+  if (req.method !== "POST") {
+    return res.status(405).json({ error: "Method not allowed" });
+  }
 
   try {
-    const offerId = (req.body?.offerId as string | undefined) || (req.query?.offerId as string | undefined);
-    if (!offerId) return res.status(400).json({ error: "Saknar offerId" });
+    const {
+      // identifierare
+      offerId,
+      offerNumber,
 
-    // Hämta offerten (ta med allt som kan vara relevant – tolerera saknade fält)
-    let { data: off, error: offErr } = await supabaseAdmin
-      .from("offers")
-      .select(`
-        id, offer_number, status,
-        customer_reference, contact_email, contact_phone,
-        passengers, notes,
-        departure_place, destination, departure_date, departure_time, end_time, on_site_minutes, stopover_places,
-        return_departure, return_destination, return_date, return_time, return_end_time, return_on_site_minutes
-      `)
-      .eq("id", offerId)
-      .single();
+      // ev. tilldelningar från admin
+      assigned_vehicle_id,
+      assigned_driver_id,
 
-    if (offErr && isMissingColumnOrTable(offErr)) {
-      // Fallback till minsta möjliga om kolumner saknas
-      const fb = await supabaseAdmin
-        .from("offers")
-        .select("id, offer_number, status, customer_reference, contact_email, contact_phone, passengers, notes, departure_place, destination, departure_date, departure_time, return_departure, return_destination, return_date, return_time")
-        .eq("id", offerId)
-        .single();
-      if (fb.error) throw fb.error;
-      off = fb.data;
+      // möjlighet att override’a noteringar
+      notes,
+    } = (req.body ?? {}) as Record<string, any>;
+
+    if (!offerId && !offerNumber) {
+      return res
+        .status(400)
+        .json({ error: "Du måste ange offerId eller offerNumber" });
     }
-    if (offErr && !isMissingColumnOrTable(offErr)) throw offErr;
-    if (!off) return res.status(404).json({ error: "Offert hittades inte" });
 
-    // Sätt bokningsnummer: BK + samma år+serie som offerten om möjligt, annars nästa lediga
-    let booking_number = bkFromHb(off.offer_number);
-    if (!booking_number) booking_number = await nextBkNumber();
+    // ----- 1) HÄMTA OFFERT -----
+    const selectCols = [
+      "id",
+      "offer_number",
+      "status",
+      "customer_reference",
+      "contact_email",
+      "contact_phone",
+      "passengers",
+      "notes",
 
-    // Bygg insatsdata (alla fält får vara null – vi prunar om kolumner saknas)
-    const insert: Record<string, any> = {
-      booking_number,
-      offer_id: off.id,
+      // utresa
+      "departure_place",
+      "destination",
+      "departure_date",
+      "departure_time",
+      "end_time",
+      "on_site_minutes",
+      "stopover_places",
 
-      contact_person: off.customer_reference ?? null,
-      customer_email: off.contact_email ?? null,
-      customer_phone: off.contact_phone ?? null,
+      // retur
+      "return_departure",
+      "return_destination",
+      "return_date",
+      "return_time",
+      "return_end_time",
+      "return_on_site_minutes",
+    ].join(",");
 
-      passengers: off.passengers ?? null,
-      notes: off.notes ?? null,
+    let off: any = null;
+    if (offerId) {
+      const { data, error } = await supabase
+        .from("offers")
+        .select(selectCols)
+        .eq(isUUID(String(offerId)) ? "id" : "offer_number", offerId)
+        .single();
+      if (error) throw error;
+      off = data;
+    } else if (offerNumber) {
+      const { data, error } = await supabase
+        .from("offers")
+        .select(selectCols)
+        .eq("offer_number", offerNumber)
+        .single();
+      if (error) throw error;
+      off = data;
+    }
 
+    if (!off) {
+      return res.status(404).json({ error: "Offert hittades inte" });
+    }
+
+    // ----- 2) BYGG BOOKING-PAYLOAD -----
+    // Alla fält defensivt defaultade till null/””
+    const payload = {
+      // Kund
+      contact_person: (off.customer_reference ?? "").toString() || null,
+      customer_email: (off.contact_email ?? "").toString() || null,
+      customer_phone: (off.contact_phone ?? "").toString() || null,
+
+      // Utresa
+      passengers: Number(off.passengers ?? 0) || 0,
       departure_place: off.departure_place ?? null,
       destination: off.destination ?? null,
       departure_date: off.departure_date ?? null,
       departure_time: off.departure_time ?? null,
-      end_time: (off as any)?.end_time ?? null,
-      on_site_minutes: (off as any)?.on_site_minutes ?? null,
-      stopover_places: (off as any)?.stopover_places ?? null,
+      end_time: off.end_time ?? null,
+      on_site_minutes:
+        off.on_site_minutes === null || off.on_site_minutes === undefined
+          ? null
+          : Number(off.on_site_minutes),
+      stopover_places: off.stopover_places ?? null,
 
+      // Retur
       return_departure: off.return_departure ?? null,
       return_destination: off.return_destination ?? null,
       return_date: off.return_date ?? null,
       return_time: off.return_time ?? null,
-      return_end_time: (off as any)?.return_end_time ?? null,
-      return_on_site_minutes: (off as any)?.return_on_site_minutes ?? null,
+      return_end_time: off.return_end_time ?? null,
+      return_on_site_minutes:
+        off.return_on_site_minutes === null ||
+        off.return_on_site_minutes === undefined
+          ? null
+          : Number(off.return_on_site_minutes),
 
-      status: "new",
-      created_at: new Date().toISOString(),
-    };
+      // Tilldelningar (valfria)
+      assigned_vehicle_id: assigned_vehicle_id ?? null,
+      assigned_driver_id: assigned_driver_id ?? null,
 
-    // 1) Första försöket – alla fält
-    let ins = await supabaseAdmin
+      // Övrigt
+      notes: (notes ?? off.notes ?? null) as string | null,
+
+      // Knyt tillbaka till offerten om du har sådan kolumn i DB
+      offer_id: off.id ?? null,
+      offer_number: off.offer_number ?? null,
+    } as Record<string, any>;
+
+    // ----- 3) SKAPA BOKNING -----
+    const { data: created, error: insErr } = await supabase
       .from("bookings")
-      .insert(insert)
-      .select("id, booking_number")
+      .insert(payload)
+      .select(
+        [
+          "id",
+          "booking_number",
+          "contact_person",
+          "customer_email",
+          "customer_phone",
+          "passengers",
+          "departure_place",
+          "destination",
+          "departure_date",
+          "departure_time",
+          "end_time",
+          "on_site_minutes",
+          "stopover_places",
+          "return_departure",
+          "return_destination",
+          "return_date",
+          "return_time",
+          "return_end_time",
+          "return_on_site_minutes",
+          "assigned_vehicle_id",
+          "assigned_driver_id",
+          "notes",
+          "offer_id",
+          "offer_number",
+          "created_at",
+        ].join(",")
+      )
       .single();
 
-    // 2) Om kolumn saknas: pruna och försök igen
-    if (ins.error && isMissingColumnOrTable(ins.error)) {
-      const msg = (ins.error.message || "").toLowerCase();
-      // heuristik: ta bort de fält som ofta saknas hos dig
-      delete insert.contact_person;
-      delete insert.customer_email;
-      delete insert.customer_phone;
+    if (insErr) throw insErr;
 
-      delete insert.on_site_minutes;
-      delete insert.stopover_places;
-      delete insert.end_time;
-      delete insert.return_on_site_minutes;
-      delete insert.return_end_time;
-
-      delete insert.offer_id;
-
-      ins = await supabaseAdmin
-        .from("bookings")
-        .insert(insert)
-        .select("id, booking_number")
-        .single();
-    }
-    if (ins.error) throw ins.error;
-
-    const booking = ins.data;
-
-    // Försök länka tillbaka till offerten (tolerant)
+    // (valfritt) uppdatera offertstatus
     try {
-      await supabaseAdmin.from("offers").update({ booking_id: booking.id }).eq("id", off.id);
+      await supabase
+        .from("offers")
+        .update({ status: "godkand" })
+        .eq("id", off.id);
     } catch {
-      /* ok om kolumnen inte finns */
+      // tyst
     }
 
-    return res.status(200).json({ ok: true, booking });
+    return res.status(200).json({ ok: true, booking: created });
   } catch (e: any) {
-    console.error("/api/bookings/from-offer error:", e?.message || e);
+    console.error("from-offer error:", e?.message || e);
     return res.status(500).json({ error: e?.message || "Serverfel" });
   }
 }
