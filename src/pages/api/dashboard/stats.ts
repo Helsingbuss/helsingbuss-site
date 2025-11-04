@@ -1,200 +1,183 @@
-﻿// src/pages/api/dashboard/stats.ts
-import type { NextApiRequest, NextApiResponse } from "next";
-import { supabaseAdmin } from "@/lib/supabaseAdmin";
+﻿import type { NextApiRequest, NextApiResponse } from "next";
+import * as admin from "@/lib/supabaseAdmin";
 
-/** Hjälpare: känns igen saknad tabell/kolumn utan att kasta 500 till klient */
-function isMissingTableOrColumn(err: any) {
-  const m = String(err?.message || "").toLowerCase();
-  return (
-    m.includes("does not exist") ||
-    m.includes("undefined_table") ||
-    m.includes("column") ||
-    err?.code === "42P01" // undefined_table
-  );
-}
+const supabase =
+  (admin as any).supabaseAdmin ||
+  (admin as any).supabase ||
+  (admin as any).default;
 
-/** YYYY-MM-DD -> Date (kl 00:00) */
-function toDate(d: string | undefined): Date {
-  const dt = d && !Number.isNaN(Date.parse(d)) ? new Date(d) : new Date();
-  dt.setHours(0, 0, 0, 0);
-  return dt;
-}
+type Series = {
+  weeks: string[];
+  offer_answered: number[];
+  offer_unanswered: number[];
+  booking_in: number[];
+  booking_done: number[];
+};
 
-/** ISO-vecka (sv) "v. 45" */
-function weekLabel(date: Date): string {
-  // ISO week
-  const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
-  // Torsdag i aktuell vecka
-  const dayNum = d.getUTCDay() === 0 ? 7 : d.getUTCDay();
-  d.setUTCDate(d.getUTCDate() + 4 - dayNum);
-  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
-  const weekNo = Math.ceil(((d.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
-  return `v. ${String(weekNo)}`;
-}
-
-/** Alla veck-labels mellan from..to (inklusive) */
-function buildWeekBuckets(from: Date, to: Date): string[] {
-  const out: string[] = [];
-  const cur = new Date(from);
-  while (cur <= to) {
-    out.push(weekLabel(cur));
-    cur.setUTCDate(cur.getUTCDate() + 7);
-  }
-  // säkerställ minst en
-  if (out.length === 0) out.push(weekLabel(from));
-  return out;
-}
-
-type Row = { created_at?: string | null; status?: string | null; /** ev. alternativa fält */ offer_date?: string | null; booking_date?: string | null; completed_at?: string | null; done_at?: string | null; };
-
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  // --- Parametrar ---
-  const fromStr = String(req.query.from || "");
-  const toStr = String(req.query.to || "");
-  let from = toDate(fromStr);
-  let to = toDate(toStr || new Date().toISOString().slice(0, 10));
-  if (to < from) [from, to] = [to, from];
-
-  const rangeLabel = `${from.toISOString().slice(0, 10)} – ${to.toISOString().slice(0, 10)}`;
-  const weeks = buildWeekBuckets(from, to);
-  const zeroArr = Array(weeks.length).fill(0);
-
-  // Resultstruktur – exakt som din komponent förväntar sig
-  const result = {
-    range: rangeLabel,
-    series: {
-      weeks,
-      offer_answered: [...zeroArr],
-      offer_unanswered: [...zeroArr],
-      booking_in: [...zeroArr],
-      booking_done: [...zeroArr],
-    },
-    totals: { offer_answered: 0, offer_unanswered: 0, booking_in: 0, booking_done: 0 },
+type Payload = {
+  range: string;
+  series: Series;
+  totals: {
+    offer_answered: number;
+    offer_unanswered: number;
+    booking_in: number;
+    booking_done: number;
   };
+};
 
+// ---------- helpers ----------
+const startOfISOWeek = (d: Date) => {
+  const nd = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+  const day = (nd.getUTCDay() || 7); // 1..7 (Mon..Sun)
+  nd.setUTCDate(nd.getUTCDate() - (day - 1));
+  nd.setUTCHours(0, 0, 0, 0);
+  return nd;
+};
+
+const addDays = (d: Date, n: number) => {
+  const nd = new Date(d);
+  nd.setUTCDate(nd.getUTCDate() + n);
+  return nd;
+};
+
+const weekLabel = (d: Date) => {
+  // enkel v.NN av ISO-vecka
+  const target = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+  const dayNr = (target.getUTCDay() + 6) % 7;
+  target.setUTCDate(target.getUTCDate() - dayNr + 3);
+  const firstThursday = new Date(Date.UTC(target.getUTCFullYear(), 0, 4));
+  const diff = (target.getTime() - firstThursday.getTime()) / 86400000;
+  const week = 1 + Math.floor(diff / 7);
+  return `v. ${week}`;
+};
+
+const buildWeeks = (from: Date, to: Date) => {
+  const weeks: { start: Date; end: Date; label: string }[] = [];
+  let cur = startOfISOWeek(from);
+  const last = addDays(startOfISOWeek(to), 6);
+  while (cur <= last) {
+    const start = new Date(cur);
+    const end = addDays(start, 6);
+    weeks.push({ start, end, label: weekLabel(start) });
+    cur = addDays(cur, 7);
+  }
+  return weeks;
+};
+
+const inRange = (dtStr: string | null | undefined, start: Date, end: Date) => {
+  if (!dtStr) return false;
+  const t = new Date(dtStr);
+  return t >= start && t <= end;
+};
+
+const pushToBucket = (datestr: string | null | undefined, weeks: ReturnType<typeof buildWeeks>, arr: number[]) => {
+  if (!datestr) return;
+  const dt = new Date(datestr);
+  const lbl = weekLabel(startOfISOWeek(dt));
+  const idx = weeks.findIndex(w => w.label === lbl);
+  if (idx >= 0) arr[idx] = (arr[idx] || 0) + 1;
+};
+
+// ---------- handler ----------
+export default async function handler(
+  req: NextApiRequest,
+  res: NextApiResponse<Payload | { error: string }>
+) {
   try {
-    // ----------------------------------------------------
-    // 1) Hämta OFFERS (tolerant för olika kolumner)
-    // ----------------------------------------------------
-    let offers: Row[] = [];
-    try {
-      // Försök primärt med created_at
-      const { data, error } = await supabaseAdmin
+    const fromStr = String(req.query.from ?? "").trim();
+    const toStr = String(req.query.to ?? "").trim();
+
+    const today = new Date();
+    const defFrom = today.toISOString().slice(0, 10); // idag
+    const defTo = "2025-12-31";
+
+    const from = fromStr ? new Date(fromStr) : new Date(defFrom);
+    const to = toStr ? new Date(toStr) : new Date(defTo);
+
+    const weeks = buildWeeks(from, to);
+
+    const series: Series = {
+      weeks: weeks.map(w => w.label),
+      offer_answered: new Array(weeks.length).fill(0),
+      offer_unanswered: new Array(weeks.length).fill(0),
+      booking_in: new Array(weeks.length).fill(0),
+      booking_done: new Array(weeks.length).fill(0),
+    };
+
+    // Offerter
+    let offers: any[] = [];
+    {
+      const { data, error } = await supabase
         .from("offers")
-        .select("id, created_at, status, offer_date")
+        .select("id, status, created_at, offer_date")
         .gte("created_at", from.toISOString())
-        .lte("created_at", new Date(to.getTime() + 86400000 - 1).toISOString()); // inkl. hela 'to'-dagen
-      if (error) throw error;
-
-      offers = (data ?? []) as Row[];
-
-      // Om vi fick extremt lite data (eller du saknar created_at): komplettera via offer_date
-      if (offers.length === 0) {
-        const { data: byOfferDate, error: e2 } = await supabaseAdmin
-          .from("offers")
-          .select("id, status, offer_date")
-          .gte("offer_date", from.toISOString().slice(0, 10))
-          .lte("offer_date", to.toISOString().slice(0, 10));
-        if (!e2 && byOfferDate) offers = byOfferDate as Row[];
-      }
-    } catch (e: any) {
-      if (!isMissingTableOrColumn(e)) throw e;
-      offers = [];
-    }
-
-    // ----------------------------------------------------
-    // 2) Hämta BOOKINGS (tolerant för olika kolumner)
-    // ----------------------------------------------------
-    let bookings: Row[] = [];
-    try {
-      const { data, error } = await supabaseAdmin
-        .from("bookings")
-        .select("id, created_at, status, booking_date, completed_at, done_at")
-        .gte("created_at", from.toISOString())
-        .lte("created_at", new Date(to.getTime() + 86400000 - 1).toISOString());
-      if (error) throw error;
-
-      bookings = (data ?? []) as Row[];
-
-      // backup om created_at saknas: på booking_date
-      if (bookings.length === 0) {
-        const { data: byBookingDate, error: e2 } = await supabaseAdmin
-          .from("bookings")
-          .select("id, status, booking_date, completed_at, done_at")
-          .gte("booking_date", from.toISOString().slice(0, 10))
-          .lte("booking_date", to.toISOString().slice(0, 10));
-        if (!e2 && byBookingDate) bookings = byBookingDate as Row[];
-      }
-    } catch (e: any) {
-      if (!isMissingTableOrColumn(e)) throw e;
-      bookings = [];
-    }
-
-    // ----------------------------------------------------
-    // 3) Grupp & räkna per vecka
-    // ----------------------------------------------------
-    // Vilka status räknas som besvarad offert?
-    const ANSWERED = new Set(["godkand","accepterad","accepterat","refused","nekad","avböjd","besvarad","answered","accepted","declined","won","lost","priced","sent-to-customer"]);
-    const UNANSWERED = new Set(["ny","obesvarad","pending","new","open","draft","waiting"]);
-
-    const weekIndex = new Map(weeks.map((w, i) => [w, i]));
-
-    function pushToSeries(datestr: string | null | undefined, arr: number[]) {
-      if (!datestr) return;
-      const dt = new Date(datestr);
-      const lbl = weekLabel(dt);
-      const idx = weekIndex.get(lbl);
-      if (idx === undefined) return;
-      arr[idx] += 1;
-    }
-
-    // Offers
-    for (const o of offers) {
-      const status = String(o.status || "").toLowerCase();
-      const created = o.created_at ?? o.offer_date ?? null;
-
-      if (ANSWERED.has(status)) {
-        pushToSeries(created, result.series.offer_answered);
-        result.totals.offer_answered += 1;
-      } else if (UNANSWERED.has(status) || !status) {
-        pushToSeries(created, result.series.offer_unanswered);
-        result.totals.offer_unanswered += 1;
+        .lte("created_at", to.toISOString());
+      if (error) {
+        // Om kolumnnamn skiljer sig, försök snäll fallback
+        const { data: d2 } = await supabase.from("offers").select("*").limit(1000);
+        offers = d2 || [];
       } else {
-        // okänd status -> räkna som obesvarad för att få med i grafen
-        pushToSeries(created, result.series.offer_unanswered);
-        result.totals.offer_unanswered += 1;
+        offers = data || [];
       }
     }
 
-    // Bookings
+    for (const o of offers) {
+      const created = o.created_at ?? o.offer_date ?? null;
+      const st = String(o.status ?? "").toLowerCase();
+      if (!created) continue;
+      const isAnswered = st === "besvarad" || st === "godkand" || st === "godkänd";
+      if (isAnswered) pushToBucket(created, weeks, series.offer_answered);
+      else pushToBucket(created, weeks, series.offer_unanswered);
+    }
+
+    // Bokningar
+    let bookings: any[] = [];
+    {
+      const { data, error } = await supabase
+        .from("bookings")
+        .select("id, status, created_at")
+        .gte("created_at", from.toISOString())
+        .lte("created_at", to.toISOString());
+      if (error) {
+        const { data: d2 } = await supabase.from("bookings").select("*").limit(1000);
+        bookings = d2 || [];
+      } else {
+        bookings = data || [];
+      }
+    }
+
     for (const b of bookings) {
-      const created = b.created_at ?? b.booking_date ?? null;
-      const status = String(b.status || "").toLowerCase();
-
-      // inkomna bokningar: baseras på created/booking_date
-      if (created) {
-        pushToSeries(created, result.series.booking_in);
-        result.totals.booking_in += 1;
-      }
-
-      // slutförda: status eller fält completed_at/done_at
+      const created = b.created_at ?? null;
+      if (!created) continue;
+      const st = String(b.status ?? "").toLowerCase();
       const isDone =
-        !!b.completed_at ||
-        !!b.done_at ||
-        ["klar", "completed", "done", "slutförd", "finished"].includes(status);
-      if (isDone) {
-        const when = b.completed_at ?? b.done_at ?? created;
-        if (when) {
-          pushToSeries(when, result.series.booking_done);
-          result.totals.booking_done += 1;
-        }
-      }
+        st.includes("slutf") || // slutförd
+        st.includes("klar") ||
+        st.includes("done") ||
+        st.includes("completed");
+      if (isDone) pushToBucket(created, weeks, series.booking_done);
+      else pushToBucket(created, weeks, series.booking_in);
     }
 
-    return res.status(200).json(result);
+    const payload: Payload = {
+      range: `${from.toISOString().slice(0, 10)} – ${to.toISOString().slice(0, 10)}`,
+      series,
+      totals: {
+        offer_answered: series.offer_answered.reduce((a, b) => a + b, 0),
+        offer_unanswered: series.offer_unanswered.reduce((a, b) => a + b, 0),
+        booking_in: series.booking_in.reduce((a, b) => a + b, 0),
+        booking_done: series.booking_done.reduce((a, b) => a + b, 0),
+      },
+    };
+
+    // CORS och cache (bra även för WP-widget-sidor om du visar detta där)
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Access-Control-Allow-Methods", "GET,OPTIONS");
+    res.setHeader("Cache-Control", "s-maxage=60, stale-while-revalidate=300");
+
+    return res.status(200).json(payload);
   } catch (e: any) {
-    // Falla tillbaka till tomma data men svara 200 -> inget "HTTP 500" i UI
-    console.error("/api/dashboard/stats error:", e?.message || e);
-    return res.status(200).json(result);
+    console.error("/api/dashboard/stats error", e?.message || e);
+    return res.status(500).json({ error: "Internt fel" });
   }
 }
