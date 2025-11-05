@@ -1,38 +1,35 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { createClient } from "@supabase/supabase-js";
 
-/** Endast kolumner som vi VET finns (kräv inte city/country/created_at) */
+// Endast kolumner vi vet finns i din DB just nu.
+// Vi skickar city/country som null tills de kolumnerna läggs till.
 type TripRow = {
   id: string;
   title: string | null;
   subtitle: string | null;
-  hero_image: string | null;   // valfri
-  price_from: number | null;   // valfri
-  badge: string | null;        // valfri
-  ribbon: string | null;       // valfri
-  start_date: string | null;   // valfri, YYYY-MM-DD
+  hero_image: string | null;
+  price_from: number | null;
+  badge: string | null;
+  ribbon: string | null;
+  start_date: string | null;
+  published?: boolean | null;
 };
 
-type ApiOut = {
-  trips: Array<{
-    id: string;
-    title: string;
-    subtitle: string | null;
-    image: string | null;
-    city: string | null;       // levereras som null tills du skapat kolumnen
-    country: string | null;    // levereras som null tills du skapat kolumnen
-    price_from: number | null;
-    badge: string | null;
-    ribbon: string | null;
-    next_date: string | null;
-  }>;
+type WidgetTrip = {
+  id: string;
+  title: string;
+  subtitle: string | null;
+  image: string | null;
+  city: string | null;     // null tills kolumn finns
+  country: string | null;  // null tills kolumn finns
+  price_from: number | null;
+  badge: string | null;
+  ribbon: string | null;
+  next_date: string | null;
 };
 
-const REQUIRED_COLS =
-  "id,title,subtitle,hero_image,price_from,badge,ribbon,start_date";
-
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const SUPABASE_ANON = process.env.NEXT_PUBLIC_SUPABASE_KEY;
+const COLS =
+  "id,title,subtitle,hero_image,price_from,badge,ribbon,start_date,published";
 
 type Handler = (req: NextApiRequest, res: NextApiResponse) => Promise<void>;
 function withCors(handler: Handler): Handler {
@@ -48,8 +45,11 @@ function withCors(handler: Handler): Handler {
   };
 }
 
-async function handler(req: NextApiRequest, res: NextApiResponse) {
-  if (!SUPABASE_URL || !SUPABASE_ANON) {
+export default withCors(async function handler(req, res) {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const anon = process.env.NEXT_PUBLIC_SUPABASE_KEY;
+
+  if (!url || !anon) {
     res.status(500).json({ error: "Servern saknar Supabase-inställningar." });
     return;
   }
@@ -58,45 +58,31 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return;
   }
 
-  const supabase = createClient(SUPABASE_URL, SUPABASE_ANON);
-
+  const supabase = createClient(url, anon);
   const limit = Math.max(1, Math.min(24, Number(req.query.limit) || 6));
-  const orderByNextDate = (req.query.order as string | undefined) === "date";
-  const filterPublished = (req.query.published as string | undefined) !== "all";
 
-  // Bygg query – välj ENDAST kolumner som finns säkert
-  let q = supabase.from("trips").select(REQUIRED_COLS).limit(limit);
+  // Basfråga: välj enbart säkra kolumner, filtrera publicerade, sortera på id
+  let query = supabase.from("trips").select(COLS).eq("published", true).limit(limit);
+  query = query.order("id", { ascending: false });
 
-  if (filterPublished) q = q.eq("published", true).maybeSingle ? q : q; // tyst för TS
-  // sortera hellre på start_date (om finns) annars id – använd inte created_at
-  if (orderByNextDate) {
-    q = q.order("start_date", { ascending: true, nullsFirst: false });
-  } else {
-    q = q.order("id", { ascending: false });
-  }
-
-  const { data, error } = await q.returns<TripRow[]>();
+  const { data, error } = await query;
   if (error) {
     res.status(500).json({ error: error.message });
     return;
   }
 
-  const trips =
-    (data || []).map((t) => ({
-      id: t.id,
-      title: t.title ?? "—",
-      subtitle: t.subtitle ?? null,
-      image: t.hero_image ?? null,
-      city: null,                  // tills kolumnerna finns
-      country: null,               // tills kolumnerna finns
-      price_from: t.price_from ?? null,
-      badge: t.badge ?? null,
-      ribbon: t.ribbon ?? null,
-      next_date: t.start_date ?? null,
-    })) ?? [];
+  const trips: WidgetTrip[] = (data as TripRow[]).map((t) => ({
+    id: t.id,
+    title: t.title ?? "—",
+    subtitle: t.subtitle ?? null,
+    image: t.hero_image ?? null,
+    city: null,     // tills kolumn finns
+    country: null,  // tills kolumn finns
+    price_from: t.price_from ?? null,
+    badge: t.badge ?? null,
+    ribbon: t.ribbon ?? null,
+    next_date: t.start_date ?? null,
+  }));
 
-  const out: ApiOut = { trips };
-  res.status(200).json(out);
-}
-
-export default withCors(handler);
+  res.status(200).json({ trips });
+});
