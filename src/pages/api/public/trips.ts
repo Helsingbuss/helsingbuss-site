@@ -12,7 +12,7 @@ type TripRow = {
   country?: string | null;
   price_from?: number | null;
   ribbon?: string | null;
-  start_date?: string | null; // finns i vissa miljöer
+  start_date?: string | null;
 };
 
 type PublicTrip = {
@@ -28,10 +28,11 @@ type PublicTrip = {
   next_date: string | null;
 };
 
-function withCors(
-  handler: (req: NextApiRequest, res: NextApiResponse) => Promise<void>
-) {
-  return async (req, res) => {
+type Handler = (req: NextApiRequest, res: NextApiResponse) => Promise<void>;
+
+function withCors(handler: Handler): Handler {
+  // ❗️ Typa parametarna i den retur-funktion som tidigare saknade typer
+  return async (req: NextApiRequest, res: NextApiResponse) => {
     res.setHeader("Access-Control-Allow-Origin", "*");
     res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
     res.setHeader("Access-Control-Allow-Headers", "Content-Type");
@@ -45,14 +46,14 @@ function getEnv(name: string) {
 }
 
 function getSupabase(): SupabaseClient {
-  // Stöd både “server-” och “NEXT_PUBLIC-” och din SUPABASE_SERVICE_KEY
+  // Stöd både server- och NEXT_PUBLIC-variabler samt ditt SERVICE_KEY-namn
   const url =
     getEnv("SUPABASE_URL") ||
     getEnv("NEXT_PUBLIC_SUPABASE_URL");
 
   const key =
     getEnv("SUPABASE_SERVICE_ROLE_KEY") ||
-    getEnv("SUPABASE_SERVICE_KEY") ||        // <- ditt namn
+    getEnv("SUPABASE_SERVICE_KEY") ||        // ditt befintliga namn i Vercel
     getEnv("SUPABASE_ANON_KEY") ||
     getEnv("NEXT_PUBLIC_SUPABASE_KEY");
 
@@ -62,7 +63,7 @@ function getSupabase(): SupabaseClient {
   return createClient(url, key, { auth: { persistSession: false } });
 }
 
-function parseLimit(raw: any, fallback = 6) {
+function parseLimit(raw: unknown, fallback = 6) {
   const n = Number(raw);
   return Number.isFinite(n) ? Math.max(1, Math.min(50, Math.floor(n))) : fallback;
 }
@@ -74,9 +75,10 @@ export default withCors(async function handler(req: NextApiRequest, res: NextApi
 
     const BASE_COLS =
       "id,title,subtitle,hero_image,badge,city,country,price_from,ribbon";
+
     let data: TripRow[] | null = null;
 
-    // Försök med start_date, fallback utan om kolumn saknas
+    // Försök med start_date först, fall back om kolumnen saknas
     const trySelect = async (cols: string) =>
       supabase
         .from("trips")
@@ -96,7 +98,7 @@ export default withCors(async function handler(req: NextApiRequest, res: NextApi
       data = d1 || [];
     }
 
-    const trips: PublicTrip[] = data.map((t) => ({
+    const trips: PublicTrip[] = (data || []).map((t) => ({
       id: t.id,
       title: t.title ?? null,
       subtitle: t.subtitle ?? null,
