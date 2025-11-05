@@ -2,78 +2,78 @@ import { useState } from "react";
 import AdminMenu from "@/components/AdminMenu";
 import Header from "@/components/Header";
 
-type PriceMode = "pill" | "button";
-type PromoColor = "red" | "blue";
-type Category = "Flerdagarsresa" | "Dagsresa" | "Shoppingresa";
+type Dep = {
+  dep_date: string;  // YYYY-MM-DD
+  dep_time: string;  // HH:mm
+  line: string;
+  stops: string;     // komma-separerat i UI
+  price: string;
+  seats: string;
+  published: boolean;
+};
 
-export default function AdminNewTrip() {
-  const [title, setTitle] = useState("");
-  const [slug, setSlug] = useState("");
-  const [imageUrl, setImageUrl] = useState("");
-  const [category, setCategory] = useState<Category | "">("");
-
-  const [promoEnabled, setPromoEnabled] = useState(false);
-  const [promoText, setPromoText] = useState("");
-  const [promoColor, setPromoColor] = useState<PromoColor>("red");
-
-  const [heading, setHeading] = useState("");
-  const [body, setBody] = useState("");
-  const [introTitle, setIntroTitle] = useState("");
-  const [introSub, setIntroSub] = useState("");
-
-  const [priceMode, setPriceMode] = useState<PriceMode>("pill");
-  const [priceFrom, setPriceFrom] = useState<string>("");
-  const [pricePrefix, setPricePrefix] = useState("fr.");
-  const [priceSuffix, setPriceSuffix] = useState(":-");
-  const [buttonLabel, setButtonLabel] = useState("Se datum & boka");
-
-  const [published, setPublished] = useState(true);
-  const [msg, setMsg] = useState<string | null>(null);
-  const [err, setErr] = useState<string | null>(null);
+export default function NewTrip() {
   const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState<string|null>(null);
+  const [err, setErr] = useState<string|null>(null);
 
-  function autoSlug(v: string) {
-    setTitle(v);
-    if (!slug) {
-      const s = v
-        .toLowerCase()
-        .replace(/[^a-z0-9åäö\- ]/gi, "")
-        .replace(/\s+/g, "-")
-        .replace(/-+/g, "-");
-      setSlug(s);
-    }
+  const [title, setTitle] = useState("");
+  const [subtitle, setSubtitle] = useState("");
+  const [teaser, setTeaser] = useState("");
+  const [hero, setHero] = useState("");
+  const [priceFrom, setPriceFrom] = useState("");
+  const [badge, setBadge] = useState("");
+  const [ribbon, setRibbon] = useState("");
+  const [published, setPublished] = useState(true);
+
+  const [deps, setDeps] = useState<Dep[]>([
+    { dep_date: "", dep_time: "", line: "", stops: "", price: "", seats: "", published: true }
+  ]);
+
+  function addRow() {
+    setDeps(d => [...d, { dep_date: "", dep_time: "", line: "", stops: "", price: "", seats: "", published: true }]);
+  }
+  function delRow(i: number) {
+    setDeps(d => d.filter((_,ix)=>ix!==i));
+  }
+  function updRow(i:number, k:keyof Dep, v:any) {
+    setDeps(d => d.map((r,ix)=>ix===i? {...r, [k]: v} : r));
   }
 
   async function submit() {
-    setMsg(null); setErr(null); setSaving(true);
+    setSaving(true); setMsg(null); setErr(null);
     try {
       const payload = {
-        title, slug,
-        image_url: imageUrl,
-        category: category || null,
-        promo_enabled: promoEnabled,
-        promo_text: promoText || null,
-        promo_color: promoColor,
-        heading: heading || null,
-        body: body || null,
-        intro_title: introTitle || null,
-        intro_sub: introSub || null,
-        price_mode: priceMode,
-        price_from: priceMode === "pill" ? (priceFrom ? Number(priceFrom) : null) : null,
-        price_prefix: priceMode === "pill" ? pricePrefix : null,
-        price_suffix: priceMode === "pill" ? priceSuffix : null,
-        button_label: priceMode === "button" ? buttonLabel : null,
+        title,
+        subtitle: subtitle || null,
+        teaser: teaser || null,
+        hero_image: hero || null,
+        price_from: priceFrom ? Number(priceFrom) : null,
+        badge: badge || null,
+        ribbon: ribbon || null,
         published,
+        departures: deps
+          .filter(d => d.dep_date)
+          .map(d => ({
+            dep_date: d.dep_date,
+            dep_time: d.dep_time || null,
+            line: d.line || null,
+            stops: d.stops ? d.stops.split(",").map(s=>s.trim()).filter(Boolean) : [],
+            price: d.price ? Number(d.price) : null,
+            seats: d.seats ? Number(d.seats) : null,
+            published: d.published
+          }))
       };
+
       const r = await fetch("/api/trips/create", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+        body: JSON.stringify(payload)
       });
       const j = await r.json();
-      if (!r.ok || !j?.ok) throw new Error(j?.error || "Kunde inte spara");
-      setMsg("Resan sparad ✅");
-    } catch (e: any) {
+      if (!r.ok || !j?.ok) throw new Error(j?.error || "Kunde inte skapa resan");
+      setMsg("Resan är skapad!");
+    } catch (e:any) {
       setErr(e?.message || "Tekniskt fel");
     } finally {
       setSaving(false);
@@ -88,138 +88,100 @@ export default function AdminNewTrip() {
         <main className="p-6 space-y-6">
           <h1 className="text-xl font-semibold text-[#194C66]">Lägg upp resa</h1>
 
+          {err && <div className="bg-red-50 text-red-700 px-4 py-2 rounded">{err}</div>}
+          {msg && <div className="bg-green-50 text-green-700 px-4 py-2 rounded">{msg}</div>}
+
           <div className="bg-white rounded-xl shadow p-4 space-y-4">
-            {msg && <div className="rounded bg-green-50 border border-green-200 text-green-800 p-3">{msg}</div>}
-            {err && <div className="rounded bg-red-50 border border-red-200 text-red-700 p-3">{err}</div>}
+            <div className="grid md:grid-cols-2 gap-4">
+              <div>
+                <label className="text-sm text-[#194C66]/70">Titel</label>
+                <input className="border rounded px-3 py-2 w-full" value={title} onChange={e=>setTitle(e.target.value)} />
+              </div>
+              <div>
+                <label className="text-sm text-[#194C66]/70">Underrubrik</label>
+                <input className="border rounded px-3 py-2 w-full" value={subtitle} onChange={e=>setSubtitle(e.target.value)} />
+              </div>
+              <div className="md:col-span-2">
+                <label className="text-sm text-[#194C66]/70">Teaser / ingress (visas i kortet)</label>
+                <textarea className="border rounded px-3 py-2 w-full min-h-[90px]" value={teaser} onChange={e=>setTeaser(e.target.value)} />
+              </div>
+              <div>
+                <label className="text-sm text-[#194C66]/70">Bild-URL</label>
+                <input className="border rounded px-3 py-2 w-full" value={hero} onChange={e=>setHero(e.target.value)} />
+              </div>
+              <div>
+                <label className="text-sm text-[#194C66]/70">Pris från (SEK)</label>
+                <input className="border rounded px-3 py-2 w-full" value={priceFrom} onChange={e=>setPriceFrom(e.target.value)} />
+              </div>
+              <div>
+                <label className="text-sm text-[#194C66]/70">Badge (liten text under)</label>
+                <input className="border rounded px-3 py-2 w-full" value={badge} onChange={e=>setBadge(e.target.value)} />
+              </div>
+              <div>
+                <label className="text-sm text-[#194C66]/70">Ribbon (röd banderoll över bild)</label>
+                <input className="border rounded px-3 py-2 w-full" value={ribbon} onChange={e=>setRibbon(e.target.value)} />
+              </div>
+              <div className="flex items-center gap-2">
+                <input id="pub" type="checkbox" checked={published} onChange={e=>setPublished(e.target.checked)} />
+                <label htmlFor="pub" className="text-sm text-[#194C66]">Publicerad</label>
+              </div>
+            </div>
 
-            {/* Grunddata */}
-            <section className="grid md:grid-cols-2 gap-4">
-              <label className="text-sm">
-                Titel
-                <input className="mt-1 w-full border rounded px-2 py-1"
-                  value={title} onChange={(e)=>autoSlug(e.target.value)} />
-              </label>
-              <label className="text-sm">
-                Slug (URL)
-                <input className="mt-1 w-full border rounded px-2 py-1"
-                  value={slug} onChange={(e)=>setSlug(e.target.value)} />
-              </label>
-              <label className="text-sm">
-                Bild-URL
-                <input className="mt-1 w-full border rounded px-2 py-1"
-                  value={imageUrl} onChange={(e)=>setImageUrl(e.target.value)} />
-              </label>
-              <label className="text-sm">
-                Kategori
-                <select className="mt-1 w-full border rounded px-2 py-1"
-                  value={category} onChange={(e)=>setCategory(e.target.value as Category)}>
-                  <option value="">—</option>
-                  <option>Flerdagarsresa</option>
-                  <option>Dagsresa</option>
-                  <option>Shoppingresa</option>
-                </select>
-              </label>
-            </section>
+            {/* Avgångar */}
+            <div className="pt-4 border-t">
+              <div className="text-[#194C66] font-semibold mb-2">Avgångar</div>
+              <div className="overflow-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-left text-[#194C66]/70">
+                      <th className="py-2 pr-2">Datum</th>
+                      <th className="py-2 pr-2">Tid</th>
+                      <th className="py-2 pr-2">Linje</th>
+                      <th className="py-2 pr-2">Hållplatser (komma-separerat)</th>
+                      <th className="py-2 pr-2">Pris</th>
+                      <th className="py-2 pr-2">Platser</th>
+                      <th className="py-2 pr-2">Publ.</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {deps.map((r, i) => (
+                      <tr key={i} className="border-t">
+                        <td className="py-2 pr-2">
+                          <input type="date" className="border rounded px-2 py-1" value={r.dep_date} onChange={e=>updRow(i,"dep_date",e.target.value)} />
+                        </td>
+                        <td className="py-2 pr-2">
+                          <input type="time" className="border rounded px-2 py-1" value={r.dep_time} onChange={e=>updRow(i,"dep_time",e.target.value)} />
+                        </td>
+                        <td className="py-2 pr-2">
+                          <input className="border rounded px-2 py-1" value={r.line} onChange={e=>updRow(i,"line",e.target.value)} />
+                        </td>
+                        <td className="py-2 pr-2">
+                          <input className="border rounded px-2 py-1 w-[320px]" value={r.stops} onChange={e=>updRow(i,"stops",e.target.value)} />
+                        </td>
+                        <td className="py-2 pr-2">
+                          <input className="border rounded px-2 py-1 w-[90px]" value={r.price} onChange={e=>updRow(i,"price",e.target.value)} />
+                        </td>
+                        <td className="py-2 pr-2">
+                          <input className="border rounded px-2 py-1 w-[70px]" value={r.seats} onChange={e=>updRow(i,"seats",e.target.value)} />
+                        </td>
+                        <td className="py-2 pr-2">
+                          <input type="checkbox" checked={r.published} onChange={e=>updRow(i,"published",e.target.checked)} />
+                        </td>
+                        <td className="py-2 pr-2">
+                          <button className="text-[#B91C1C]" onClick={()=>delRow(i)}>Ta bort</button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <button className="mt-3 px-3 py-2 rounded border" onClick={addRow}>+ Lägg till rad</button>
+            </div>
 
-            {/* Kampanj */}
-            <section className="grid md:grid-cols-2 gap-4">
-              <label className="text-sm flex items-center gap-2">
-                <input type="checkbox" checked={promoEnabled} onChange={e=>setPromoEnabled(e.target.checked)} />
-                Visa kampanjbanderoll på bilden
-              </label>
-              <label className="text-sm">
-                Färg
-                <select className="mt-1 w-full border rounded px-2 py-1"
-                  value={promoColor} onChange={(e)=>setPromoColor(e.target.value as any)}>
-                  <option value="red">Röd</option>
-                  <option value="blue">Blå</option>
-                </select>
-              </label>
-              <label className="text-sm md:col-span-2">
-                Kampanj-text (t.ex. ”Spara upp till 13 702:-”)
-                <input className="mt-1 w-full border rounded px-2 py-1"
-                  value={promoText} onChange={(e)=>setPromoText(e.target.value)} />
-              </label>
-            </section>
-
-            {/* Texter */}
-            <section className="grid md:grid-cols-2 gap-4">
-              <label className="text-sm">
-                Rubrik i body (valfritt)
-                <input className="mt-1 w-full border rounded px-2 py-1"
-                  value={heading} onChange={(e)=>setHeading(e.target.value)} />
-              </label>
-              <label className="text-sm">
-                Intro vänster titel (t.ex. ”All Inclusive”)
-                <input className="mt-1 w-full border rounded px-2 py-1"
-                  value={introTitle} onChange={(e)=>setIntroTitle(e.target.value)} />
-              </label>
-              <label className="text-sm md:col-span-2">
-                Brödtext (kort)
-                <textarea className="mt-1 w-full border rounded px-2 py-2 min-h-[90px]"
-                  value={body} onChange={(e)=>setBody(e.target.value)} />
-              </label>
-              <label className="text-sm md:col-span-2">
-                Intro vänster underrad (t.ex. ”1 vecka …”)
-                <input className="mt-1 w-full border rounded px-2 py-1"
-                  value={introSub} onChange={(e)=>setIntroSub(e.target.value)} />
-              </label>
-            </section>
-
-            {/* Pris / knapp */}
-            <section className="grid md:grid-cols-2 gap-4">
-              <label className="text-sm">
-                Högersektion
-                <select className="mt-1 w-full border rounded px-2 py-1"
-                  value={priceMode} onChange={(e)=>setPriceMode(e.target.value as PriceMode)}>
-                  <option value="pill">Pris-piller (som bilden)</option>
-                  <option value="button">Knapp</option>
-                </select>
-              </label>
-
-              {priceMode === "pill" ? (
-                <>
-                  <label className="text-sm">
-                    Pris från
-                    <input className="mt-1 w-full border rounded px-2 py-1"
-                      type="number" inputMode="numeric"
-                      value={priceFrom} onChange={(e)=>setPriceFrom(e.target.value)} />
-                  </label>
-                  <label className="text-sm">
-                    Prefix
-                    <input className="mt-1 w-full border rounded px-2 py-1"
-                      value={pricePrefix} onChange={(e)=>setPricePrefix(e.target.value)} />
-                  </label>
-                  <label className="text-sm">
-                    Suffix
-                    <input className="mt-1 w-full border rounded px-2 py-1"
-                      value={priceSuffix} onChange={(e)=>setPriceSuffix(e.target.value)} />
-                  </label>
-                </>
-              ) : (
-                <label className="text-sm md:col-span-2">
-                  Knapptext
-                  <input className="mt-1 w-full border rounded px-2 py-1"
-                    value={buttonLabel} onChange={(e)=>setButtonLabel(e.target.value)} />
-                </label>
-              )}
-            </section>
-
-            {/* Publicering */}
-            <section className="grid md:grid-cols-2 gap-4">
-              <label className="text-sm flex items-center gap-2">
-                <input type="checkbox" checked={published} onChange={(e)=>setPublished(e.target.checked)} />
-                Publicerad
-              </label>
-            </section>
-
-            <div className="pt-2">
-              <button
-                onClick={submit}
-                disabled={saving}
-                className="px-5 py-2 rounded-[25px] bg-[#194C66] text-white text-sm disabled:opacity-60"
-              >
-                {saving ? "Sparar…" : "Spara resan"}
+            <div className="pt-4 flex gap-3">
+              <button disabled={saving} onClick={submit} className="px-5 py-2 rounded-[25px] bg-[#194C66] text-white disabled:opacity-60">
+                {saving ? "Sparar…" : "Spara resa"}
               </button>
             </div>
           </div>

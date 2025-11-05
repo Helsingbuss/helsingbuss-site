@@ -1,88 +1,141 @@
-import type { NextApiRequest, NextApiResponse } from "next";
-import { createClient } from "@supabase/supabase-js";
+// /public/widget/trips.js
+(function () {
+  function $(sel) { return document.querySelector(sel); }
+  function css(el, styles) { Object.assign(el.style, styles || {}); return el; }
 
-// Endast kolumner vi vet finns i din DB just nu.
-// Vi skickar city/country som null tills de kolumnerna läggs till.
-type TripRow = {
-  id: string;
-  title: string | null;
-  subtitle: string | null;
-  hero_image: string | null;
-  price_from: number | null;
-  badge: string | null;
-  ribbon: string | null;
-  start_date: string | null;
-  published?: boolean | null;
-};
+  function kr(n) {
+    if (n == null) return "—";
+    try { return Number(n).toLocaleString("sv-SE") + " kr"; } catch { return n + " kr"; }
+  }
 
-type WidgetTrip = {
-  id: string;
-  title: string;
-  subtitle: string | null;
-  image: string | null;
-  city: string | null;     // null tills kolumn finns
-  country: string | null;  // null tills kolumn finns
-  price_from: number | null;
-  badge: string | null;
-  ribbon: string | null;
-  next_date: string | null;
-};
-
-const COLS =
-  "id,title,subtitle,hero_image,price_from,badge,ribbon,start_date,published";
-
-type Handler = (req: NextApiRequest, res: NextApiResponse) => Promise<void>;
-function withCors(handler: Handler): Handler {
-  return async (req, res) => {
-    res.setHeader("Access-Control-Allow-Origin", "*");
-    res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
-    res.setHeader("Access-Control-Allow-Headers", "Content-Type");
-    if (req.method === "OPTIONS") {
-      res.status(200).end();
-      return;
+  function el(tag, props, children) {
+    const x = document.createElement(tag);
+    if (props) for (const k in props) {
+      if (k === "class") x.className = props[k];
+      else if (k === "style") Object.assign(x.style, props[k]);
+      else x.setAttribute(k, props[k]);
     }
-    await handler(req, res);
-  };
-}
-
-export default withCors(async function handler(req, res) {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const anon = process.env.NEXT_PUBLIC_SUPABASE_KEY;
-
-  if (!url || !anon) {
-    res.status(500).json({ error: "Servern saknar Supabase-inställningar." });
-    return;
-  }
-  if (req.method !== "GET") {
-    res.status(405).json({ error: "Endast GET stöds." });
-    return;
+    (children || []).forEach(c => x.appendChild(typeof c === "string" ? document.createTextNode(c) : c));
+    return x;
   }
 
-  const supabase = createClient(url, anon);
-  const limit = Math.max(1, Math.min(24, Number(req.query.limit) || 6));
+  function card(item, linkBase) {
+    const href = (linkBase || "/trip/") + item.id;
 
-  // Basfråga: välj enbart säkra kolumner, filtrera publicerade, sortera på id
-  let query = supabase.from("trips").select(COLS).eq("published", true).limit(limit);
-  query = query.order("id", { ascending: false });
+    const wrap = el("a", { href, style:{
+      display:"block", textDecoration:"none", color:"#0f172a"
+    }});
 
-  const { data, error } = await query;
-  if (error) {
-    res.status(500).json({ error: error.message });
-    return;
+    // Bild
+    const imgBox = el("div", { style:{
+      position:"relative", overflow:"hidden",
+      borderRadius:"16px", boxShadow:"0 8px 24px rgba(0,0,0,0.08)",
+      height:"220px", background:"#e5e7eb"
+    }});
+    if (item.image) {
+      const img = el("img",{ src:item.image, alt:item.title||"", style:{
+        width:"100%", height:"100%", objectFit:"cover", display:"block"
+      }});
+      imgBox.appendChild(img);
+    }
+
+    // Ribbon
+    if (item.ribbon) {
+      const rib = el("div", { style:{
+        position:"absolute", top:"16px", left:"-12px", transform:"rotate(-9deg)",
+        padding:"10px 18px", background:"#ef4444", color:"#fff", fontWeight:"700",
+        boxShadow:"0 4px 12px rgba(0,0,0,.15)", borderRadius:"6px"
+      }}, [ item.ribbon ]);
+      imgBox.appendChild(rib);
+    }
+
+    // Body
+    const body = el("div", { style:{
+      background:"#fff", borderRadius:"16px", marginTop:"10px", padding:"16px",
+      boxShadow:"0 8px 24px rgba(0,0,0,0.06)"
+    }});
+
+    const title = el("div", { style:{fontSize:"18px", fontWeight:"700", marginBottom:"6px", color:"#0f172a"}}, [ item.title || "—" ]);
+    const sub   = el("div", { style:{fontSize:"14px", color:"#334155", minHeight:"38px"}}, [ item.subtitle || item.teaser || "" ]);
+    const line  = el("div", { style:{display:"flex", alignItems:"center", justifyContent:"space-between", marginTop:"12px"}}, [
+      el("span", { style:{
+        fontSize:"14px", background:"#fff1f2", color:"#9f1239",
+        borderRadius:"999px", padding:"6px 10px", fontWeight:"700"
+      }}, [ "fr. ", kr(item.price_from) ]),
+      el("span", { style:{
+        fontSize:"14px", background:"#194C66", color:"#fff",
+        borderRadius:"999px", padding:"8px 14px", fontWeight:"600"
+      }}, [ "Se datum & boka" ])
+    ]);
+
+    if (item.badge) {
+      const badge = el("div", { style:{marginTop:"8px", fontSize:"12px", color:"#194C66", opacity:.7}}, [ item.badge ]);
+      body.appendChild(badge);
+    }
+
+    body.appendChild(title);
+    body.appendChild(sub);
+    body.appendChild(line);
+
+    wrap.appendChild(imgBox);
+    wrap.appendChild(body);
+
+    return wrap;
   }
 
-  const trips: WidgetTrip[] = (data as TripRow[]).map((t) => ({
-    id: t.id,
-    title: t.title ?? "—",
-    subtitle: t.subtitle ?? null,
-    image: t.hero_image ?? null,
-    city: null,     // tills kolumn finns
-    country: null,  // tills kolumn finns
-    price_from: t.price_from ?? null,
-    badge: t.badge ?? null,
-    ribbon: t.ribbon ?? null,
-    next_date: t.start_date ?? null,
-  }));
+  function render(container, items, cols, linkBase) {
+    container.innerHTML = "";
+    const grid = el("div", { style:{
+      display:"grid",
+      gridTemplateColumns:`repeat(${cols}, minmax(0,1fr))`,
+      gap:"20px"
+    }});
+    items.forEach(it => grid.appendChild(card(it, linkBase)));
+    container.appendChild(grid);
+  }
 
-  res.status(200).json({ trips });
-});
+  async function boot() {
+    const host = document.getElementById("hb-trips");
+    if (!host) return;
+
+    const api = (host.getAttribute("data-api") || "").replace(/\/$/, "");
+    const limit = Number(host.getAttribute("data-limit") || 6);
+    const cols  = Math.max(1, Math.min(5, Number(host.getAttribute("data-columns") || 3)));
+    const linkBase = (host.getAttribute("data-link-base") || "/trip/").replace(/\/?$/, "/");
+
+    // Liten loader
+    host.innerHTML = `<div style="padding:12px;color:#194C66">Laddar resor…</div>`;
+
+    try {
+      const r = await fetch(`${api}/api/public/trips?limit=${limit}`);
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const j = await r.json();
+
+      // Mappa till widgetens förväntade nycklar
+      const items = (j.trips || []).map(t => ({
+        id: t.id,
+        title: t.title,
+        subtitle: t.subtitle || t.teaser || "",
+        image: t.image || t.hero_image || null,
+        price_from: t.price_from ?? null,
+        badge: t.badge || null,
+        ribbon: t.ribbon || null
+      }));
+
+      if (!items.length) {
+        host.innerHTML = `<div style="padding:12px;color:#B91C1C">Inga resor hittades.</div>`;
+        return;
+      }
+      render(host, items, cols, linkBase);
+    } catch (e) {
+      host.innerHTML = `<div style="padding:12px;color:#B91C1C">Kunde inte hämta resor.</div>`;
+      console.error("HB Widget:", e);
+    }
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", boot);
+  } else {
+    boot();
+  }
+})();

@@ -1,44 +1,58 @@
 import type { NextApiRequest, NextApiResponse } from "next";
-import * as admin from "@/lib/supabaseAdmin";
-const supabase = (admin as any).supabaseAdmin || (admin as any).supabase || (admin as any).default;
+import { createClient } from "@supabase/supabase-js";
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
+  if (req.method !== "POST") return res.status(405).json({ error: "Endast POST" });
+
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+  const service = process.env.SUPABASE_SERVICE_KEY!;
+  if (!url || !service) return res.status(500).json({ error: "Saknar server-nyckel" });
+
+  const sb = createClient(url, service);
+
   try {
     const {
-      title, slug, image_url,
-      category,
-      promo_enabled, promo_text, promo_color,
-      heading, body, intro_title, intro_sub,
-      price_mode, price_from, price_prefix, price_suffix, button_label,
-      published = true,
+      title, subtitle, teaser, hero_image, price_from, badge, ribbon, published = true,
+      departures = []
     } = req.body || {};
 
-    if (!title || !slug) return res.status(400).json({ error: "title och slug krävs" });
+    if (!title || typeof title !== "string") throw new Error("Titel krävs");
 
-    const payload = {
-      title, slug, image_url: image_url || null,
-      category: category || null,
-      promo_enabled: !!promo_enabled,
-      promo_text: promo_text || null,
-      promo_color: promo_color === "blue" ? "blue" : "red",
-      heading: heading || null,
-      body: body || null,
-      intro_title: intro_title || null,
-      intro_sub: intro_sub || null,
-      price_mode: price_mode === "button" ? "button" : "pill",
-      price_from: price_from != null && price_from !== "" ? Number(price_from) : null,
-      price_prefix: price_prefix ?? "fr.",
-      price_suffix: price_suffix ?? ":-",
-      button_label: button_label ?? "Se datum & boka",
-      published: !!published,
-    };
+    const { data: trip, error } = await sb
+      .from("trips")
+      .insert([{
+        title,
+        subtitle,
+        teaser,
+        hero_image,
+        price_from,
+        badge,
+        ribbon,
+        published
+      }])
+      .select("id")
+      .single();
 
-    const { data, error } = await supabase.from("trips").insert(payload).select().single();
     if (error) throw error;
-    return res.status(200).json({ ok: true, trip: data });
+    const tripId = trip!.id;
+
+    if (Array.isArray(departures) && departures.length) {
+      const rows = departures.map((d: any) => ({
+        trip_id: tripId,
+        dep_date: d.dep_date,
+        dep_time: d.dep_time || null,
+        line: d.line || null,
+        stops: Array.isArray(d.stops) ? d.stops : [],
+        price: d.price ?? null,
+        seats: d.seats ?? null,
+        published: d.published !== false
+      }));
+      const { error: dErr } = await sb.from("trip_departures").insert(rows);
+      if (dErr) throw dErr;
+    }
+
+    return res.status(200).json({ ok: true, id: tripId });
   } catch (e: any) {
-    console.error("/api/trips/create error", e);
-    return res.status(500).json({ error: e?.message || "Serverfel" });
+    return res.status(400).json({ error: e?.message || "Kunde inte spara" });
   }
 }
