@@ -1,3 +1,4 @@
+// src/pages/api/public/trips/index.ts
 import type { NextApiRequest, NextApiResponse } from "next";
 import * as admin from "@/lib/supabaseAdmin";
 const supabase =
@@ -10,119 +11,109 @@ function setCORS(res: NextApiResponse) {
   res.setHeader("Cache-Control", "s-maxage=60, stale-while-revalidate=300");
 }
 
-type TripRow = {
-  id: string;
-  title: string;
-  subtitle: string | null;
-  // OBS: vi försöker båda namnen – ta det som finns i din DB:
-  summary?: string | null;        // “Kort om resan” (om du döpt fältet så)
-  description?: string | null;    // alternativt namn
-  hero_image: string | null;
-  ribbon: string | null;
-  badge: string | null;           // liten tag (valfritt)
-  trip_kind?: string | null;      // huvudsaklig kategori
-  tags?: string[] | null;         // flera kategorier (valfritt text[])
-  city: string | null;
-  country: string | null;
-  price_from: number | null;
-  year: number | null;
-  external_url: string | null;
-};
-
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   setCORS(res);
   if (req.method === "OPTIONS") return res.status(200).end();
   if (req.method !== "GET") return res.status(405).json({ ok: false, error: "Method not allowed" });
 
-  const limit = Math.max(1, Math.min(50, Number(req.query.limit) || 6));
+  const limit = Math.max(1, Math.min(Number(req.query.limit ?? 6) || 6, 24));
 
   try {
     // 1) Hämta publicerade resor
-    const { data, error } = await supabase
+    const { data: trips, error: tripsErr } = await supabase
       .from("trips")
       .select(
         [
           "id",
           "title",
           "subtitle",
-          "summary",        // om fältet finns
-          "description",    // fallback om du använt detta namn
-          "hero_image",
+          "hero_image:image",
           "ribbon",
           "badge",
-          "trip_kind",
-          "tags",
           "city",
           "country",
           "price_from",
           "year",
           "external_url",
+          "summary",
+          "trip_kind",
+          "categories",
         ].join(",")
       )
       .eq("published", true)
       .order("created_at", { ascending: false })
       .limit(limit);
 
-    if (error) throw error;
+    if (tripsErr) throw tripsErr;
 
-    const ids = (data || []).map((r: TripRow) => r.id);
-    let nextDates: Record<string, string | null> = {};
+    // 2) Slå upp nästa avgång per resa (tål olika kolumnnamn)
+    // Vi använder COALESCE över de varianter som kan finnas och filtrerar mot dagens datum.
+    const out = [];
+    for (const t of trips || []) {
+      let next_date: string | null = null;
 
-    // 2) Hämta närmsta avgång per resa (kolumnen heter hos dig "date")
-    if (ids.length) {
-      const { data: dep, error: derr } = await supabase
-        .from("trip_departures")
-        .select("trip_id,date") // <= viktigt: 'date' matchar din tabell
-        .in("trip_id", ids)
-        .order("date", { ascending: true });
+      const { data: dep, error: depErr } = await supabase
+        .rpc("exec_sql", {
+          // Kräver Postgres-funktion exec_sql i din instans. Om du inte har den:
+          // byt till en vanlig select på trip_departures och hantera i JS (se kommentar nedan).
+          sql: `
+            SELECT to_char(MIN(d), 'YYYY-MM-DD') AS next_date FROM (
+              SELECT
+                CASE
+                  WHEN depart_date IS NOT NULL THEN depart_date
+                  WHEN dep_date     IS NOT NULL THEN dep_date
+                  WHEN date         IS NOT NULL THEN date
+                  ELSE NULL
+                END AS d
+              FROM trip_departures
+              WHERE trip_id = $1
+            ) s
+            WHERE d IS NOT NULL AND d >= CURRENT_DATE
+          `,
+          params: [t.id],
+        } as any);
 
-      if (derr) throw derr;
-
-      for (const row of dep || []) {
-        const tid = row.trip_id as string;
-        const d = row.date as string | null;
-        if (!d) continue;
-        if (!nextDates[tid]) nextDates[tid] = d; // första (tidigaste)
+      if (!depErr && dep && dep[0]?.next_date) {
+        next_date = dep[0].next_date;
+      } else {
+        // Fallback utan exec_sql: enkel SELECT och JS-beräkning
+        const { data: plain, error: plainErr } = await supabase
+          .from("trip_departures")
+          .select("depart_date, dep_date, date")
+          .eq("trip_id", t.id);
+        if (!plainErr && plain?.length) {
+          const dates = plain
+            .map((r: any) => r.depart_date || r.dep_date || r.date || null)
+            .filter(Boolean)
+            .map((d: string) => new Date(d))
+            .filter(d => !isNaN(d.getTime()) && d >= new Date(new Date().toDateString()))
+            .sort((a, b) => a.getTime() - b.getTime());
+          if (dates[0]) next_date = dates[0].toISOString().slice(0, 10);
+        }
       }
+
+      out.push({
+        id: t.id,
+        title: t.title,
+        subtitle: t.subtitle,
+        image: t.hero_image,
+        ribbon: t.ribbon,
+        badge: t.badge,             // eller här kan du kombinera trip_kind + categories om du vill
+        city: t.city,
+        country: t.country,
+        price_from: t.price_from,
+        year: t.year,
+        external_url: t.external_url,
+        summary: t.summary,         // <- beskrivningen följer nu med
+        trip_kind: t.trip_kind,
+        categories: t.categories,
+        next_date,
+      });
     }
 
-    // 3) Mappa till widget-format
-    const trips = (data || []).map((r: TripRow) => {
-      // beskrivning: summary → description → null
-      const description = (r.summary ?? r.description ?? null) as string | null;
-
-      // kategorier (piller): kombinera trip_kind + tags (unika, sanningsvärde)
-      const cats = [
-        r.trip_kind || "",
-        ...(Array.isArray(r.tags) ? r.tags : []),
-      ]
-        .map(s => (s || "").trim())
-        .filter(Boolean);
-
-      const uniqCats = Array.from(new Set(cats));
-
-      return {
-        id: r.id,
-        title: r.title,
-        subtitle: r.subtitle,
-        description,                 // <- NYCKELN som widgeten visar
-        image: r.hero_image,
-        ribbon: r.ribbon,
-        badge: r.badge,              // kvar om du använder den
-        trip_kind: r.trip_kind,      // huvudsaklig kategori
-        categories: uniqCats,        // flera kategorier
-        city: r.city,
-        country: r.country,
-        price_from: r.price_from,
-        year: r.year,
-        external_url: r.external_url,
-        next_date: nextDates[r.id] || null,
-      };
-    });
-
-    return res.status(200).json({ ok: true, trips });
+    return res.status(200).json({ ok: true, trips: out });
   } catch (e: any) {
     console.error("/api/public/trips error:", e?.message || e);
-    return res.status(500).json({ ok: false, error: e?.message || "Server error" });
+    return res.status(200).json({ ok: false, error: e?.message || "Server error" });
   }
 }
