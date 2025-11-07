@@ -1,5 +1,4 @@
-﻿// src/pages/admin/drivers/index.tsx
-import { useEffect, useState } from "react";
+﻿import { useEffect, useState } from "react";
 import AdminMenu from "@/components/AdminMenu";
 import Header from "@/components/Header";
 import DriverStatusPill, { toDocTag, type DocTag } from "@/components/drivers/DriverStatusPill";
@@ -70,7 +69,7 @@ export default function DriversListPage() {
     if (expSoon) params.set("expireInDays", String(expSoon)); // API-param: expireInDays
     params.set("page", String(page));
     params.set("pageSize", String(pageSize));
-    return `/api/drivers/list?${params.toString()}`;
+    return /api/drivers/list?;
   }
 
   async function load() {
@@ -80,7 +79,7 @@ export default function DriversListPage() {
       const j: { rows: APIRow[]; total: number } = await res.json();
 
       const mapped: Row[] = (j?.rows ?? []).map((d) => {
-        const name = `${d.first_name ?? ""} ${d.last_name ?? ""}`.trim() || "(Namn saknas)";
+        const name = ${d.first_name ?? ""} .trim() || "(Namn saknas)";
         const phone = d.phone ?? "—";
         const email = d.email ?? "—";
         const license_classes = d.license_classes ?? [];
@@ -88,7 +87,7 @@ export default function DriversListPage() {
         const updated_at = d.updated_at ?? null;
         const docStatus = computeDocStatus(d.docs_expire_at);
 
-        // Skulle API:t i framtiden skicka en egen tag med mojibake, normalisera här:
+        // Normalisera eventuell mojibake som "snart (â‰¤30d)" -> "snart (≤30d)"
         const normalizedTag = toDocTag(docStatus.tag);
 
         return {
@@ -268,7 +267,7 @@ export default function DriversListPage() {
                       className="border-b last:border-b-0 border-[#E5E7EB]/80 hover:bg-[#194C66]/5"
                     >
                       <td className="px-4 py-3">
-                        <Link href={`/admin/drivers/${r.id}`} className="font-semibold underline">
+                        <Link href={/admin/drivers/} className="font-semibold underline">
                           {r.name}
                         </Link>
                       </td>
@@ -322,4 +321,3 @@ export default function DriversListPage() {
     </>
   );
 }
-
