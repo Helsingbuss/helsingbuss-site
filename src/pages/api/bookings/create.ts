@@ -11,8 +11,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   try {
     const p = req.body ?? {};
 
-    // Antag att booking_number redan sÃ¤tts server-side (trigger/procedur) eller hÃ¤r:
-    // Om saknas, skapa enkelt nummer BK{YY}{random} â€“ byt gÃ¤rna mot ditt riktiga sekvensflÃ¶de.
+    // Antag att booking_number redan sätts server-side (trigger/procedur) eller här:
+    // Om saknas, skapa enkelt nummer BK{YY}{random} – byt gärna mot ditt riktiga sekvensflöde.
     let booking_number: string | null = p.booking_number || null;
     if (!booking_number) {
       const yy = new Date().getFullYear().toString().slice(-2);
@@ -46,7 +46,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       // interna
       assigned_vehicle_id: toNull(p.assigned_vehicle_id),
       assigned_driver_id: toNull(p.assigned_driver_id),
-      // Ã¶vrigt
+      // övrigt
       notes: toNull(p.notes),
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
@@ -60,23 +60,24 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     if (error) throw error;
 
-    // FÃ¶rsÃ¶k skicka bokningsbekrÃ¤ftelse (icke-blockerande)
+    // Försök skicka bokningsbekräftelse (icke-blockerande)
     (async () => {
       try {
         if (data?.customer_email) {
           await sendBookingMail({
-  to: data.customer_email,
-  bookingNumber: data.booking_number,
-  event: "created",
-  passengers: data.passengers ?? null,
+            to: data.customer_email,
+            bookingNumber: data.booking_number, // DB: booking_number -> typ: bookingNumber
+            event: "created",
+            passengers: data.passengers ?? null,
 
-  // ev. platta fält från formulär
-  from:    (data.from ?? null) as string | null,
-  toPlace: (data.toPlace ?? null) as string | null,
-  date:    (data.date ?? null) as string | null,
-  time:    (data.time ?? null) as string | null,
-  notes:   (data.notes ?? null) as string | null,
-});}
+            // Mappning från dina befintliga fält:
+            from:    (data.departure_place ?? null) as string | null,
+            toPlace: (data.destination ?? null) as string | null,
+            date:    (data.departure_date ?? null) as string | null,
+            time:    (data.departure_time ?? null) as string | null,
+            notes:   (data.notes ?? null) as string | null,
+          });
+        }
       } catch (e) {
         console.warn("sendBookingMail failed:", (e as any)?.message || e);
       }
@@ -88,11 +89,3 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(500).json({ error: e?.message || "Serverfel" });
   }
 }
-
-
-
-
-
-
-
-

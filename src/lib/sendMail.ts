@@ -41,14 +41,10 @@ const resend = process.env.RESEND_API_KEY
   ? new Resend(process.env.RESEND_API_KEY)
   : null;
 
-/** Liten helper för HTML-escaping i enkla texter */
 function esc(s?: string | null) {
   return (s ?? "").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
-/**
- * Generisk sändare via Resend
- */
 export async function sendMail(opts: {
   to: string | string[];
   subject: string;
@@ -70,16 +66,13 @@ export async function sendMail(opts: {
   });
 }
 
-/**
- * Typ för bokningsmail (OBS: bookingNumber i camelCase)
- */
+/** Typ för bokningsmail (OBS: bookingNumber i camelCase + event ingår) */
 export type SendBookingParams = {
   to: string;
   bookingNumber: string;
   event: "created" | "updated" | "canceled";
   passengers?: any[] | null;
 
-  // valfria meta-fält (kan lämnas null)
   from?: string | null;
   toPlace?: string | null;
   date?: string | null;
@@ -87,10 +80,6 @@ export type SendBookingParams = {
   notes?: string | null;
 };
 
-/**
- * Skicka bokningsmail till kund
- * Anropas från API: await sendBookingMail({ to, bookingNumber, event, ... })
- */
 export async function sendBookingMail(p: SendBookingParams) {
   const titleMap: Record<SendBookingParams["event"], string> = {
     created: "Din bokning är registrerad",
