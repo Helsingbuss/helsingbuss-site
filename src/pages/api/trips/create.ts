@@ -1,167 +1,154 @@
-// src/pages/api/trips/create.ts
 import type { NextApiRequest, NextApiResponse } from "next";
-import { createClient } from "@supabase/supabase-js";
+import * as admin from "@/lib/supabaseAdmin";
 
-/** --- Supabase admin (service role krävs) --- */
-function getSupabase() {
-  const url =
-    process.env.SUPABASE_URL ||
-    process.env.NEXT_PUBLIC_SUPABASE_URL ||
-    "";
-  const key =
-    process.env.SUPABASE_SERVICE_ROLE ||
-    process.env.SUPABASE_SERVICE_ROLE_KEY ||
-    process.env.SUPABASE_SERVICE_KEY || // ditt namn
-    "";
+const supabase =
+  (admin as any).supabaseAdmin ||
+  (admin as any).supabase ||
+  (admin as any).default;
 
-  if (!url || !key) {
-    throw new Error("Supabase URL eller SERVICE ROLE KEY saknas (.env.local)");
+type Body = {
+  title: string;
+  subtitle?: string | null;
+  trip_kind?: "flerdagar" | "dagsresa" | "shopping" | string | null;
+  badge?: string | null;
+  ribbon?: string | null;
+  city?: string | null;
+  country?: string | null;
+  price_from?: number | null;
+  hero_image: string | null;
+  published: boolean;
+  external_url?: string | null;
+  year?: number | null;
+  summary?: string | null;            // “Kort om resan” (nytt)
+  // valfritt stöd för flera kategorier
+  categories?: string[] | null;       // t.ex. ["shopping","flerdagar"]
+  tags?: string[] | null;             // alias, om du redan har 'tags' i DB
+  departures?: Array<any>;            // kommer från DeparturesEditor
+};
+
+function setCORS(res: NextApiResponse) {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+}
+
+function parseDepartureDates(rows: any[] | undefined): string[] {
+  if (!rows || !Array.isArray(rows)) return [];
+  const out: string[] = [];
+  for (const r of rows) {
+    const raw =
+      r?.date || r?.datum || r?.day || r?.when || r?.dep_date || r?.departure_date || null;
+    if (!raw) continue;
+    // normalisera till YYYY-MM-DD
+    const s = String(raw).slice(0, 10);
+    // snabb validering
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) out.push(s);
   }
-  return createClient(url, key, { auth: { persistSession: false } });
+  // unika + sorterade
+  return Array.from(new Set(out)).sort((a, b) => (a < b ? -1 : 1));
 }
 
-/** --- Helpers --- */
-function slugify(input: string): string {
-  return input
-    .toLowerCase()
-    .trim()
-    .replace(/[\s_/]+/g, "-")
-    .replace(/[^a-z0-9-]/g, "")
-    .replace(/-+/g, "-")
-    .replace(/^-|-$/g, "");
-}
+export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  setCORS(res);
+  if (req.method === "OPTIONS") return res.status(200).end();
+  if (req.method !== "POST") return res.status(405).json({ ok: false, error: "Method not allowed" });
 
-async function ensureUniqueSlug(
-  base: string,
-  supabase: ReturnType<typeof getSupabase>
-) {
-  let slug = base || "trip";
-  let n = 1;
-  // loopa tills slug inte finns
-  // head:true returnerar bara count
-  while (true) {
-    const { count, error } = await supabase
-      .from("trips")
-      .select("id", { count: "exact", head: true })
-      .eq("slug", slug);
+  const b = (req.body || {}) as Body;
 
-    if (error) throw error;
-    if (!count || count === 0) return slug;
-
-    n += 1;
-    slug = `${base}-${n}`;
+  // validering basic
+  if (!b?.title || !b?.hero_image) {
+    return res.status(400).json({ ok: false, error: "Titel och bild krävs." });
   }
-}
 
-/** Försöker insert, och om felmeddelandet säger att en kolumn inte finns
- * tar vi bort den ur row och försöker igen (max 5 gånger).
- */
-async function insertWithColumnFallback(
-  supabase: ReturnType<typeof getSupabase>,
-  row: Record<string, any>
-) {
-  const MAX_RETRIES = 5;
-  let payload = { ...row };
-  for (let i = 0; i <= MAX_RETRIES; i++) {
+  // bygg insert-objekt – endast fält vi med säkerhet vill försöka spara
+  const baseInsert: Record<string, any> = {
+    title: (b.title || "").trim(),
+    subtitle: b.subtitle ?? null,
+    trip_kind: b.trip_kind ?? null,
+    badge: b.badge ?? null,
+    ribbon: b.ribbon ?? null,
+    city: b.city ?? null,
+    country: b.country ?? null,
+    price_from: b.price_from ?? null,
+    hero_image: b.hero_image ?? null,
+    published: !!b.published,
+    external_url: b.external_url ?? null,
+    year: b.year ?? null,
+  };
+
+  // försök spara summary i 'summary' (fallback till 'description' om kolumnen saknas)
+  let useSummaryColumn = true;
+
+  // om du vill lagra “flera kategorier”: mappa till 'tags' om kolumnen finns
+  const tagsArray = Array.isArray(b.tags)
+    ? b.tags
+    : Array.isArray(b.categories)
+    ? b.categories
+    : null;
+
+  if (tagsArray) {
+    baseInsert["tags"] = tagsArray.filter(Boolean);
+  }
+
+  // första försöket: med 'summary'
+  if (typeof b.summary === "string" || b.summary === null) {
+    baseInsert["summary"] = b.summary ?? null;
+  }
+
+  // 1) Insert trip
+  let tripId: string | null = null;
+  try {
     const { data, error } = await supabase
       .from("trips")
-      .insert(payload)
-      .select()
+      .insert(baseInsert)
+      .select("id")
       .single();
-    if (!error) return { data };
 
-    // matcha t.ex. 'column "summary" does not exist'
-    const m = /column\s+"?([a-zA-Z0-9_]+)"?\s+does\s+not\s+exist/i.exec(
-      error.message || ""
-    );
-    if (m && payload[m[1]] !== undefined) {
-      // ta bort problemkolumn och prova igen
-      delete (payload as any)[m[1]];
-      continue;
-    }
-
-    // annat fel – returnera
-    return { error };
-  }
-  return {
-    error: { message: "Could not insert: too many missing columns" } as any,
-  };
-}
-
-/** --- Handler --- */
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  if (req.method !== "POST")
-    return res.status(405).json({ ok: false, error: "Method not allowed" });
-
-  try {
-    const supabase = getSupabase();
-    const b = typeof req.body === "string" ? JSON.parse(req.body) : req.body || {};
-
-    // Required
-    const title = (b.title ?? "").toString().trim();
-    const hero_image = (b.hero_image ?? "").toString().trim();
-    if (!title)  return res.status(400).json({ ok: false, error: "Ange titel." });
-    if (!hero_image) return res.status(400).json({ ok: false, error: "Ladda upp eller ange en bild." });
-
-    // Optional / cast
-    const subtitle     = (b.subtitle ?? null) || null;
-    const trip_kind    = (b.trip_kind ?? null) || null;
-    const badge        = (b.badge ?? null) || null;
-    const ribbon       = (b.ribbon ?? null) || null;
-    const city         = (b.city ?? null) || null;
-    const country      = (b.country ?? null) || null;
-    const external_url = (b.external_url ?? null) || null;
-    const summary      = (b.summary ?? null) || null;
-    const published    = !!b.published;
-
-    let price_from: number | null = null;
-    if (b.price_from !== null && b.price_from !== undefined && b.price_from !== "") {
-      const n = Number(b.price_from);
-      price_from = Number.isFinite(n) ? Math.trunc(n) : null;
-    }
-
-    let year: number | null = null;
-    if (b.year !== null && b.year !== undefined && b.year !== "") {
-      const y = Number(b.year);
-      year = Number.isInteger(y) ? y : null;
-    }
-
-    const lines       = b.lines ?? null;       // Json
-    const departures  = b.departures ?? null;  // Json
-
-    // slug (unik)
-    const baseSlug = slugify(title);
-    const slug = await ensureUniqueSlug(baseSlug, supabase);
-
-    // bygg row – med alla fält vi KAN ha
-    const row: Record<string, any> = {
-      title,
-      slug,
-      subtitle,
-      trip_kind,
-      badge,
-      ribbon,
-      city,
-      country,
-      price_from,
-      hero_image,
-      published,
-      external_url,
-      year,
-      summary,
-      lines,
-      departures,
-    };
-
-    // ta bort undefined (städ)
-    Object.keys(row).forEach((k) => row[k] === undefined && delete row[k]);
-
-    // insert (med fallback om någon kolumn saknas)
-    const { data, error } = await insertWithColumnFallback(supabase, row);
-    if (error) return res.status(400).json({ ok: false, error: error.message || error });
-
-    return res.status(200).json({ ok: true, trip: data });
+    if (error) throw error;
+    tripId = data?.id || null;
   } catch (e: any) {
-    return res.status(500).json({ ok: false, error: e?.message || "Tekniskt fel" });
+    // om fel pga kolumn "summary" inte finns, försök igen med 'description'
+    const msg: string = e?.message || "";
+    if (/column .*summary.* does not exist/i.test(msg)) {
+      useSummaryColumn = false;
+      const retryInsert = { ...baseInsert };
+      delete retryInsert.summary;
+      if (typeof b.summary === "string" || b.summary === null) {
+        retryInsert["description"] = b.summary ?? null;
+      }
+      const { data: d2, error: e2 } = await supabase
+        .from("trips")
+        .insert(retryInsert)
+        .select("id")
+        .single();
+      if (e2) {
+        console.error("create trip failed (retry):", e2);
+        return res.status(500).json({ ok: false, error: e2.message || "Kunde inte spara resa." });
+      }
+      tripId = d2?.id || null;
+    } else {
+      console.error("create trip failed:", e);
+      return res.status(500).json({ ok: false, error: msg || "Kunde inte spara resa." });
+    }
   }
+
+  if (!tripId) return res.status(500).json({ ok: false, error: "Kunde inte skapa resa (saknar id)." });
+
+  // 2) Insert avgångar i trip_departures.date
+  const dates = parseDepartureDates(b.departures);
+  if (dates.length) {
+    const rows = dates.map((d) => ({ trip_id: tripId, date: d }));
+    const { error: depErr } = await supabase.from("trip_departures").insert(rows);
+    if (depErr) {
+      // skriv varning men fall tillbaka till ok (kan hända om tabellen saknas)
+      console.warn("create: could not insert departures:", depErr.message || depErr);
+    }
+  }
+
+  return res.status(200).json({
+    ok: true,
+    id: tripId,
+    used_summary_column: useSummaryColumn ? "summary" : "description",
+    departures_saved: dates.length,
+  });
 }
