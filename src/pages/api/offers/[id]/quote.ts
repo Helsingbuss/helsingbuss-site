@@ -1,7 +1,7 @@
 // src/pages/api/offers/[id]/quote.ts
 import type { NextApiRequest, NextApiResponse } from "next";
 import { supabase } from "@/lib/supabaseClient";
-import { sendOfferMail } from "@/lib/sendMail";
+import { sendOfferMail } from "@/lib/sendOfferMail";
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== "POST") {
@@ -57,10 +57,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     // 3) Skicka mail när vi faktiskt skickar prisförslaget (tyst felhantering)
     if (mode === "send" && offer.contact_email && offer.offer_number) {
       try {
-        await sendOfferMail(offer.contact_email, offer.offer_number, "besvarad");
+        await sendOfferMail({
+          offerId: String(offer.id),
+          offerNumber: String(offer.offer_number),
+          customerEmail: offer.contact_email,
+          // Övriga fält valfria — inte tillgängliga här, så vi hoppar dem
+        });
       } catch (mailErr) {
         console.error("sendOfferMail failed:", mailErr);
-        // vi fortsätter ändå – uppdateringen är sparad
+        // Fortsätt ändå – uppdateringen är sparad
       }
     }
 
