@@ -7,23 +7,20 @@ import DeparturesEditor, { DepartureRow } from "@/components/trips/DeparturesEdi
 
 type TripKind = "flerdagar" | "dagsresa" | "shopping";
 
-const CATEGORY_OPTIONS: TripKind[] = ["flerdagar", "dagsresa", "shopping"];
-
 type Form = {
   title: string;
   subtitle: string;
-  trip_kind: TripKind;        // primär kategori
-  categories: TripKind[];     // extra kategorier (flera)
-  badge: string;
+  trip_kind: TripKind;
+  badge: string;          // SPARAS som "Text|#bg|#fg" (om färger finns)
   ribbon: string;
   city: string;
   country: string;
-  price_from: string;         // skrivs om till number/null vid submit
-  hero_image: string;         // public url
+  price_from: string;     // skrivs om till number/null vid submit
+  hero_image: string;     // public url
   published: boolean;
   external_url?: string;
-  year?: number;              // 2025–2027
-  summary?: string;           // kort om resan
+  year?: number;          // 2025–2027
+  summary?: string;       // kort om resan
 };
 
 type LineStop = { name: string; time?: string };
@@ -69,6 +66,26 @@ function Card({ title, children, aside }: { title: string; children: React.React
   );
 }
 
+// ---- Badge helpers (samma logik som i widget) ----
+function badgeAutoColors(txt: string) {
+  const s = String(txt || "").toLowerCase();
+  if (/ny(het)?/.test(s)) return { bg: "#10b981", fg: "#ffffff" };
+  if (/rabatt|kampanj|rea/.test(s)) return { bg: "#ef4444", fg: "#ffffff" };
+  if (/sista|limited|slut/.test(s)) return { bg: "#f59e0b", fg: "#111827" };
+  return { bg: "#3b82f6", fg: "#ffffff" };
+}
+function parseBadgeSpec(raw?: string | null) {
+  if (!raw) return null;
+  const parts = String(raw).split("|").map(s => s.trim()).filter(Boolean);
+  if (!parts.length) return null;
+  const text = parts[0];
+  let bg: string | undefined, fg: string | undefined;
+  if (parts[1] && /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(parts[1])) bg = parts[1];
+  if (parts[2] && /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(parts[2])) fg = parts[2];
+  const auto = badgeAutoColors(text);
+  return { text, bg: bg || auto.bg, fg: fg || auto.fg };
+}
+
 // --------------- Lines editor ---------------
 function LinesEditor({
   lines,
@@ -92,7 +109,7 @@ function LinesEditor({
   return (
     <div className="space-y-4">
       {lines.length === 0 && (
-        <div className="text-sm text-gray-500 border rounded-xl p-3">Inga hållplatser ännu.</div>
+        <div className="text-sm text-gray-500 border rounded-xl p-3">Inga linjer tillagda ännu.</div>
       )}
 
       <div className="flex justify-end">
@@ -181,8 +198,7 @@ export default function NewTripPage() {
     title: "",
     subtitle: "",
     trip_kind: "dagsresa",
-    categories: [],           // NYTT
-    badge: "",
+    badge: "",        // här sparas sammansatt badge
     ribbon: "",
     city: "",
     country: "",
@@ -194,6 +210,11 @@ export default function NewTripPage() {
     summary: "",
   });
 
+  // UI-fält för badge (byggs ihop till f.badge vid spar)
+  const [badgeText, setBadgeText] = useState("");
+  const [badgeBg, setBadgeBg] = useState("");
+  const [badgeFg, setBadgeFg] = useState("");
+
   const [departures, setDepartures] = useState<DepartureRow[]>([]);
   const [lines, setLines] = useState<Line[]>([]);
   const [busy, setBusy] = useState<null | "upload" | "save">(null);
@@ -202,14 +223,6 @@ export default function NewTripPage() {
 
   function upd<K extends keyof Form>(k: K, v: Form[K]) { setF((s) => ({ ...s, [k]: v })); }
   function safeJson<T = any>(text: string | null): T | null { if (!text) return null; try { return JSON.parse(text) as T; } catch { return null; } }
-
-  function toggleCategory(cat: TripKind) {
-    setF((s) => {
-      const has = s.categories.includes(cat);
-      const next = has ? s.categories.filter(c => c !== cat) : [...s.categories, cat];
-      return { ...s, categories: next };
-    });
-  }
 
   async function onUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const input = e.currentTarget;
@@ -232,11 +245,23 @@ export default function NewTripPage() {
   async function onSave() {
     setErr(null); setMsg(null); setBusy("save");
     try {
+      // Bygg badge som "Text|#bg|#fg" om färger finns
+      const badge =
+        badgeText.trim()
+          ? [
+              badgeText.trim(),
+              /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(badgeBg.trim()) ? badgeBg.trim() : "",
+              /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(badgeFg.trim()) ? badgeFg.trim() : "",
+            ]
+              .filter(Boolean)
+              .join("|")
+          : (f.badge?.trim() || "");
+
       const payload = {
         title: f.title.trim(),
         subtitle: f.subtitle.trim() || null,
         trip_kind: f.trip_kind,
-        badge: f.badge.trim() || null,
+        badge: badge || null,
         ribbon: f.ribbon.trim() || null,
         city: f.city.trim() || null,
         country: f.country.trim() || null,
@@ -246,7 +271,6 @@ export default function NewTripPage() {
         external_url: f.external_url?.trim() || null,
         year: f.year || null,
         summary: f.summary?.trim() || null,
-        categories: f.categories.length ? f.categories : null, // NYTT
         departures,
         lines,
       };
@@ -287,6 +311,15 @@ export default function NewTripPage() {
     return rest > 0 ? `Flera linjer: ${first} + ${rest} till` : `Linjer: ${first}`;
   }, [lines]);
 
+  // Förhandsvisningens badge (från UI-fält – fall back till f.badge)
+  const previewBadgeSpec = useMemo(() => {
+    const ui =
+      badgeText.trim()
+        ? [badgeText.trim(), badgeBg.trim(), badgeFg.trim()].filter(Boolean).join("|")
+        : f.badge;
+    return parseBadgeSpec(ui);
+  }, [badgeText, badgeBg, badgeFg, f.badge]);
+
   // ------- Preview UI -------
   const preview = useMemo(
     () => (
@@ -306,18 +339,20 @@ export default function NewTripPage() {
               {f.ribbon}
             </div>
           )}
+
+          {previewBadgeSpec && (
+            <div
+              className="absolute right-3 top-3 text-xs font-extrabold px-3 py-1.5 rounded-full shadow"
+              style={{ background: previewBadgeSpec.bg, color: previewBadgeSpec.fg }}
+            >
+              {previewBadgeSpec.text}
+            </div>
+          )}
         </div>
 
         <div className="p-4">
           <div className="flex flex-wrap gap-2 text-xs">
-            {/* primär kategori */}
             {f.trip_kind && <span className="px-2 py-1 rounded-full bg-gray-100 text-gray-700">{f.trip_kind}</span>}
-            {/* extra kategorier */}
-            {f.categories
-              .filter((c) => c !== f.trip_kind)
-              .map((c) => (
-                <span key={c} className="px-2 py-1 rounded-full bg-gray-100 text-gray-700">{c}</span>
-              ))}
             {f.country && <span className="px-2 py-1 rounded-full bg-gray-100 text-gray-700">{f.country}</span>}
             {f.year && <span className="px-2 py-1 rounded-full bg-gray-100 text-gray-700">{f.year}</span>}
           </div>
@@ -345,7 +380,7 @@ export default function NewTripPage() {
         </div>
       </div>
     ),
-    [f, previewDatesText, linesSummary]
+    [f, previewDatesText, linesSummary, previewBadgeSpec]
   );
 
   return (
@@ -388,17 +423,16 @@ export default function NewTripPage() {
 
                 <div className="mt-4 grid md:grid-cols-2 gap-4">
                   <div>
-                    <FieldLabel>Primär kategori</FieldLabel>
+                    <FieldLabel>Kategori</FieldLabel>
                     <select
                       className="border rounded-xl px-3 py-2.5 w-full focus:outline-none focus:ring-2 focus:ring-[#194C66]/30"
                       value={f.trip_kind}
                       onChange={(e) => upd("trip_kind", e.target.value as Form["trip_kind"])}
                     >
-                      {CATEGORY_OPTIONS.map((o) => (
-                        <option key={o} value={o}>{o}</option>
-                      ))}
+                      <option value="flerdagar">Flerdagar</option>
+                      <option value="dagsresa">Dagsresa</option>
+                      <option value="shopping">Shopping</option>
                     </select>
-                    <Help>Denna visas alltid först på kortet.</Help>
                   </div>
                   <div>
                     <FieldLabel>År</FieldLabel>
@@ -412,21 +446,38 @@ export default function NewTripPage() {
                   </div>
                 </div>
 
-                <div className="mt-4">
-                  <FieldLabel>Fler kategorier (valfritt)</FieldLabel>
-                  <div className="flex flex-wrap gap-3">
-                    {CATEGORY_OPTIONS.map((cat) => (
-                      <label key={cat} className="inline-flex items-center gap-2 text-sm">
-                        <input
-                          type="checkbox"
-                          checked={f.categories.includes(cat)}
-                          onChange={() => toggleCategory(cat)}
-                        />
-                        <span className="px-2 py-1 rounded-full bg-gray-100">{cat}</span>
-                      </label>
-                    ))}
+                {/* Badge-inställningar */}
+                <div className="mt-4 grid md:grid-cols-3 gap-4">
+                  <div>
+                    <FieldLabel>Badge – text</FieldLabel>
+                    <input
+                      className="border rounded-xl px-3 py-2.5 w-full focus:outline-none focus:ring-2 focus:ring-[#194C66]/30"
+                      placeholder='t.ex. "Nyhet" eller "Kampanj"'
+                      value={badgeText}
+                      onChange={(e) => setBadgeText(e.target.value)}
+                    />
+                    <Help>Lämna tomt om du inte vill visa badge.</Help>
                   </div>
-                  <Help>Kan kombineras (t.ex. <b>shopping</b> + <b>flerdagar</b>).</Help>
+                  <div>
+                    <FieldLabel>Badge – bakgrund</FieldLabel>
+                    <input
+                      className="border rounded-xl px-3 py-2.5 w-full focus:outline-none focus:ring-2 focus:ring-[#194C66]/30"
+                      placeholder="#ef4444"
+                      value={badgeBg}
+                      onChange={(e) => setBadgeBg(e.target.value)}
+                    />
+                    <Help>Valfritt. HEX, t.ex. #ef4444. Auto-färg om tomt.</Help>
+                  </div>
+                  <div>
+                    <FieldLabel>Badge – textfärg</FieldLabel>
+                    <input
+                      className="border rounded-xl px-3 py-2.5 w-full focus:outline-none focus:ring-2 focus:ring-[#194C66]/30"
+                      placeholder="#ffffff"
+                      value={badgeFg}
+                      onChange={(e) => setBadgeFg(e.target.value)}
+                    />
+                    <Help>Valfritt. HEX. Auto om tomt.</Help>
+                  </div>
                 </div>
 
                 <div className="mt-4 grid md:grid-cols-3 gap-4">
@@ -503,7 +554,7 @@ export default function NewTripPage() {
               {msg && <div className="bg-green-50 border border-green-200 text-green-700 rounded-xl p-3">{msg}</div>}
             </div>
 
-            {/* RIGHT — PREVIEW (extra offset) */}
+            {/* RIGHT — PREVIEW */}
             <div className="lg:col-span-1">
               <div className="lg:sticky lg:top-16">
                 <div className="text-sm text-[#194C66]/70 mb-2">Förhandsvisning</div>
