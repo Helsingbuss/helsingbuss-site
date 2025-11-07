@@ -4,180 +4,117 @@ import React from "react";
 export type TripCardProps = {
   id: string;
   image: string;                  // URL till huvudbilden
-  title: string;                  // "Vangelis Hotel"
-  location?: string;              // "Fig Tree Bay, Cypern"
+  title: string;                  // "Gekås Ullared"
+  subtitle?: string;              // ex. “Fynda stort, res bekvämt”
+  location?: string;              // ex. “Sverige”
   tripKind?: "flerdagar" | "dagsresa" | "shopping";
   tripKindLabel?: string;         // skriv över pillens text om du vill
-  headline?: string;              // extra rubrik i textytan
-  excerpt?: string;               // kort brödtext
-  highlight?: string;             // ex. "All Inclusive"
-  priceFrom?: number | string;    // ex. 8298
-  currency?: string;              // "SEK" (default)
-  ctaHref?: string;               // länk till detaljer/bokning
-  ctaText?: string;               // default: "Se datum och boka"
+  year?: number;                  // 2025, 2026, 2027
 
-  // Blå horisontell banderoll över bilden
-  banner?: {
-    text: string;
-    color?: string;               // default "#0ea5e9"
-    textColor?: string;           // default "#fff"
-  };
+  priceFrom?: number | string;    // ex. 295
+  currency?: string;              // default "SEK"
 
-  // Diagonal röd banderoll (nu med snygga spetsar)
-  ribbon?: {
-    text: string;
-    color?: string;               // default "#ef4444"
-    textColor?: string;           // default "#fff"
-    angle?: number;               // default -12
-  };
+  // valfritt övrigt
+  ribbon?: { text: string; color?: string; textColor?: string; angle?: number };
 
-  // Visa prisbubbla nere till höger i bilden
-  showPriceBubble?: boolean;
+  // länk ska peka till det du sparar i admin (extern länk/slug)
+  ctaHref?: string;
 };
 
-/* ===== Hjälp-funktioner ===== */
-function formatPrice(v?: number | string, currency = "SEK") {
-  if (v === undefined || v === null || v === "") return "";
-  const n = typeof v === "string" ? Number(v) : v;
-  if (!Number.isFinite(n)) return String(v);
-  return n.toLocaleString("sv-SE") + (currency === "SEK" ? ":-" : ` ${currency}`);
-}
 function kindLabel(kind?: TripCardProps["tripKind"], override?: string) {
   if (override) return override;
   switch (kind) {
-    case "flerdagar": return "Flerdagarsresa";
-    case "dagsresa":  return "Dagsresa";
-    case "shopping":  return "Shoppingresa";
+    case "flerdagar": return "flerdagar";
+    case "dagsresa":  return "dagsresa";
+    case "shopping":  return "shopping";
     default:          return "";
   }
 }
 
-/* ===== TripCard: kortet ===== */
+function formatPriceKr(v?: number | string, currency = "SEK") {
+  if (v === undefined || v === null || v === "") return "";
+  const n = typeof v === "string" ? Number(v) : v;
+  if (!Number.isFinite(n)) return String(v);
+  // matcha admin-preview: "fr. 295 kr"
+  return n.toLocaleString("sv-SE") + (currency === "SEK" ? " kr" : ` ${currency}`);
+}
+
+/* ===== TripCard i “preview”-stil ===== */
 export function TripCard(props: TripCardProps) {
   const {
-    image, title, location, tripKind, tripKindLabel,
-    headline, excerpt, highlight, priceFrom,
-    currency = "SEK", ctaHref = "#", ctaText = "Se datum och boka",
-    banner, ribbon, showPriceBubble = true,
+    image, title, subtitle, location, tripKind, tripKindLabel, year,
+    priceFrom, currency = "SEK",
+    ctaHref = "#",
+    ribbon,
   } = props;
 
+  const priceText = priceFrom ? `fr. ${formatPriceKr(priceFrom, currency)}` : "";
   const badge = kindLabel(tripKind, tripKindLabel);
-  const bannerBg = banner?.color || "#0ea5e9";
-  const bannerFg = banner?.textColor || "#fff";
   const ribbonBg = ribbon?.color || "#ef4444";
   const ribbonFg = ribbon?.textColor || "#fff";
-  const angle = ribbon?.angle ?? -12;
-  const priceText = priceFrom ? `fr. ${formatPrice(priceFrom, currency)}` : "";
+  const angle = ribbon?.angle ?? -10;
 
   return (
-    <article className="relative overflow-hidden rounded-2xl shadow bg-white">
-      {/* Bildyta */}
-      <div className="relative">
-        <div className="relative aspect-[16/10] w-full">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={image} alt={title} className="h-full w-full object-cover" />
-        </div>
+    <a
+      href={ctaHref}
+      className="group relative block rounded-2xl border bg-white shadow-sm overflow-hidden transition hover:shadow-md focus:outline-none focus:ring-2 focus:ring-[#194C66]/40"
+    >
+      {/* Bild – 600x390 aspect */}
+      <div className="relative bg-[#f3f4f6] aspect-[600/390]">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={image} alt={title} className="absolute inset-0 h-full w-full object-cover" />
 
-        {/* Blå banderoll (fullbredd) */}
-        {banner?.text && (
-          <div
-            className="absolute left-0 top-0 w-full px-4 py-2 text-sm font-semibold"
-            style={{ background: bannerBg, color: bannerFg }}
-          >
-            {banner.text}
-          </div>
-        )}
-
-        {/* Diagonal röd banderoll — med spetsade ändar och skugga */}
-        {ribbon?.text && (
-          <div className="pointer-events-none absolute inset-x-0 top-4 flex justify-center">
-            <div
-              className="relative"
-              style={{ transform: `rotate(${angle}deg)` }}
+        {/* Diagonal banderoll (valfri) */}
+        {!!ribbon?.text && (
+          <div className="absolute left-3 top-3"
+               style={{ transform: `rotate(${angle}deg)` }}>
+            <span
+              className="inline-block px-3 py-1 text-sm font-semibold"
+              style={{
+                background: ribbonBg,
+                color: ribbonFg,
+                borderRadius: 6,
+                boxShadow: "0 2px 8px rgba(0,0,0,.15)",
+              }}
             >
-              {/* Själva bandet */}
-              <span
-                className="inline-block px-6 py-2 text-[15px] font-semibold"
-                style={{
-                  background: ribbonBg,
-                  color: ribbonFg,
-                  borderRadius: 6,
-                  filter: "drop-shadow(0 2px 3px rgba(0,0,0,.18))",
-                }}
-              >
-                {ribbon.text}
-              </span>
-
-              {/* Vänster spets */}
-              <span
-                className="pointer-events-none absolute left-[-12px] top-[2px] h-0 w-0"
-                style={{
-                  borderTop: "12px solid transparent",
-                  borderBottom: "12px solid transparent",
-                  borderRight: `12px solid ${ribbonBg}`,
-                  filter: "drop-shadow(0 2px 2px rgba(0,0,0,.12))",
-                }}
-              />
-              {/* Höger spets */}
-              <span
-                className="pointer-events-none absolute right-[-12px] top-[2px] h-0 w-0"
-                style={{
-                  borderTop: "12px solid transparent",
-                  borderBottom: "12px solid transparent",
-                  borderLeft: `12px solid ${ribbonBg}`,
-                  filter: "drop-shadow(0 2px 2px rgba(0,0,0,.12))",
-                }}
-              />
-            </div>
-          </div>
-        )}
-
-        {/* Typ-pille */}
-        {badge && (
-          <div className="absolute bottom-3 left-3 rounded-full bg-white/90 px-3 py-1 text-[13px] font-semibold shadow">
-            {badge}
-          </div>
-        )}
-
-        {/* Pris-bubbla */}
-        {showPriceBubble && priceText && (
-          <div className="absolute bottom-3 right-3 rounded-full bg-rose-200/90 px-4 py-2 text-[15px] font-semibold text-rose-900 shadow">
-            {priceText}
+              {ribbon.text}
+            </span>
           </div>
         )}
       </div>
 
-      {/* Innehåll */}
+      {/* Textyta */}
       <div className="p-4">
-        {location && <div className="text-[13px] text-[#194C66]/70 mb-1">{location}</div>}
-        <h3 className="text-[20px] font-semibold text-[#0f172a]">{title}</h3>
+        {/* små piller som i admin-preview */}
+        <div className="flex flex-wrap gap-2 text-xs">
+          {badge && <span className="px-2 py-1 rounded-full bg-gray-100 text-gray-700">{badge}</span>}
+          {location && <span className="px-2 py-1 rounded-full bg-gray-100 text-gray-700">{location}</span>}
+          {year && <span className="px-2 py-1 rounded-full bg-gray-100 text-gray-700">{year}</span>}
+        </div>
 
-        {headline && <div className="mt-2 text-[15px] font-semibold text-[#0f172a]">{headline}</div>}
-        {excerpt && <p className="mt-1 text-[14px] leading-relaxed text-[#0f172a]/80">{excerpt}</p>}
+        <div className="mt-2 text-lg font-semibold text-[#0f172a]">{title}</div>
+        {subtitle && <div className="text-sm text-[#0f172a]/70">{subtitle}</div>}
 
+        {/* bottrad – pris till höger i grå “chip” */}
         <div className="mt-3 flex items-center justify-between">
-          {highlight ? (
-            <div className="text-[16px] font-semibold text-[#0f172a]">{highlight}</div>
-          ) : <span />}
-          {!showPriceBubble && priceText && (
-            <div className="text-[#0f172a] font-semibold">{priceText}</div>
+          {/* vänstersida: lämnas tom eller fylls med ev. datum/linje i framtiden */}
+          <span className="text-sm text-[#0f172a]/60"></span>
+
+          {priceText && (
+            <span className="text-sm font-semibold px-3 py-2 bg-[#eef2f7] rounded-full whitespace-nowrap">
+              {priceText}
+            </span>
           )}
         </div>
-
-        <div className="mt-4">
-          <a
-            href={ctaHref}
-            className="inline-flex w-full items-center justify-center rounded-full bg-[#194C66] px-5 py-2.5 text-white transition hover:bg-[#153a4c]"
-          >
-            {ctaText}
-          </a>
-        </div>
       </div>
-    </article>
+
+      {/* Gör hela kortet klickbart utan extra knapp */}
+      <span className="absolute inset-0" aria-hidden />
+    </a>
   );
 }
 
-/* ===== TripGrid: 3/4/5 per rad ===== */
+/* ===== Grid ===== */
 export function TripGrid({ items, cols = 3 }: { items: TripCardProps[]; cols?: 3 | 4 | 5 }) {
   const map: Record<3 | 4 | 5, string> = {
     3: "sm:grid-cols-2 lg:grid-cols-3",
@@ -186,7 +123,9 @@ export function TripGrid({ items, cols = 3 }: { items: TripCardProps[]; cols?: 3
   };
   return (
     <div className={`grid grid-cols-1 gap-6 ${map[cols]}`}>
-      {items.map((it) => <TripCard key={it.id} {...it} />)}
+      {items.map((it) => (
+        <TripCard key={it.id} {...it} />
+      ))}
     </div>
   );
 }

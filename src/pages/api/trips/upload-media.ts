@@ -1,143 +1,94 @@
-// src/pages/api/trips/upload-media.ts
+// pages/api/trips/upload-media.ts
 import type { NextApiRequest, NextApiResponse } from "next";
-import formidable, { Files, Fields, File as FormidableFile } from "formidable";
+import formidable, { File } from "formidable";
+import fs from "fs";
+import path from "path";
 import { createClient } from "@supabase/supabase-js";
-import { readFile } from "fs/promises";
-import { randomUUID } from "crypto";
 
-// why: multipart kräver avstängd bodyParser i Next.js Pages API
 export const config = { api: { bodyParser: false } };
 
-type UploadOk = {
-  url: string;
-  bucket: string;
-  path: string;
-  mimetype: string | undefined;
-  size: number | undefined;
-};
-type UploadErr = { error: string };
+const BUCKET = "trip-media";
 
-function getEnvUrl(): string {
-  const url =
-    process.env.SUPABASE_URL ||
-    process.env.NEXT_PUBLIC_SUPABASE_URL || // why: återanvänd redan ifyllda klientvärden
-    "";
-  if (!url) throw new Error("Missing SUPABASE_URL (or NEXT_PUBLIC_SUPABASE_URL)");
-  return url;
-}
+type ApiResp = { ok: true; url: string } | { ok: false; error: string };
 
-function getEnvKey(): { key: string; usingServiceRole: boolean } {
-  const service = process.env.SUPABASE_SERVICE_ROLE_KEY; // rekommenderad (server-only)
-  if (service) return { key: service, usingServiceRole: true };
-
-  // Fallback om du inte har service key konfigurerad lokalt
-  const anon = process.env.SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
-  if (!anon)
-    throw new Error(
-      "Missing SUPABASE_SERVICE_ROLE_KEY and ANON key. Provide one of them in .env.local"
-    );
-  return { key: anon, usingServiceRole: false }; // why: funkar om bucket tillåter write för anon/authed
-}
-
-function parseForm(req: NextApiRequest): Promise<{ fields: Fields; files: Files }> {
+function parseForm(req: NextApiRequest): Promise<{ fields: formidable.Fields; files: formidable.Files }> {
+  // keepExtensions så filen får behålla .jpg/.png osv.
+  const form = formidable({ multiples: false, maxFileSize: 10 * 1024 * 1024, keepExtensions: true });
   return new Promise((resolve, reject) => {
-    const form = formidable({
-      multiples: false,
-      maxFileSize: 10 * 1024 * 1024, // 10MB
-      keepExtensions: true,
-    });
     form.parse(req, (err, fields, files) => (err ? reject(err) : resolve({ fields, files })));
   });
 }
 
-function pickFirstFile(files: Files): FormidableFile | null {
-  const preferred = ["file", "image", "media", "upload", "hero"];
-  for (const key of preferred) {
-    const v = files[key];
-    if (!v) continue;
-    return Array.isArray(v) ? (v[0] as FormidableFile) : (v as FormidableFile);
-  }
-  for (const k of Object.keys(files)) {
-    const v = files[k];
-    if (!v) continue;
-    return Array.isArray(v) ? (v[0] as FormidableFile) : (v as FormidableFile);
-  }
-  return null;
+function getSupabase() {
+  const url =
+    process.env.SUPABASE_URL ||
+    process.env.NEXT_PUBLIC_SUPABASE_URL ||
+    "";
+
+  const service =
+    process.env.SUPABASE_SERVICE_ROLE ||
+    process.env.SUPABASE_SERVICE_ROLE_KEY ||
+    process.env.SUPABASE_SERVICE_KEY ||
+    process.env.SUPABASE_ANON_KEY ||
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
+    process.env.NEXT_PUBLIC_SUPABASE_KEY ||
+    "";
+
+  if (!url || !service) throw new Error("Supabase env saknas (URL eller KEY).");
+  return createClient(url, service, { auth: { persistSession: false } });
 }
 
-function sanitizeFilename(name: string | undefined): string {
-  const base = (name ?? "upload").toLowerCase();
-  return base.replace(/\s+/g, "-").replace(/[^a-z0-9._-]/g, "").replace(/^-+/, "");
-}
-
-function slugFromField(fields: Fields): string {
-  const raw = Array.isArray(fields.slug) ? fields.slug[0] : (fields.slug as string | undefined);
-  const s = (raw ?? randomUUID()).toString().toLowerCase();
-  return s
-    .normalize("NFKD")
-    .replace(/[^\w\s-]/g, "")
-    .trim()
-    .replace(/[\s_-]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-}
-
-export default async function handler(
-  req: NextApiRequest,
-  res: NextApiResponse<UploadOk | UploadErr>
-) {
-  if (req.method !== "POST") {
-    res.setHeader("Allow", "POST");
-    return res.status(405).json({ error: "Method Not Allowed" });
-  }
+export default async function handler(req: NextApiRequest, res: NextApiResponse<ApiResp>) {
+  if (req.method !== "POST") return res.status(405).json({ ok: false, error: "Method not allowed" });
 
   try {
-    const SUPABASE_URL = getEnvUrl();
-    const { key: SUPABASE_KEY, usingServiceRole } = getEnvKey();
-    const BUCKET = process.env.SUPABASE_BUCKET_TRIPS || "trips";
-
     const { fields, files } = await parseForm(req);
-    const file = pickFirstFile(files);
-    if (!file) return res.status(400).json({ error: "No file found in form-data" });
 
-    const mimetype = (file.mimetype || "").toLowerCase();
-    if (!mimetype.startsWith("image/")) {
-      return res.status(415).json({ error: `Unsupported media type: ${mimetype || "unknown"}` });
+    // Hämta filen oavsett nyckel: 'file' eller första filen i objektet
+    let file = (files.file as File) || (Object.values(files)[0] as File);
+    // Vissa versioner ger array; ta i så fall första elementet
+    if (Array.isArray(file)) file = file[0];
+
+    const filepath = (file as any)?.filepath || (file as any)?.file?.filepath;
+
+    if (!filepath) {
+      // Hjälp-debug: lista nycklar som faktiskt kom in
+      const keys = Object.keys(files || {});
+      return res
+        .status(400)
+        .json({ ok: false, error: `Ingen fil mottagen. Keys: ${keys.length ? keys.join(", ") : "—"}` });
     }
 
-    const supabase = createClient(SUPABASE_URL, SUPABASE_KEY, {
-      auth: { persistSession: false },
-    });
+    const kind = (fields.kind as string) || "cover";
+    const supabase = getSupabase();
 
-    const buf = await readFile(file.filepath);
-    const slug = slugFromField(fields);
-    const original = sanitizeFilename(file.originalFilename);
-    const timestamp = Date.now();
-    const objectPath = `${slug}/hero-${timestamp}-${original}`;
-
-    const { error: upErr } = await supabase.storage
-      .from(BUCKET)
-      .upload(objectPath, buf, { contentType: mimetype, upsert: false });
-    if (upErr) {
-      // why: ofta pga otillräckliga policies när endast ANON används
-      const hint = usingServiceRole
-        ? ""
-        : " (hint: bucket måste tillåta writes för anon/authed eller använd SUPABASE_SERVICE_ROLE_KEY server-side)";
-      return res.status(500).json({ error: `Upload failed: ${upErr.message}${hint}` });
+    // 1) Bucket finns? Annars skapa (public)
+    const { data: buckets, error: lbErr } = await supabase.storage.listBuckets();
+    if (lbErr) throw lbErr;
+    const exists = buckets?.some((b) => b.name === BUCKET);
+    if (!exists) {
+      const { error: cbErr } = await supabase.storage.createBucket(BUCKET, { public: true });
+      if (cbErr) return res.status(500).json({ ok: false, error: `Kunde inte skapa bucket: ${cbErr.message}` });
     }
 
-    // Public bucket: return public URL; annars byt till signed URL
-    const { data } = supabase.storage.from(BUCKET).getPublicUrl(objectPath);
-    const url = data?.publicUrl;
-    if (!url) return res.status(500).json({ error: "Failed to obtain public URL" });
+    // 2) Ladda upp
+    const buffer = await fs.promises.readFile(filepath);
+    const ext = path.extname((file as any).originalFilename || "") || ".jpg";
+    const filename = `${Date.now()}_${Math.random().toString(36).slice(2)}${ext}`;
+    const objectPath = `${kind}/${filename}`;
 
-    return res.status(200).json({
-      url,
-      bucket: BUCKET,
-      path: objectPath,
-      mimetype: file.mimetype,
-      size: file.size,
+    const { error: upErr } = await supabase.storage.from(BUCKET).upload(objectPath, buffer, {
+      contentType: (file as any).mimetype || "application/octet-stream",
+      upsert: false,
     });
+    if (upErr) return res.status(500).json({ ok: false, error: `Upload misslyckades: ${upErr.message}` });
+
+    // 3) Public URL
+    const { data: pub } = supabase.storage.from(BUCKET).getPublicUrl(objectPath);
+    if (!pub?.publicUrl) return res.status(500).json({ ok: false, error: "Kunde inte skapa public URL" });
+
+    return res.status(200).json({ ok: true, url: pub.publicUrl });
   } catch (e: any) {
-    return res.status(500).json({ error: e?.message || "Unexpected server error" });
+    return res.status(500).json({ ok: false, error: e?.message || "Tekniskt fel vid uppladdning" });
   }
 }
