@@ -1,7 +1,7 @@
 ﻿// src/pages/api/bookings/create.ts
 import type { NextApiRequest, NextApiResponse } from "next";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { sendBookingMail } from "@/lib/sendMail";
+import { sendBookingMail } from "@/lib/sendBookingMail";
 
 function toNull(v: any) { return v === "" || v === undefined ? null : v; }
 
