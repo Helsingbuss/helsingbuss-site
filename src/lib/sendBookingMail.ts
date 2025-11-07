@@ -12,12 +12,12 @@ export type SendBookingParams = {
     date?: string | null;
     time?: string | null;
     from?: string | null;
-    to?: string | null;
+    toPlace?: string | null;
   };
 
   // fallback-fält om du råkar skicka dem platt
   from?: string | null;
-  to?: string | null;
+  toPlace?: string | null;
   date?: string | null;
   time?: string | null;
 
@@ -36,10 +36,11 @@ export async function sendBookingMail(p: SendBookingParams) {
     {
       passengers: p.passengers ?? null,
       from: p.out?.from ?? p.from ?? null,
-      to:   p.out?.to   ?? p.to   ?? null,
+      to:   p.out?.to ?? p.toPlace ?? null,
       date: p.out?.date ?? p.date ?? null,
       time: p.out?.time ?? p.time ?? null,
       freeTextHtml: p.freeTextHtml,
     }
   );
 }
+
