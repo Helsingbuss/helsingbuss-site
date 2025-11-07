@@ -1,4 +1,4 @@
-// src/lib/sendMail.ts
+﻿// src/lib/sendMail.ts
 import { Resend } from "resend";
 import { signOfferToken } from "@/lib/offerJwt";
 
@@ -11,19 +11,16 @@ export function baseUrl() {
   return raw || "http://localhost:3000";
 }
 export function customerBaseUrl() {
-  // ENV override (b�de server och client)
   const fromEnv =
     process.env.CUSTOMER_BASE_URL ||
     process.env.NEXT_PUBLIC_CUSTOMER_BASE_URL;
-
   if (fromEnv) return fromEnv;
 
-  // Vercel production -> kunddom�nen
   if (process.env.VERCEL_ENV === "production") {
     return "https://kund.helsingbuss.se";
   }
-
-  // Lokal fallback
+  return "http://localhost:3000";
+}// Lokal fallback
   return "http://localhost:3000";
 }const FROM = process.env.MAIL_FROM || "Helsingbuss <info@helsingbuss.se>";
 const ADMIN_TO = process.env.MAIL_ADMIN || "offert@helsingbuss.se";
@@ -32,7 +29,7 @@ const LOGO_ABS = `${baseUrl()}/mork_logo.png`;
 const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 
 /* ============================
-   Hjälpare: layout + sändning
+   HjÃ¤lpare: layout + sÃ¤ndning
 ============================ */
 type CTA = { label: string; href: string } | null;
 
@@ -66,9 +63,9 @@ function renderLayout(opts: {
     : "";
 
   const footerHtml = `
-    Frågor om din resa? Ring vårt Kundteam vardagar 8–17:
-    <strong>010-405 38 38</strong> eller svara på detta mail.
-    Vid akuta trafikärenden utanför kontorstid: <strong>010-777 21 58</strong>.
+    FrÃ¥gor om din resa? Ring vÃ¥rt Kundteam vardagar 8â€“17:
+    <strong>010-405 38 38</strong> eller svara pÃ¥ detta mail.
+    Vid akuta trafikÃ¤renden utanfÃ¶r kontorstid: <strong>010-777 21 58</strong>.
   `;
 
   return `<!doctype html>
@@ -127,7 +124,7 @@ async function sendViaResend({
   bcc?: string | string[];
 }) {
   if (!resend) {
-    console.warn("⚠️ Ingen RESEND_API_KEY – kör testläge.");
+    console.warn("âš ï¸ Ingen RESEND_API_KEY â€“ kÃ¶r testlÃ¤ge.");
     return { success: true, test: true, to, subject };
   }
   await resend.emails.send({
@@ -141,7 +138,7 @@ async function sendViaResend({
 }
 
 /* ============================
-   OFFERT – kund + admin
+   OFFERT â€“ kund + admin
 ============================ */
 export async function sendOfferMail(
   to: string,
@@ -149,7 +146,7 @@ export async function sendOfferMail(
   status: "inkommen" | "besvarad" | "godkand" | "makulerad",
   offerNumber?: string | null
 ) {
-  // ✅ signOfferToken tar ett objekt: { offer_id, expMinutes? }
+  // âœ… signOfferToken tar ett objekt: { offer_id, expMinutes? }
   const token = await signOfferToken({ offer_id: offerId }); // default-TTL i offerJwt.ts
 
   const CUSTOMER_BASE = customerBaseUrl();
@@ -163,31 +160,31 @@ export async function sendOfferMail(
 
   switch (status) {
     case "inkommen":
-      subject = `Tack – vi har mottagit er offertförfrågan (${displayRef})`;
+      subject = `Tack â€“ vi har mottagit er offertfÃ¶rfrÃ¥gan (${displayRef})`;
       html = renderLayout({
-        title: "Offertförfrågan mottagen",
-        intro: "Vi har tagit emot er förfrågan och återkommer med prisförslag och detaljer så snart vi kan.",
-        freeHtml: `<p>Ni kan följa ärendet via länken nedan. Länken visar alltid den senaste informationen.</p>`,
+        title: "OffertfÃ¶rfrÃ¥gan mottagen",
+        intro: "Vi har tagit emot er fÃ¶rfrÃ¥gan och Ã¥terkommer med prisfÃ¶rslag och detaljer sÃ¥ snart vi kan.",
+        freeHtml: `<p>Ni kan fÃ¶lja Ã¤rendet via lÃ¤nken nedan. LÃ¤nken visar alltid den senaste informationen.</p>`,
         rows: [{ label: "Offert-ID", value: displayRef }],
-        cta: { label: `Visa er förfrågan (${displayRef})`, href: publicLink },
+        cta: { label: `Visa er fÃ¶rfrÃ¥gan (${displayRef})`, href: publicLink },
       });
       break;
 
     case "besvarad":
-      subject = `Er offert är klar (${displayRef})`;
+      subject = `Er offert Ã¤r klar (${displayRef})`;
       html = renderLayout({
         title: "Er offert",
-        intro: "Nu är ert prisförslag klart. Klicka nedan för att granska och svara.",
+        intro: "Nu Ã¤r ert prisfÃ¶rslag klart. Klicka nedan fÃ¶r att granska och svara.",
         rows: [{ label: "Offert-ID", value: displayRef }],
-        cta: { label: `Öppna offerten (${displayRef})`, href: publicLink },
+        cta: { label: `Ã–ppna offerten (${displayRef})`, href: publicLink },
       });
       break;
 
     case "godkand":
-      subject = `Tack – er offert är godkänd (${displayRef})`;
+      subject = `Tack â€“ er offert Ã¤r godkÃ¤nd (${displayRef})`;
       html = renderLayout({
-        title: "Offerten är godkänd",
-        intro: "Tack! Vi skapar nu er bokning och återkommer med bokningsbekräftelse inom kort.",
+        title: "Offerten Ã¤r godkÃ¤nd",
+        intro: "Tack! Vi skapar nu er bokning och Ã¥terkommer med bokningsbekrÃ¤ftelse inom kort.",
         rows: [{ label: "Offert-ID", value: displayRef }],
         cta: { label: "Visa offerten", href: publicLink },
       });
@@ -197,7 +194,7 @@ export async function sendOfferMail(
       subject = `Offert makulerad (${displayRef})`;
       html = renderLayout({
         title: "Offerten har makulerats",
-        intro: "Er offert är inte längre aktiv. Behöver ni ett nytt förslag hjälper vi gärna till.",
+        intro: "Er offert Ã¤r inte lÃ¤ngre aktiv. BehÃ¶ver ni ett nytt fÃ¶rslag hjÃ¤lper vi gÃ¤rna till.",
         rows: [{ label: "Offert-ID", value: displayRef }],
         cta: { label: "Kontakta oss", href: `${CUSTOMER_BASE}/kontakt` },
       });
@@ -210,19 +207,19 @@ export async function sendOfferMail(
   // 2) Admin-notis (endast vid inkommen)
   if (status === "inkommen") {
     const adminHtml = renderLayout({
-      title: "Ny offertförfrågan",
+      title: "Ny offertfÃ¶rfrÃ¥gan",
       intro: "En ny offert har inkommit via hemsidan.",
       rows: [
         { label: "Offert-ID", value: displayRef },
         { label: "Kundens e-post", value: to },
-        { label: "Adminlänk", value: adminLink },
+        { label: "AdminlÃ¤nk", value: adminLink },
       ],
-      freeHtml: `<p><a href="${adminLink}">Öppna i Admin</a></p>`,
+      freeHtml: `<p><a href="${adminLink}">Ã–ppna i Admin</a></p>`,
       cta: null,
     });
     await sendViaResend({
       to: ADMIN_TO,
-      subject: `📩 Ny offertförfrågan (${displayRef}) – ${to}`,
+      subject: `ðŸ“© Ny offertfÃ¶rfrÃ¥gan (${displayRef}) â€“ ${to}`,
       html: adminHtml,
     });
   }
@@ -231,7 +228,7 @@ export async function sendOfferMail(
 }
 
 /* ============================
-   BOKNING – mail
+   BOKNING â€“ mail
 ============================ */
 export async function sendBookingMail(
   to: string,
@@ -253,24 +250,24 @@ export async function sendBookingMail(
     { label: "Ordernummer (Boknings ID)", value: displayRef },
   ];
   if (details?.passengers) rows.push({ label: "Passagerare", value: String(details.passengers) });
-  if (details?.from) rows.push({ label: "Från", value: details.from });
+  if (details?.from) rows.push({ label: "FrÃ¥n", value: details.from });
   if (details?.to) rows.push({ label: "Till", value: details.to });
   if (details?.date) rows.push({ label: "Datum", value: details.date });
   if (details?.time) rows.push({ label: "Tid", value: details.time });
 
   const baseText =
     details?.freeTextHtml ??
-    `<p>Vänligen klicka på knappen för att se vad som har registrerats.
-      Fakturan skickas efter utfört uppdrag. Kontrollera gärna att allt stämmer.</p>`;
+    `<p>VÃ¤nligen klicka pÃ¥ knappen fÃ¶r att se vad som har registrerats.
+      Fakturan skickas efter utfÃ¶rt uppdrag. Kontrollera gÃ¤rna att allt stÃ¤mmer.</p>`;
 
   const subject =
     mode === "created"
-      ? `Bokningsbekräftelse (${displayRef})`
-      : `Uppdatering – Bokning ${displayRef}`;
+      ? `BokningsbekrÃ¤ftelse (${displayRef})`
+      : `Uppdatering â€“ Bokning ${displayRef}`;
 
   const html = renderLayout({
-    title: mode === "created" ? "Bokningsbekräftelse" : "Uppdatering av bokning",
-    intro: mode === "created" ? "Tack för er bokning!" : "Vi har uppdaterat er bokning.",
+    title: mode === "created" ? "BokningsbekrÃ¤ftelse" : "Uppdatering av bokning",
+    intro: mode === "created" ? "Tack fÃ¶r er bokning!" : "Vi har uppdaterat er bokning.",
     rows,
     freeHtml: baseText,
     cta: { label: `Visa bokningen (${displayRef})`, href: link },
@@ -280,10 +277,10 @@ export async function sendBookingMail(
 }
 
 /* ============================
-   KÖRORDER – mail
+   KÃ–RORDER â€“ mail
 ============================ */
 export async function sendDriverOrderMail(
-  to: string, // chaufförens e-post
+  to: string, // chauffÃ¶rens e-post
   payload: {
     driverName?: string | null;
     out: { date?: string | null; time?: string | null; from?: string | null; to?: string | null };
@@ -297,22 +294,22 @@ export async function sendDriverOrderMail(
 
   if (payload.out.date) rows.push({ label: "Utresa datum", value: payload.out.date });
   if (payload.out.time) rows.push({ label: "Utresa tid", value: payload.out.time });
-  if (payload.out.from) rows.push({ label: "Utresa från", value: payload.out.from });
+  if (payload.out.from) rows.push({ label: "Utresa frÃ¥n", value: payload.out.from });
   if (payload.out.to) rows.push({ label: "Utresa till", value: payload.out.to });
 
   if (payload.ret?.date) rows.push({ label: "Retur datum", value: payload.ret.date });
   if (payload.ret?.time) rows.push({ label: "Retur tid", value: payload.ret.time });
-  if (payload.ret?.from) rows.push({ label: "Retur från", value: payload.ret.from });
+  if (payload.ret?.from) rows.push({ label: "Retur frÃ¥n", value: payload.ret.from });
   if (payload.ret?.to) rows.push({ label: "Retur till", value: payload.ret.to });
 
-  if (payload.contact?.name) rows.push({ label: "Kontakt på plats", value: payload.contact.name });
+  if (payload.contact?.name) rows.push({ label: "Kontakt pÃ¥ plats", value: payload.contact.name });
   if (payload.contact?.phone) rows.push({ label: "Telefon", value: payload.contact.phone });
   if (payload.vehicle?.reg) rows.push({ label: "Fordon", value: payload.vehicle.reg });
 
-  const subject = `Körorder${payload.driverName ? ` – ${payload.driverName}` : ""}`;
+  const subject = `KÃ¶rorder${payload.driverName ? ` â€“ ${payload.driverName}` : ""}`;
   const html = renderLayout({
     title: subject,
-    intro: "Här är uppdraget. Vänligen bekräfta om något inte stämmer.",
+    intro: "HÃ¤r Ã¤r uppdraget. VÃ¤nligen bekrÃ¤fta om nÃ¥got inte stÃ¤mmer.",
     rows,
     freeHtml: payload.freeTextHtml,
     cta: null,
@@ -323,3 +320,5 @@ export async function sendDriverOrderMail(
 
 
 export { sendViaResend as sendMail };
+
+
