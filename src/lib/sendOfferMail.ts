@@ -168,7 +168,7 @@ function ctaButton(href: string, label: string) {
   </div>`;
 }
 
-function renderAdminHtml(p: SendOfferParams) {
+async function renderAdminHtml(p: SendOfferParams) {
   const link = await buildSecureOfferLink(p.offerId);
   return `
   <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif; color:#111">
@@ -192,7 +192,7 @@ function renderAdminHtml(p: SendOfferParams) {
   </div>`;
 }
 
-function renderCustomerHtml(p: SendOfferParams) {
+async function await renderCustomerHtml(p: SendOfferParams) {
   const link = await buildSecureOfferLink(p.offerId);
   return `
   <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif; color:#111">
@@ -258,7 +258,7 @@ export async function sendOfferMail(p: SendOfferParams) {
   const customerSubject = `Tack! Vi har mottagit din offertförfrågan (${p.offerNumber})`;
 
   const htmlAdmin = renderAdminHtml(p);
-  const htmlCustomer = renderCustomerHtml(p);
+  const htmlCustomer = await renderCustomerHtml(p);
   const text = renderText(p);
 
   // 1) Admin
@@ -283,6 +283,13 @@ export async function sendOfferMail(p: SendOfferParams) {
 
   return { ok: true as const, provider };
 }
+
+
+
+
+
+
+
 
 
 
