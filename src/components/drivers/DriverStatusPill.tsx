@@ -13,11 +13,11 @@ export type DocTag =
 export function toDocTag(input: string): DocTag {
   const s = (input || "").trim()
     // vanliga mojibake för “≤”
-    .replace("(â‰¤30d)", "(≤30d)")
-    .replace("(â‰¤60d)", "(≤60d)")
-    .replace("(â‰¤90d)", "(≤90d)")
+    .replace("(≤30d)", "(≤30d)")
+    .replace("(≤60d)", "(≤60d)")
+    .replace("(≤90d)", "(≤90d)")
     // vanliga mojibake för å/å
-    .replace("utgÃ¥nget", "utgånget");
+    .replace("utgånget", "utgånget");
 
   // Fallbackar för säkerhets skull
   if (s === "ok" || s === "saknas" || s === "utgånget") return s as DocTag;
@@ -57,3 +57,4 @@ export default function DriverStatusPill({
     </span>
   );
 }
+

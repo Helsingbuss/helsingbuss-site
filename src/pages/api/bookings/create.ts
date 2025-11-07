@@ -70,7 +70,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   event: "created",
   passengers: data.passengers ?? null,
 
-  // ev. platta fält som kan komma från formulär
+  // ev. platta fält från formulär
   from:    (data.from ?? null) as string | null,
   toPlace: (data.toPlace ?? null) as string | null,
   date:    (data.date ?? null) as string | null,
@@ -88,6 +88,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(500).json({ error: e?.message || "Serverfel" });
   }
 }
+
 
 
 
