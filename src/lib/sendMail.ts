@@ -6,22 +6,19 @@ import { signOfferToken } from "@/lib/offerJwt";
    Bas-URL helpers (exporteras)
 ============================ */
 export function baseUrl() {
+  // Din primära portal (admin)
   const raw = (process.env.NEXT_PUBLIC_BASE_URL || "").replace(/\/$/, "");
   return raw || "http://localhost:3000";
 }
 export function customerBaseUrl() {
+  // Offentlig kunddomän (offertlänkar m.m.)
   const raw = (process.env.NEXT_PUBLIC_CUSTOMER_BASE_URL || "").replace(/\/$/, "");
-  // fallback till login/hemsida om kund-subdomänen saknas
   return raw || baseUrl();
 }
 
-/* ============================
-   ENV + klient
-============================ */
-const BASE = baseUrl();
 const FROM = process.env.MAIL_FROM || "Helsingbuss <info@helsingbuss.se>";
 const ADMIN_TO = process.env.MAIL_ADMIN || "offert@helsingbuss.se";
-const LOGO_ABS = `${BASE}/mork_logo.png`;
+const LOGO_ABS = `${baseUrl()}/mork_logo.png`;
 
 const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 
@@ -30,7 +27,7 @@ const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KE
 ============================ */
 type CTA = { label: string; href: string } | null;
 
-function escapeHtml(s?: string | null) {
+function escape(s?: string | null) {
   return (s ?? "").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
@@ -46,16 +43,17 @@ function renderLayout(opts: {
       .map(
         (r) => `
       <tr>
-        <td style="padding:4px 0;color:#0f172a80;font-size:12px;width:42%">${escapeHtml(r.label)}</td>
-        <td style="padding:4px 0;color:#0f172a;font-size:14px">${escapeHtml(r.value)}</td>
+        <td style="padding:4px 0;color:#0f172a80;font-size:12px;width:42%">${escape(r.label)}</td>
+        <td style="padding:4px 0;color:#0f172a;font-size:14px">${escape(r.value)}</td>
       </tr>`
       )
       .join("") || "";
 
   const ctaHtml = opts.cta
-    ? `<a href="${opts.cta.href}" style="display:inline-block;background:#194C66;color:#fff;text-decoration:none;padding:10px 16px;border-radius:999px;font-size:14px">${escapeHtml(
-        opts.cta.label
-      )}</a>`
+    ? `<a href="${opts.cta.href}" style="display:inline-block;background:#194C66;color:#fff;
+          text-decoration:none;padding:10px 16px;border-radius:999px;font-size:14px">${escape(
+            opts.cta.label
+          )}</a>`
     : "";
 
   const footerHtml = `
@@ -78,8 +76,8 @@ function renderLayout(opts: {
 
             <tr>
               <td style="background:#fff;border-radius:12px;padding:20px;box-shadow:0 1px 3px rgba(0,0,0,.06)">
-                <h1 style="margin:0 0 12px 0;font-size:20px;color:#0f172a">${escapeHtml(opts.title)}</h1>
-                ${opts.intro ? `<p style="margin:0 0 12px 0;color:#0f172a80">${escapeHtml(opts.intro)}</p>` : ""}
+                <h1 style="margin:0 0 12px 0;font-size:20px;color:#0f172a">${escape(opts.title)}</h1>
+                ${opts.intro ? `<p style="margin:0 0 12px 0;color:#0f172a80">${escape(opts.intro)}</p>` : ""}
 
                 ${
                   opts.freeHtml
@@ -120,20 +118,26 @@ async function sendViaResend({
   bcc?: string | string[];
 }) {
   if (!resend) {
-    console.warn("⚠️ Ingen RESEND_API_KEY – testläge (ingen leverans).");
+    console.warn("⚠️ Ingen RESEND_API_KEY – kör testläge.");
     return { success: true, test: true, to, subject };
   }
-  await resend.emails.send({ from: FROM, to, subject, html, bcc });
+  await resend.emails.send({
+    from: FROM,
+    to,
+    subject,
+    html,
+    bcc,
+  });
   return { success: true };
 }
 
 /* ============================
-   OFFERT – mejl
+   OFFERT – kund + admin
 ============================ */
 /**
  * Skicka kund- och adminmejl för offertflödet.
- * - offerId: UUID (länkreferens)
- * - offerNumber: HB25xxxx (visas i ämne om finns)
+ * - offerId: UUID används i länken (stabil och unik)
+ * - offerNumber: HB25xxxx används i ämne och synlig text när den finns
  */
 export async function sendOfferMail(
   to: string,
@@ -141,12 +145,13 @@ export async function sendOfferMail(
   status: "inkommen" | "besvarad" | "godkand" | "makulerad",
   offerNumber?: string | null
 ) {
-  // signera länk (t=...) – giltig i 45 dagar
-  const token = signOfferToken(offerId, 45);
+  // signera länk (t=...) – standard-TTL sätts i offerJwt.ts
+  const token = signOfferToken(offerId);
 
   const CUSTOMER_BASE = customerBaseUrl();
+  const ADMIN_BASE = baseUrl();
   const publicLink = `${CUSTOMER_BASE}/offert/${encodeURIComponent(offerId)}?t=${encodeURIComponent(token)}`;
-  const adminLink = `${BASE}/admin/offers/${encodeURIComponent(offerId)}`;
+  const adminLink = `${ADMIN_BASE}/admin/offers/${offerId}`;
   const displayRef = offerNumber || offerId;
 
   let subject = "";
@@ -157,8 +162,10 @@ export async function sendOfferMail(
       subject = `Tack – vi har mottagit er offertförfrågan (${displayRef})`;
       html = renderLayout({
         title: "Offertförfrågan mottagen",
-        intro: "Vi har tagit emot er förfrågan och återkommer med prisförslag och detaljer så snart vi kan.",
-        freeHtml: `<p>Ni kan följa ärendet via länken nedan. Länken visar alltid den senaste informationen.</p>`,
+        intro:
+          "Vi har tagit emot er förfrågan och återkommer med prisförslag och detaljer så snart vi kan.",
+        freeHtml:
+          `<p>Ni kan följa ärendet via länken nedan. Länken visar alltid den senaste informationen.</p>`,
         rows: [{ label: "Offert-ID", value: displayRef }],
         cta: { label: `Visa er förfrågan (${displayRef})`, href: publicLink },
       });
@@ -178,7 +185,8 @@ export async function sendOfferMail(
       subject = `Tack – er offert är godkänd (${displayRef})`;
       html = renderLayout({
         title: "Offerten är godkänd",
-        intro: "Tack! Vi skapar nu er bokning och återkommer med bokningsbekräftelse inom kort.",
+        intro:
+          "Tack! Vi skapar nu er bokning och återkommer med bokningsbekräftelse inom kort.",
         rows: [{ label: "Offert-ID", value: displayRef }],
         cta: { label: "Visa offerten", href: publicLink },
       });
@@ -188,9 +196,10 @@ export async function sendOfferMail(
       subject = `Offert makulerad (${displayRef})`;
       html = renderLayout({
         title: "Offerten har makulerats",
-        intro: "Er offert är inte längre aktiv. Behöver ni ett nytt förslag hjälper vi gärna till.",
+        intro:
+          "Er offert är inte längre aktiv. Behöver ni ett nytt förslag hjälper vi gärna till.",
         rows: [{ label: "Offert-ID", value: displayRef }],
-        cta: { label: "Kontakta oss", href: `${BASE}/kontakt` },
+        cta: { label: "Kontakta oss", href: `${CUSTOMER_BASE}/kontakt` },
       });
       break;
   }
@@ -222,7 +231,7 @@ export async function sendOfferMail(
 }
 
 /* ============================
-   BOKNING – mejl
+   BOKNING – mail
 ============================ */
 export async function sendBookingMail(
   to: string,
@@ -234,7 +243,7 @@ export async function sendBookingMail(
     to?: string | null;
     date?: string | null;
     time?: string | null;
-    freeTextHtml?: string;
+    freeTextHtml?: string; // valfri egen text
   }
 ) {
   const displayRef = bookingNumber;
@@ -271,10 +280,10 @@ export async function sendBookingMail(
 }
 
 /* ============================
-   KÖRORDER – mejl
+   KÖRORDER – mail
 ============================ */
 export async function sendDriverOrderMail(
-  to: string,
+  to: string, // chaufförens e-post
   payload: {
     driverName?: string | null;
     out: { date?: string | null; time?: string | null; from?: string | null; to?: string | null };
