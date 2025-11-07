@@ -11,8 +11,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   try {
     const p = req.body ?? {};
 
-    // Antag att booking_number redan sätts server-side (trigger/procedur) eller här:
-    // Om saknas, skapa enkelt nummer BK{YY}{random} – byt gärna mot ditt riktiga sekvensflöde.
+    // Antag att booking_number redan sÃ¤tts server-side (trigger/procedur) eller hÃ¤r:
+    // Om saknas, skapa enkelt nummer BK{YY}{random} â€“ byt gÃ¤rna mot ditt riktiga sekvensflÃ¶de.
     let booking_number: string | null = p.booking_number || null;
     if (!booking_number) {
       const yy = new Date().getFullYear().toString().slice(-2);
@@ -46,7 +46,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       // interna
       assigned_vehicle_id: toNull(p.assigned_vehicle_id),
       assigned_driver_id: toNull(p.assigned_driver_id),
-      // övrigt
+      // Ã¶vrigt
       notes: toNull(p.notes),
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
@@ -60,7 +60,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     if (error) throw error;
 
-    // Försök skicka bokningsbekräftelse (icke-blockerande)
+    // FÃ¶rsÃ¶k skicka bokningsbekrÃ¤ftelse (icke-blockerande)
     (async () => {
       try {
         if (data?.customer_email) {
