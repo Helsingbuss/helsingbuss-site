@@ -11,12 +11,21 @@ export function baseUrl() {
   return raw || "http://localhost:3000";
 }
 export function customerBaseUrl() {
-  // Offentlig kunddom√§n f√∂r l√§nkar till kunder
-  const raw = (process.env.NEXT_PUBLIC_CUSTOMER_BASE_URL || "").replace(/\/$/, "");
-  return raw || baseUrl();
-}
+  // ENV override (bÂde server och client)
+  const fromEnv =
+    process.env.CUSTOMER_BASE_URL ||
+    process.env.NEXT_PUBLIC_CUSTOMER_BASE_URL;
 
-const FROM = process.env.MAIL_FROM || "Helsingbuss <info@helsingbuss.se>";
+  if (fromEnv) return fromEnv;
+
+  // Vercel production -> kunddom‰nen
+  if (process.env.VERCEL_ENV === "production") {
+    return "https://kund.helsingbuss.se";
+  }
+
+  // Lokal fallback
+  return "http://localhost:3000";
+}const FROM = process.env.MAIL_FROM || "Helsingbuss <info@helsingbuss.se>";
 const ADMIN_TO = process.env.MAIL_ADMIN || "offert@helsingbuss.se";
 const LOGO_ABS = `${baseUrl()}/mork_logo.png`;
 
