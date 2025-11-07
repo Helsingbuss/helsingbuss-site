@@ -141,7 +141,7 @@ export async function sendOfferMail(
   offerNumber?: string | null
 ) {
   // ✅ signOfferToken tar ett objekt: { offer_id, expMinutes? }
-  const token = signOfferToken({ offer_id: offerId }); // default-TTL i offerJwt.ts
+  const token = await signOfferToken({ offer_id: offerId }); // default-TTL i offerJwt.ts
 
   const CUSTOMER_BASE = customerBaseUrl();
   const ADMIN_BASE = baseUrl();
@@ -311,3 +311,4 @@ export async function sendDriverOrderMail(
 
   return sendViaResend({ to, subject, html });
 }
+
