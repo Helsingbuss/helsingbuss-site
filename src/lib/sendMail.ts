@@ -312,3 +312,5 @@ export async function sendDriverOrderMail(
   return sendViaResend({ to, subject, html });
 }
 
+
+export { sendViaResend as sendMail };
