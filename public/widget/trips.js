@@ -1,5 +1,6 @@
 // /public/widget/trips.js
 (function () {
+  function $(sel) { return document.querySelector(sel); }
   function css(el, styles) { Object.assign(el.style, styles || {}); return el; }
 
   function renderTrips(el, items, cols, linkbase) {
@@ -12,11 +13,24 @@
     });
 
     items.forEach((t) => {
-      // Länk: extern url → href → linkbase/id
-      var href = t.external_url || t.href || ((linkbase || "/trip/").replace(/\/+$/, "/") + (t.id || ""));
+      // ---- Rätt länklogik ----
+      // 1) extern URL från admin
+      // 2) linkbase + id (om båda finns)
+      // 3) ingen länk (div) om vi inte kan bygga en korrekt URL
+      var href = null;
+      if (t && typeof t.external_url === "string" && t.external_url.trim()) {
+        href = t.external_url.trim();
+      } else if (t && t.id && linkbase) {
+        href = (linkbase || "/trip/").replace(/\/+$/, "/") + String(t.id);
+      }
 
-      const card = document.createElement(href ? "a" : "div");
-      if (href) { card.href = href; card.target = "_self"; card.rel = "noopener"; }
+      const clickable = !!href;
+      const card = document.createElement(clickable ? "a" : "div");
+      if (clickable) {
+        card.href = href;
+        card.target = "_self";
+        card.rel = "noopener";
+      }
       card.style.textDecoration = "none";
       card.style.color = "inherit";
 
@@ -32,33 +46,60 @@
         height: "100%",
         transition: "box-shadow .2s ease",
       });
-      card.addEventListener("mouseenter", () => (wrap.style.boxShadow = "0 3px 16px rgba(0,0,0,.1)"));
-      card.addEventListener("mouseleave", () => (wrap.style.boxShadow = "0 1px 6px rgba(0,0,0,.06)"));
+      card.addEventListener("mouseenter", () => wrap.style.boxShadow = "0 3px 16px rgba(0,0,0,.1)");
+      card.addEventListener("mouseleave", () => wrap.style.boxShadow = "0 1px 6px rgba(0,0,0,.06)");
 
-      // --- Bild 600x390 (aspect 65%) ---
+      // ---- Bild (600x390) ----
       const fig = document.createElement("div");
       css(fig, { position: "relative", background: "#f3f4f6" });
       const ph = document.createElement("div");
-      css(ph, { width: "100%", paddingTop: "65%" });
+      css(ph, { width: "100%", paddingTop: "65%" }); // 390/600
       fig.appendChild(ph);
 
-      if (t.image) {
+      if (t && t.image) {
         const img = document.createElement("img");
         img.src = t.image;
         img.alt = t.title || "";
         css(img, {
-          position: "absolute", left: 0, top: 0, right: 0, bottom: 0,
-          width: "100%", height: "100%", objectFit: "cover", display: "block",
+          position: "absolute",
+          inset: 0,
+          width: "100%",
+          height: "100%",
+          objectFit: "cover",
+          display: "block",
         });
         fig.appendChild(img);
       }
+
+      if (t && t.ribbon) {
+        const text = typeof t.ribbon === "string" ? t.ribbon : (t.ribbon.text || "");
+        if (text) {
+          const rb = document.createElement("div");
+          rb.textContent = text;
+          css(rb, {
+            position: "absolute",
+            top: "12px",
+            left: "12px",
+            transform: "rotate(-10deg)",
+            background: "#EF4444",
+            color: "#fff",
+            padding: "6px 14px",
+            fontWeight: "700",
+            fontSize: "13px",
+            borderRadius: "6px",
+            boxShadow: "0 2px 8px rgba(0,0,0,.15)",
+            letterSpacing: ".2px",
+          });
+          fig.appendChild(rb);
+        }
+      }
       wrap.appendChild(fig);
 
-      // --- Body ---
+      // ---- Body ----
       const body = document.createElement("div");
       css(body, { padding: "14px" });
 
-      // Piller (kategori/land/år) – flera kategorier stöds
+      // Piller: trip_kind + extra kategorier + land + år
       const pills = document.createElement("div");
       css(pills, { display: "flex", gap: "8px", flexWrap: "wrap", fontSize: "12px" });
 
@@ -75,57 +116,43 @@
         });
         pills.appendChild(p);
       }
-
-      // kategorier: trip_kind + categories[] (unika)
-      const catSet = new Set();
-      if (t.trip_kind) catSet.add(t.trip_kind);
-      if (Array.isArray(t.categories)) for (const c of t.categories) if (c) catSet.add(c);
-      // land & år
-      if (t.country) pill(t.country);
-      if (t.year) pill(String(t.year));
-      // lägg kategorier sist (eller byt ordning om du vill)
-      for (const c of catSet) pill(c);
-
+      if (t && t.trip_kind) pill(t.trip_kind);
+      if (t && Array.isArray(t.categories)) t.categories.forEach(pill);
+      if (t && t.country) pill(t.country);
+      if (t && t.year) pill(String(t.year));
       if (pills.childNodes.length) body.appendChild(pills);
 
-      // Titel
       const h = document.createElement("div");
-      h.textContent = t.title || "";
+      h.textContent = (t && t.title) || "";
       css(h, { marginTop: pills.childNodes.length ? "8px" : "0", fontSize: "18px", fontWeight: "700", color: "#0f172a" });
       body.appendChild(h);
 
-      // Undertitel
-      if (t.subtitle) {
+      if (t && t.subtitle) {
         const sub = document.createElement("div");
         sub.textContent = t.subtitle;
         css(sub, { marginTop: "4px", color: "#0f172aB3", fontSize: "14px" });
         body.appendChild(sub);
       }
 
-      // Kort om resan (NYTT)
-      if (t.description) {
-        const desc = document.createElement("div");
-        desc.textContent = t.description;
-        css(desc, { marginTop: "6px", color: "#334155", fontSize: "14px", lineHeight: "1.45" });
-        body.appendChild(desc);
+      // Kort om resan (summary) – den som saknades
+      if (t && t.summary) {
+        const sum = document.createElement("div");
+        sum.textContent = t.summary;
+        css(sum, { marginTop: "6px", color: "#0f172acc", fontSize: "14px", lineHeight: "1.45" });
+        body.appendChild(sum);
       }
 
-      // Bottrad – “Nästa avgång / Flera datum” + pris-chip
+      // Datum/Pris-rad
       const foot = document.createElement("div");
       css(foot, { marginTop: "12px", display: "flex", alignItems: "center", justifyContent: "space-between" });
 
       const left = document.createElement("span");
       css(left, { fontSize: "13px", color: "#0f172a99" });
-      if (t.next_date) {
-        // Visa i svensk form
-        const d = new Date(t.next_date + "T12:00:00"); // undvik TZ-strul
-        left.textContent = "Nästa avgång: " + d.toLocaleDateString("sv-SE", { day: "2-digit", month: "short", year: "numeric" });
-      } else {
-        left.textContent = "Flera datum";
-      }
+      if (t && t.next_date) left.textContent = "Nästa avgång: " + t.next_date;
+      else left.textContent = "Flera datum";
       foot.appendChild(left);
 
-      if (t.price_from != null) {
+      if (t && t.price_from != null) {
         const price = document.createElement("span");
         price.textContent = "fr. " + Number(t.price_from).toLocaleString("sv-SE") + " kr";
         css(price, {
@@ -155,15 +182,28 @@
     const limit = Number(el.getAttribute("data-limit") || "6") || 6;
     const cols = Number(el.getAttribute("data-columns") || "3") || 3;
     const linkbase = (el.getAttribute("data-link-base") || "/trip/").replace(/\/\/+$/, "/");
-
     const url = `${api}/api/public/trips?limit=${encodeURIComponent(limit)}&_=${Date.now()}`;
 
     try {
       const r = await fetch(url, { method: "GET", mode: "cors", credentials: "omit" });
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      const j = await r.json();
+      const text = await r.text();
 
-      if (!j || !Array.isArray(j.trips)) throw new Error("Felaktigt format från API.");
+      // Försök parsa JSON; logga ev. server-svar för felsökning
+      let j = null;
+      try { j = JSON.parse(text); } catch (_) { j = null; }
+
+      if (!r.ok) {
+        console.error("HB Widget: HTTP fel", r.status, text);
+        throw new Error(`HTTP ${r.status}`);
+      }
+      if (!j || (j && j.ok === false)) {
+        console.error("HB Widget: API fel", j || text);
+        throw new Error((j && j.error) || "Felaktigt format från API.");
+      }
+      if (!Array.isArray(j.trips)) {
+        console.error("HB Widget: oväntat payload", j);
+        throw new Error("Felaktigt format från API.");
+      }
       if (j.trips.length === 0) {
         el.innerHTML = '<div style="color:#666">Inga resor att visa ännu.</div>';
         return;
