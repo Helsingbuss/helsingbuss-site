@@ -1,7 +1,7 @@
-ï»¿// src/pages/api/bookings/create.ts
+// src/pages/api/bookings/create.ts
 import type { NextApiRequest, NextApiResponse } from "next";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { sendBookingMail } from "@/lib/sendBookingMail";
+import { sendBookingMail } from "@/lib/sendMail";
 
 function toNull(v: any) { return v === "" || v === undefined ? null : v; }
 
@@ -11,8 +11,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   try {
     const p = req.body ?? {};
 
-    // Antag att booking_number redan sÃ¤tts server-side (trigger/procedur) eller hÃ¤r:
-    // Om saknas, skapa enkelt nummer BK{YY}{random} â€“ byt gÃ¤rna mot ditt riktiga sekvensflÃ¶de.
+    // Antag att booking_number redan sätts server-side (trigger/procedur) eller här:
+    // Om saknas, skapa enkelt nummer BK{YY}{random} – byt gärna mot ditt riktiga sekvensflöde.
     let booking_number: string | null = p.booking_number || null;
     if (!booking_number) {
       const yy = new Date().getFullYear().toString().slice(-2);
@@ -46,7 +46,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       // interna
       assigned_vehicle_id: toNull(p.assigned_vehicle_id),
       assigned_driver_id: toNull(p.assigned_driver_id),
-      // Ã¶vrigt
+      // övrigt
       notes: toNull(p.notes),
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
@@ -60,27 +60,22 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     if (error) throw error;
 
-    // FÃ¶rsÃ¶k skicka bokningsbekrÃ¤ftelse (icke-blockerande)
+    // Försök skicka bokningsbekräftelse (icke-blockerande)
     (async () => {
       try {
         if (data?.customer_email) {
-          await sendBookingMail({
-            to: data.customer_email,
-            bookingNumber: data.booking_number,
-            passengers: data.passengers ?? null,
-            out: {
-              date: data.departure_date,
-              time: data.departure_time,
-              from: data.departure_place,
-              to: data.destination,
-            },
-            ret: data.return_date ? {
-              date: data.return_date,
-              time: data.return_time,
-              from: data.return_departure,
-              to: data.return_destination,
-            } : null,
-          });
+          await sendBookingMail(
+  data.customer_email,
+  data.booking_number,
+  "created",
+  {
+    passengers: (data.passengers ?? null),
+    from: data.from,
+    to: data.to,
+    date: data.departure_date,
+    time: data.departure_time
+  }
+);
         }
       } catch (e) {
         console.warn("sendBookingMail failed:", (e as any)?.message || e);
@@ -93,3 +88,5 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(500).json({ error: e?.message || "Serverfel" });
   }
 }
+
+
