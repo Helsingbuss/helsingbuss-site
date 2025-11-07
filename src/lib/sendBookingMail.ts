@@ -1,21 +1,26 @@
-// src/lib/sendBookingMail.ts
+﻿// src/lib/sendBookingMail.ts
 import { sendBookingMail as coreSendBookingMail } from "@/lib/sendMail";
 
 export type SendBookingParams = {
   to: string;                 // kundens e-post
   bookingNumber: string;      // t.ex. BK25xxxx
   mode?: "created" | "updated";
+
+  // valfria toppnivå-fält (fallback från äldre anrop)
   passengers?: number | null;
+  from?: string | null;
+  toPlace?: string | null;    // <-- behålls för kompatibilitet (fallback)
+  date?: string | null;
+  time?: string | null;
 
-  // Din befintliga struktur i create.ts använder "out" { date, time, from, to }
-  out?: {
-    date?: string | null;
-    time?: string | null;
-    from?: string | null;
-    toPlace?: string | null;
-  };
+  // primära strukturer (som din kod använder)
+  out?: { date?: string | null; time?: string | null; from?: string | null; to?: string | null };
+  ret?: { date?: string | null; time?: string | null; from?: string | null; to?: string | null };
 
-  // fallback-fält om du råkar skicka dem platt
+  freeTextHtml?: string;
+};
+
+  // fallback-fÃ¤lt om du rÃ¥kar skicka dem platt
   from?: string | null;
   toPlace?: string | null;
   date?: string | null;
@@ -25,7 +30,7 @@ export type SendBookingParams = {
 };
 
 export async function sendBookingMail(p: SendBookingParams) {
-  // behåll default-beteende: "created" om inget anges
+  // behÃ¥ll default-beteende: "created" om inget anges
   const mode = p.mode ?? "created";
 
   // mappa till den nya funktionen som tar positionella argument + details-objekt
@@ -43,5 +48,6 @@ export async function sendBookingMail(p: SendBookingParams) {
     }
   );
 }
+
 
 
