@@ -1,6 +1,7 @@
 // src/pages/api/public/trips/index.ts
 import type { NextApiRequest, NextApiResponse } from "next";
 import * as admin from "@/lib/supabaseAdmin";
+
 const supabase: any =
   (admin as any).supabaseAdmin || (admin as any).supabase || (admin as any).default;
 
@@ -19,7 +20,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const limit = Math.max(1, Math.min(24, Number(req.query.limit || 6)));
 
   try {
-    // 1) Hämta publicerade resor
+    // Läs ENDAST kolumner som finns i din "trips"
     const { data: trips, error: tripsErr } = await supabase
       .from("trips")
       .select(
@@ -31,7 +32,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           "ribbon",
           "badge",
           "trip_kind",
-          "categories",
           "city",
           "country",
           "price_from",
@@ -47,52 +47,46 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     if (tripsErr) throw tripsErr;
 
-    // 2) Beräkna next_date per resa från trip_departures
-    const today = new Date(new Date().toDateString()).getTime();
+    const todayMs = new Date(new Date().toDateString()).getTime();
+    const out: any[] = [];
 
-    const out = [];
     for (const t of trips || []) {
-      // Hämta departures för denna resa
+      // Hämta avgångar för denna resa
       const { data: deps, error: depsErr } = await supabase
         .from("trip_departures")
         .select("depart_date, dep_date, departure_date")
         .eq("trip_id", t.id)
         .limit(200);
 
-      if (depsErr) {
-        // Skadar inte UI – vi loggar i warning, men fortsätter
-        // (du kan även lägga warning-text i payload om du vill)
-      }
-
-      // Plocka ut första framtida datumet (minst idag)
-      const allDates: Date[] = [];
+      // Plocka fram första framtida datumet
+      const dates: Date[] = [];
       for (const row of deps || []) {
         const cand = [row.depart_date, row.dep_date, row.departure_date]
           .filter(Boolean)
-          .map((d: string) => new Date(d));
+          .map((d: any) => new Date(d as string));
         for (const d of cand) {
-          if (!isNaN(d.getTime()) && d.getTime() >= today) allDates.push(d);
+          if (!isNaN(d.getTime()) && d.getTime() >= todayMs) dates.push(d);
         }
       }
-      allDates.sort((a, b) => a.getTime() - b.getTime());
-      const next_date = allDates[0] ? allDates[0].toISOString().slice(0, 10) : null;
+      dates.sort((a, b) => a.getTime() - b.getTime());
+      const next_date = dates[0] ? dates[0].toISOString().slice(0, 10) : null;
 
       out.push({
         id: t.id,
         title: t.title || "",
         subtitle: t.subtitle || "",
-        image: t.hero_image || null,      // widgeten förväntar sig "image"
+        image: t.hero_image || null,      // widget-fält
         ribbon: t.ribbon || null,
-        badge: t.badge || null,           // legacy, widgeten kan visa detta
+        badge: t.badge || null,           // kvar för bakåtkomp
         trip_kind: t.trip_kind || null,   // primär kategori
-        categories: Array.isArray(t.categories) ? t.categories : [], // extra piller
+        categories: [],                   // DB-kolumn saknas → tom array (framtidssäkert)
         city: t.city || null,
         country: t.country || null,
         price_from: t.price_from ?? null,
         year: t.year ?? null,
         external_url: t.external_url || null,
-        summary: t.summary || "",         // <- för kort beskrivning
-        next_date,                        // <- används i “Nästa avgång”
+        summary: t.summary || "",         // “Kort om resan”
+        next_date,
       });
     }
 
