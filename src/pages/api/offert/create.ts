@@ -1,123 +1,164 @@
 ﻿// src/pages/api/offert/create.ts
 import type { NextApiRequest, NextApiResponse } from "next";
-import supabase from "@/lib/supabaseAdmin";
-import { sendOfferMail } from "@/lib/sendMail";
+import * as admin from "@/lib/supabaseAdmin";
+import { sendOfferMail } from "@/lib/sendOfferMail"; // ← NY modul/signatur
 
+// Få en supabase-klient oavsett hur exporten ser ut i supabaseAdmin
+const supabase =
+  (admin as any).supabaseAdmin || (admin as any).supabase || (admin as any).default;
+
+function toNull<T = any>(v: T | null | undefined): T | null {
+  return v === "" || v === undefined ? null : (v as any);
+}
 function pickYmd(v?: string | null) {
   if (!v) return null;
-  const m = String(v).match(/^(\d{4}-\d{2}-\d{2})/);
-  return m ? m[1] : null;
-}
-
-// Generera HB + YY + löpnummer (utan DB-funktion)
-async function nextOfferNumber(): Promise<string> {
-  const yy = String(new Date().getFullYear()).slice(2); // "25"
-  const prefix = `HB${yy}`;                              // "HB25"
-
-  const { data, error } = await supabase
-    .from("offers")
-    .select("offer_number")
-    .ilike("offer_number", `${prefix}%`)
-    .order("offer_number", { ascending: false })
-    .limit(100);
-
-  if (error || !data?.length) {
-    return `${prefix}${String(1).padStart(4, "0")}`;     // HB250001
-  }
-
-  let max = 0;
-  for (const r of data) {
-    const raw = (r as any).offer_number as string | null;
-    if (!raw) continue;
-    const m = raw.replace(/\s+/g, "").match(new RegExp(`^${prefix}(\\d{1,6})$`, "i"));
-    if (m) {
-      const n = parseInt(m[1], 10);
-      if (Number.isFinite(n)) max = Math.max(max, n);
-    }
-  }
-  const next = max + 1;
-  return `${prefix}${String(next).padStart(4, "0")}`;
+  // accepterar "YYYY-MM-DD" eller en ISO-sträng
+  return v.length >= 10 ? v.slice(0, 10) : v;
 }
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  if (req.method !== "POST") {
-    return res.status(405).json({ ok: false, error: "Method not allowed" });
-  }
+  if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
   try {
-    const b = (req.body || {}) as Record<string, any>;
+    const p = req.body ?? {};
 
-    const customer_reference = (b.contact_person || b.customer_name || "").toString().trim();
-    const contact_email      = (b.customer_email  || b.email         || "").toString().trim();
-    const contact_phone      = (b.customer_phone  || b.phone         || "").toString().trim();
+    // ---- Läs in fält från formuläret ----
+    const customer_name: string | null = toNull(p.customer_name);
+    const customer_email: string | null = toNull(p.customer_email);
+    const customer_phone: string | null = toNull(p.customer_phone);
 
-    if (!customer_reference || !contact_email || !contact_phone) {
-      return res.status(400).json({
-        ok: false,
-        error: "Fyll i Referens (beställarens namn), E-post och Telefon.",
-      });
+    const customer_reference: string | null = toNull(p.customer_reference);
+    const internal_reference: string | null = toNull(p.internal_reference);
+
+    const passengers: number | null =
+      typeof p.passengers === "number"
+        ? p.passengers
+        : Number.isFinite(Number(p.passengers))
+        ? Number(p.passengers)
+        : null;
+
+    const departure_place: string | null = toNull(p.departure_place);
+    const destination: string | null = toNull(p.destination);
+    const departure_date: string | null = pickYmd(toNull(p.departure_date));
+    const departure_time: string | null = toNull(p.departure_time);
+
+    const return_departure: string | null = toNull(p.return_departure);
+    const return_destination: string | null = toNull(p.return_destination);
+    const return_date: string | null = pickYmd(toNull(p.return_date));
+    const return_time: string | null = toNull(p.return_time);
+
+    const via: string | null = toNull(p.via);
+    const onboard_contact: string | null = toNull(p.onboard_contact);
+
+    const round_trip: boolean | null =
+      typeof p.round_trip === "boolean"
+        ? p.round_trip
+        : p.round_trip === "true"
+        ? true
+        : p.round_trip === "false"
+        ? false
+        : null;
+
+    const notes: string | null = toNull(p.notes);
+
+    if (!customer_name || !customer_email) {
+      return res.status(400).json({ error: "customer_name och customer_email krävs" });
     }
 
-    const passengers = Number(b.passengers ?? 0) || null;
+    // ---- Offertnummer (HB25xxx) – samma logik som i create-offer.ts ----
+    const { data: lastOffer } = await supabase
+      .from("offers")
+      .select("offer_number")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .single();
 
-    // utresa
-    const departure_place = b.departure_place ?? b.from ?? null;
-    const destination     = b.destination     ?? b.to   ?? null;
-    const departure_date  = pickYmd(b.departure_date ?? b.date);
-    const departure_time  = b.departure_time ?? b.time ?? null;
+    let nextNumber = 7; // Startvärde (HB25007) – behåll din tidigare logik
+    if (lastOffer?.offer_number) {
+      const lastNum = parseInt(String(lastOffer.offer_number).replace("HB25", ""), 10);
+      if (Number.isFinite(lastNum)) nextNumber = lastNum + 1;
+    }
+    const offer_number = `HB25${String(nextNumber).padStart(3, "0")}`;
 
-    // retur
-    const return_departure  = b.return_departure  ?? b.return_from ?? null;
-    const return_destination= b.return_destination?? b.return_to   ?? null;
-    const return_date       = pickYmd(b.return_date ?? b.ret_date);
-    const return_time       = b.return_time ?? b.ret_time ?? null;
-
-    const notes = b.notes ?? b.message ?? null;
-
-    const offer_number = await nextOfferNumber();
-    const status = "inkommen";
-
-    const row = {
+    // ---- Spara i DB ----
+    const insertPayload: any = {
       offer_number,
-      status,
+      status: "inkommen",
+      offer_date: new Date().toISOString().slice(0, 10),
+
+      // kontakt
+      contact_person: customer_name,
+      contact_phone: customer_phone,
+      contact_email: customer_email, // läggs så quote/accept hittar det
+
+      // referenser
       customer_reference,
-      contact_email,
-      contact_phone,
+      internal_reference,
+
+      // resa
       passengers,
       departure_place,
       destination,
       departure_date,
       departure_time,
+      round_trip,
+
+      // retur
       return_departure,
       return_destination,
       return_date,
       return_time,
+
+      // ev. extra
+      via,
+      onboard_contact,
       notes,
+
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
     };
 
-    const ins = await supabase
+    const { data: row, error: insErr } = await supabase
       .from("offers")
-      .insert(row)
-      .select("id, offer_number, contact_email, customer_email")
+      .insert([insertPayload])
+      .select("*")
       .single();
 
-    if (ins.error) {
-      return res.status(500).json({ ok: false, error: ins.error.message });
-    }
+    if (insErr) throw insErr;
 
-    const saved = ins.data!;
-    const recipient = saved.contact_email || saved.customer_email || contact_email;
-
-    // mejl (kunden + admin), sendMail hanterar testläge om RESEND_API_KEY saknas
+    // ---- Skicka mejl med NYA objekt-signaturen ----
+    // (tyst felhantering – själva skapandet ska inte falla på mail)
     try {
-      await sendOfferMail(recipient, saved.offer_number || saved.id, "inkommen");
-    } catch (e:any) {
-      console.warn("[offert/create] e-post misslyckades:", e?.message || e);
+      await sendOfferMail({
+        offerId: String(row.id ?? offer_number),
+        offerNumber: String(offer_number),
+        customerEmail: customer_email,
+
+        customerName: customer_name,
+        customerPhone: customer_phone,
+
+        from: departure_place,
+        to: destination,
+        date: departure_date,
+        time: departure_time,
+        passengers,
+        via,
+        onboardContact: onboard_contact,
+
+        return_from: return_departure,
+        return_to: return_destination,
+        return_date,
+        return_time,
+
+        notes,
+      });
+    } catch (mailErr) {
+      console.warn("sendOfferMail (create offert) failed:", (mailErr as any)?.message || mailErr);
     }
 
-    return res.status(200).json({ ok: true, offer: saved });
+    return res.status(200).json({ success: true, offer: row });
   } catch (e: any) {
-    console.error("[offert/create] server error:", e?.message || e);
-    return res.status(500).json({ ok: false, error: e?.message || "Internt fel" });
+    console.error("/api/offert/create error:", e?.message || e);
+    return res.status(500).json({ error: e?.message || "Serverfel" });
   }
 }

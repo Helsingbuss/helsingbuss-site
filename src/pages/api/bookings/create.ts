@@ -3,6 +3,7 @@ import type { NextApiRequest, NextApiResponse } from "next";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { sendBookingMail } from "@/lib/sendBookingMail";
 
+
 function toNull(v: any) { return v === "" || v === undefined ? null : v; }
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
