@@ -1,38 +1,35 @@
-// src/pages/api/offers/[id]/accept.ts
+// src/pages/api/offers/accept.ts
 import type { NextApiRequest, NextApiResponse } from "next";
 import * as admin from "@/lib/supabaseAdmin";
+import { sendOfferMail } from "@/lib/sendOfferMail"; // ✅ ny modul/signatur
 import { Resend } from "resend";
-import { sendOfferMail, type SendOfferParams } from "@/lib/sendOfferMail";
 
 const supabase =
   (admin as any).supabaseAdmin || (admin as any).supabase || (admin as any).default;
 
-const RAW_BASE =
-  process.env.NEXT_PUBLIC_BASE_URL ||
-  process.env.NEXT_PUBLIC_CUSTOMER_BASE_URL ||
-  "http://localhost:3000";
-const BASE = RAW_BASE.replace(/\/+$/, "");
-
+const BASE =
+  (process.env.NEXT_PUBLIC_BASE_URL || "").replace(/\/$/, "") || "http://localhost:3000";
 const ADMIN_TO = process.env.MAIL_ADMIN || "offert@helsingbuss.se";
 const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 
 /** Prova flera statusvärden tills ett går igenom CHECK-constrainten */
 async function updateStatusWithFallback(offerId: string) {
   const variants = [
-    // svenska
-    { status: "godkand",  stampField: "accepted_at" as const },
-    { status: "godkänd",  stampField: "accepted_at" as const },
-    { status: "bekräftad",stampField: "accepted_at" as const },
-    { status: "bekraftad",stampField: "accepted_at" as const },
-    // engelska/andra
+    // primärt svenska
+    { status: "godkand", stampField: "accepted_at" as const },
+    { status: "godkänd", stampField: "accepted_at" as const },
+    // engelska varianter
     { status: "accepted", stampField: "accepted_at" as const },
     { status: "approved", stampField: "accepted_at" as const },
-    { status: "booked",   stampField: "accepted_at" as const },
+    // andra vanliga
+    { status: "bekräftad", stampField: "accepted_at" as const },
+    { status: "bekraftad", stampField: "accepted_at" as const },
+    { status: "booked", stampField: "accepted_at" as const },
   ];
 
   const tried: string[] = [];
   for (const v of variants) {
-    const payload: Record<string, any> = { status: v.status };
+    const payload: any = { status: v.status };
     payload[v.stampField] = new Date().toISOString();
 
     const { error } = await supabase.from("offers").update(payload).eq("id", offerId);
@@ -40,7 +37,11 @@ async function updateStatusWithFallback(offerId: string) {
 
     const msg = String(error.message || "");
     tried.push(v.status);
-    if (!/status|check/i.test(msg)) throw new Error(error.message);
+
+    // Om felet INTE handlar om status-checken, kasta direkt
+    if (!/status|check/i.test(msg)) {
+      throw new Error(error.message);
+    }
   }
   throw new Error(
     `Inget av statusvärdena tillåts av offers_status_check. Testade: ${tried.join(", ")}`
@@ -51,8 +52,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
   try {
-    const { id } = req.query as { id: string };
-    const { customerEmail } = (req.body ?? {}) as { customerEmail?: string };
+    // Stöd både query (?id=) och body ({ offerId })
+    const q = req.query as { id?: string };
+    const b = (req.body ?? {}) as { offerId?: string; customerEmail?: string };
+
+    const id = q.id || b.offerId;
+    if (!id) return res.status(400).json({ error: "Missing offer id" });
 
     // 1) Hämta offert
     const { data: offer, error } = await supabase.from("offers").select("*").eq("id", id).single();
@@ -61,20 +66,20 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     // 2) Uppdatera status med fallback
     const finalStatus = await updateStatusWithFallback(offer.id);
 
-    // 3) Kundmail (objekt-signatur till sendOfferMail)
-    const to: string | null =
-      customerEmail ||
-      (offer as any).contact_email ||
-      (offer as any).customer_email ||
+    // 3) Kundmail (objekt‐signatur)
+    const to =
+      b.customerEmail ||
+      (offer as any).contact_email || // om fältet råkar finnas
+      (offer as any).customer_email || // fallback om du senare sparar detta
       null;
 
     if (to) {
-      const params: SendOfferParams = {
+      await sendOfferMail({
         offerId: String(offer.id ?? offer.offer_number),
         offerNumber: String(offer.offer_number ?? offer.id),
         customerEmail: to,
 
-        // valfria (för snyggare mejl)
+        // valfria, för trevligare mail
         customerName: (offer as any).contact_person ?? null,
         customerPhone: (offer as any).contact_phone ?? null,
 
@@ -85,10 +90,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         time: (offer as any).departure_time ?? null,
         passengers:
           typeof (offer as any).passengers === "number" ? (offer as any).passengers : null,
-        via: (offer as any).stopover_places ?? null,
-        onboardContact: (offer as any).onboard_contact ?? null,
 
-        // retur (om finns)
+        // retur om finns
         return_from: (offer as any).return_departure ?? null,
         return_to: (offer as any).return_destination ?? null,
         return_date: (offer as any).return_date ?? null,
@@ -96,13 +99,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
         // övrigt
         notes: (offer as any).notes ?? null,
-      };
-
-      // Skicka – modulen väljer Resend/SendGrid/SMTP automatiskt
-      await sendOfferMail(params);
+      });
     }
 
-    // 4) Admin-notis (Resend om konfigurerad)
+    // 4) Admin-notis (frivilligt)
     if (resend) {
       await resend.emails.send({
         from: process.env.MAIL_FROM || "Helsingbuss <info@helsingbuss.se>",
