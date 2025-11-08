@@ -36,7 +36,7 @@ export type SendOfferParams = {
 
 /** Avsändare och admin från env */
 const FROM = process.env.MAIL_FROM || "Helsingbuss <no-reply@helsingbuss.se>";
-const ADMIN = process.env.ADMIN_ALERT_EMAIL || "";
+const ADMIN = process.env.MAIL_ADMIN || process.env.ADMIN_ALERT_EMAIL || "";
 
 /** Bas-URL till kundportalen – ingen localhost i utskick */
 function customerBaseUrl() {
