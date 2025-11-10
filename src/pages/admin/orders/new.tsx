@@ -150,23 +150,20 @@ export default function NewDriverOrder() {
           // Kund
           contact_name: o.contact_person ?? o.customer_name ?? s.contact_name,
           contact_phone: o.customer_phone ?? s.contact_phone,
-          passengers:
-            (o.passengers !== null && o.passengers !== undefined
-              ? String(o.passengers)
-              : s.passengers) || s.passengers,
+          passengers: o.passengers != null ? String(o.passengers) : s.passengers,
           notes: o.notes ?? s.notes,
 
           // Utresa
           out_from: o.departure_place ?? s.out_from,
           out_to: o.destination ?? s.out_to,
-          out_date: o.departure_date ?? s.out_date || todayISO(),
-          out_time: tidyTime(o.departure_time, s.out_time || "08:00"),
+          out_date: o.departure_date ?? s.out_date ?? todayISO(),
+          out_time: tidyTime(o.departure_time ?? s.out_time),
 
           // Retur
           ret_from: o.return_departure ?? s.ret_from,
           ret_to: o.return_destination ?? s.ret_to,
           ret_date: o.return_date ?? s.ret_date,
-          ret_time: tidyTime(o.return_time, s.ret_time || ""),
+          ret_time: tidyTime(o.return_time ?? s.ret_time, ""),
         }));
         setMsg(null);
         setErr(null);
@@ -186,23 +183,20 @@ export default function NewDriverOrder() {
       // Kund
       contact_name: b.contact_person ?? s.contact_name,
       contact_phone: b.customer_phone ?? s.contact_phone,
-      passengers:
-        (b.passengers !== null && b.passengers !== undefined
-          ? String(b.passengers)
-          : s.passengers) || s.passengers,
+      passengers: b.passengers != null ? String(b.passengers) : s.passengers,
       notes: b.notes ?? s.notes,
 
       // Utresa
       out_from: b.departure_place ?? s.out_from,
       out_to: b.destination ?? s.out_to,
-      out_date: b.departure_date ?? s.out_date || todayISO(),
-      out_time: tidyTime(b.departure_time, s.out_time || "08:00"),
+      out_date: b.departure_date ?? s.out_date ?? todayISO(),
+      out_time: tidyTime(b.departure_time ?? s.out_time),
 
       // Retur
       ret_from: b.return_departure ?? s.ret_from,
       ret_to: b.return_destination ?? s.ret_to,
       ret_date: b.return_date ?? s.ret_date,
-      ret_time: tidyTime(b.return_time, s.ret_time || ""),
+      ret_time: tidyTime(b.return_time ?? s.ret_time, ""),
     }));
     setLinkedBookingNo(b.booking_number ?? "");
     setMsg(null);
@@ -281,7 +275,7 @@ export default function NewDriverOrder() {
 
     // Normalisera tider innan payload
     const outTime = tidyTime(f.out_time);
-    const retTime = tidyTime(f.ret_time || "");
+    const retTime = tidyTime(f.ret_time || "", "");
 
     try {
       const payload = {
