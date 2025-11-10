@@ -1,4 +1,5 @@
-﻿import { useEffect, useMemo, useRef, useState } from "react";
+﻿// src/components/orders/BookingChooser.tsx
+import { useEffect, useMemo, useRef, useState } from "react";
 
 export type PickedBooking = {
   id: string;
@@ -24,7 +25,7 @@ type Opt = { id: string; label: string; booking_number?: string | null };
 
 export default function BookingChooser({
   onPick,
-  placeholder = "SÃ¶k bokningâ€¦",
+  placeholder = "Sök bokning…",
 }: {
   onPick: (b: PickedBooking) => void;
   placeholder?: string;
@@ -33,36 +34,62 @@ export default function BookingChooser({
   const [opts, setOpts] = useState<Opt[]>([]);
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
-  const boxRef = useRef<HTMLDivElement | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [activeIndex, setActiveIndex] = useState<number>(-1);
 
-  // stÃ¤ng dropdown om man klickar utanfÃ¶r
+  const boxRef = useRef<HTMLDivElement | null>(null);
+  const listRef = useRef<HTMLDivElement | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
+
+  // Stäng dropdown om man klickar utanför
   useEffect(() => {
     function onDocClick(e: MouseEvent) {
       if (!boxRef.current) return;
-      if (!boxRef.current.contains(e.target as any)) setOpen(false);
+      if (!boxRef.current.contains(e.target as any)) {
+        setOpen(false);
+        setActiveIndex(-1);
+      }
     }
     document.addEventListener("mousedown", onDocClick);
     return () => document.removeEventListener("mousedown", onDocClick);
   }, []);
 
-  // debounce-sÃ¶kning
+  // Debounce-sökning med abort
   useEffect(() => {
     const t = setTimeout(async () => {
       const term = q.trim();
+      if (abortRef.current) abortRef.current.abort();
       if (term.length < 2) {
         setOpts([]);
+        setOpen(false);
+        setBusy(false);
+        setError(null);
+        setActiveIndex(-1);
         return;
       }
       try {
         setBusy(true);
+        setError(null);
+        const ctrl = new AbortController();
+        abortRef.current = ctrl;
+
         const u = new URL("/api/bookings/options", window.location.origin);
         u.searchParams.set("search", term);
-        const res = await fetch(u.toString());
-        const j = await res.json();
-        setOpts(j?.options ?? []);
+        const res = await fetch(u.toString(), { signal: ctrl.signal });
+        const j = await res.json().catch(() => ({}));
+
+        if (!res.ok) throw new Error(j?.error || `HTTP ${res.status}`);
+
+        const nextOpts: Opt[] = j?.options ?? [];
+        setOpts(nextOpts);
         setOpen(true);
-      } catch {
+        setActiveIndex(nextOpts.length ? 0 : -1);
+      } catch (e: any) {
+        if (e?.name === "AbortError") return;
+        setError(e?.message || "Kunde inte söka bokningar.");
         setOpts([]);
+        setOpen(true); // visa fel/”inga träffar”-yta
+        setActiveIndex(-1);
       } finally {
         setBusy(false);
       }
@@ -75,14 +102,57 @@ export default function BookingChooser({
       const u = new URL("/api/bookings/one", window.location.origin);
       u.searchParams.set("id", o.id);
       const res = await fetch(u.toString());
-      const j = await res.json();
-      if (res.ok && j?.booking) {
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(j?.error || `HTTP ${res.status}`);
+      if (j?.booking) {
         onPick(j.booking as PickedBooking);
         setQ(o.label);
         setOpen(false);
+        setActiveIndex(-1);
       }
     } catch {
-      // tyst â€“ lÃ¥t anvÃ¤ndaren fÃ¶rsÃ¶ka igen
+      // Tyst – låt användaren försöka igen
+    }
+  }
+
+  function onKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (!open) return;
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setActiveIndex((i) => {
+        const next = Math.min((opts.length || 1) - 1, i + 1);
+        scrollIntoView(next);
+        return next;
+      });
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setActiveIndex((i) => {
+        const next = Math.max(0, (i === -1 ? 0 : i - 1));
+        scrollIntoView(next);
+        return next;
+      });
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      if (activeIndex >= 0 && opts[activeIndex]) pick(opts[activeIndex]);
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      setOpen(false);
+      setActiveIndex(-1);
+    }
+  }
+
+  function scrollIntoView(index: number) {
+    const list = listRef.current;
+    if (!list) return;
+    const item = list.querySelector<HTMLElement>(`[data-index="${index}"]`);
+    if (item) {
+      const parentRect = list.getBoundingClientRect();
+      const itemRect = item.getBoundingClientRect();
+      if (itemRect.top < parentRect.top) {
+        list.scrollTop -= (parentRect.top - itemRect.top);
+      } else if (itemRect.bottom > parentRect.bottom) {
+        list.scrollTop += (itemRect.bottom - parentRect.bottom);
+      }
     }
   }
 
@@ -94,27 +164,57 @@ export default function BookingChooser({
         value={q}
         onChange={(e) => setQ(e.target.value)}
         onFocus={() => opts.length && setOpen(true)}
+        onKeyDown={onKeyDown}
+        role="combobox"
+        aria-expanded={open}
+        aria-controls="booking-chooser-listbox"
+        aria-autocomplete="list"
       />
       {busy && (
         <div className="absolute right-3 top-1/2 -translate-y-1/2 text-[#194C66]/60 text-xs">
-          SÃ¶kerâ€¦
+          Söker…
         </div>
       )}
-      {open && opts.length > 0 && (
-        <div className="absolute z-10 mt-1 w-full max-h-64 overflow-auto rounded-lg border bg-white shadow">
-          {opts.map((o) => (
-            <button
-              key={o.id}
-              type="button"
-              className="block w-full text-left px-3 py-2 hover:bg-[#f5f4f0]"
-              onClick={() => pick(o)}
-            >
-              {o.label}
-            </button>
-          ))}
+      {open && (
+        <div
+          id="booking-chooser-listbox"
+          ref={listRef}
+          className="absolute z-10 mt-1 w-full max-h-64 overflow-auto rounded-lg border bg-white shadow"
+          role="listbox"
+        >
+          {error && (
+            <div className="px-3 py-2 text-sm text-red-700 bg-red-50 border-b border-red-100">
+              {error}
+            </div>
+          )}
+
+          {!error && opts.length === 0 && !busy && (
+            <div className="px-3 py-2 text-sm text-[#0f172a]/70">
+              Inga träffar.
+            </div>
+          )}
+
+          {opts.map((o, i) => {
+            const active = i === activeIndex;
+            return (
+              <button
+                key={o.id}
+                type="button"
+                data-index={i}
+                role="option"
+                aria-selected={active}
+                className={`block w-full text-left px-3 py-2 hover:bg-[#f5f4f0] ${
+                  active ? "bg-[#f5f4f0]" : ""
+                }`}
+                onMouseEnter={() => setActiveIndex(i)}
+                onClick={() => pick(o)}
+              >
+                {o.label}
+              </button>
+            );
+          })}
         </div>
       )}
     </div>
   );
 }
-

@@ -1,3 +1,4 @@
+// src/pages/offert/[id].tsx
 import Head from "next/head";
 import type { GetServerSideProps } from "next";
 
@@ -26,9 +27,17 @@ type Props = {
 };
 
 function resolveSelfOrigin(ctx: Parameters<GetServerSideProps>[0]) {
-  const host = String(ctx.req.headers.host || "");
-  const xfProto = (ctx.req.headers["x-forwarded-proto"] as string) || "";
-  const proto = xfProto ? xfProto.split(",")[0].trim() : "http";
+  // Stöd för proxar (Vercel/NGINX): ta första värdet om flera
+  const hXfh = (ctx.req.headers["x-forwarded-host"] as string) || "";
+  const hHost = (ctx.req.headers.host as string) || "";
+  const host = (hXfh || hHost || "").split(",")[0].trim();
+
+  const xfProtoRaw = (ctx.req.headers["x-forwarded-proto"] as string) || "";
+  const xfProto = xfProtoRaw.split(",")[0]?.trim();
+  // Anta https i produktion om inget anges
+  const isProd = process.env.NODE_ENV === "production";
+  const proto = xfProto || (isProd ? "https" : "http");
+
   const effectiveHost = host || "localhost:3000";
   return `${proto}://${effectiveHost}`;
 }
@@ -36,7 +45,6 @@ function resolveSelfOrigin(ctx: Parameters<GetServerSideProps>[0]) {
 /* ----------------------- DEMO HELPERS ----------------------- */
 
 function buildMockBreakdown(roundTrip: boolean) {
-  // Snygga siffror som ger tydliga per-sträcka-belopp i Besvarad
   if (roundTrip) {
     const leg1 = { subtotExVat: 8500, vat: 2125, total: 10625 };
     const leg2 = { subtotExVat: 7900, vat: 1975, total: 9875 };
@@ -87,12 +95,10 @@ function buildDemoOffer(kind: "single" | "roundtrip", view: string): Offer {
     destination: "Malmö C",
     notes: "Ingen information.",
 
-    // totals (fallbacks om breakdown saknas)
     amount_ex_vat: null,
     vat_amount: null,
     total_amount: null,
 
-    // breakdown för Besvarad
     vat_breakdown: buildMockBreakdown(roundTrip),
   };
 
@@ -100,11 +106,12 @@ function buildDemoOffer(kind: "single" | "roundtrip", view: string): Offer {
     base.round_trip = true;
     base.return_date = today;
     base.return_time = "19:00";
+    base.return_departure = "Malmö C";
+    base.return_destination = "Kristianstad";
   } else {
     base.round_trip = false;
   }
 
-  // Sätt totals från breakdown så både totals & per-resa visas
   const b = base.vat_breakdown as any;
   base.amount_ex_vat = b?.grandExVat ?? null;
   base.vat_amount = b?.grandVat ?? null;
@@ -155,8 +162,13 @@ export const getServerSideProps: GetServerSideProps<Props> = async (ctx) => {
 
   try {
     const base = resolveSelfOrigin(ctx);
-    const resp = await fetch(`${base}/api/offers/${encodeURIComponent(slug)}`, {
-      headers: { "x-offer-link": "jwt-ok", "x-offer-token": token },
+    const url = `${base}/api/offers/${encodeURIComponent(slug)}`;
+    const resp = await fetch(url, {
+      headers: {
+        "accept": "application/json",
+        "x-offer-link": "jwt-ok",
+        "x-offer-token": token,
+      },
     });
 
     if (!resp.ok) {
@@ -172,6 +184,14 @@ export const getServerSideProps: GetServerSideProps<Props> = async (ctx) => {
 
 /* ----------------------- PAGE ----------------------- */
 
+function normalizeViewKey(v?: string | null) {
+  const s = (v || "").toLowerCase();
+  if (s === "besvarad") return "besvarad";
+  if (s === "godkand" || s === "godkänd") return "godkand";
+  if (s === "makulerad" || s === "avbojd" || s === "avböjd") return "makulerad";
+  return "inkommen";
+}
+
 export default function OffertPublic({ offer, auth, viewOverride }: Props) {
   if (auth && auth.ok === false) {
     const title = "Offert – åtkomst nekad";
@@ -183,7 +203,10 @@ export default function OffertPublic({ offer, auth, viewOverride }: Props) {
 
     return (
       <>
-        <Head><title>{title}</title></Head>
+        <Head>
+          <title>{title}</title>
+          <meta name="robots" content="noindex,nofollow" />
+        </Head>
         <main className="min-h-screen bg-[#f5f4f0] flex items-center justify-center p-6">
           <div className="max-w-md w-full bg-white border rounded-2xl p-6 shadow-sm">
             <h1 className="text-xl font-semibold text-slate-900">{title}</h1>
@@ -203,42 +226,41 @@ export default function OffertPublic({ offer, auth, viewOverride }: Props) {
   if (!offer) {
     return (
       <>
-        <Head><title>Offert saknas</title></Head>
-        <main className="min-h-screen bg-[#f5f4f0] flex items-center justify-center">
-          <div className="text-[#194C66]">Kunde inte hitta offerten.</div>
+        <Head>
+          <title>Offert saknas</title>
+          <meta name="robots" content="noindex,nofollow" />
+        </Head>
+        <main className="min-h-screen bg-[#f5f4f0] flex items-center justify-center p-6">
+          <div className="max-w-md w-full bg-white border rounded-2xl p-6 shadow-sm text-[#194C66]">
+            Kunde inte hitta offerten.
+          </div>
         </main>
       </>
     );
   }
 
-  const status = (offer.status || "").toLowerCase();
+  const status = normalizeViewKey(offer.status);
+  const viewKey = normalizeViewKey(viewOverride || status);
   const title = offer.offer_number ? `Offert ${offer.offer_number}` : "Offert";
 
   const map: Record<string, any> = {
     inkommen: OfferInkommen,
     besvarad: OfferBesvarad,
     godkand: OfferGodkand,
-    "godkänd": OfferGodkand,
     makulerad: OfferMakulerad,
-    avbojd: OfferMakulerad,
-    "avböjd": OfferMakulerad,
   };
 
-  let View = (viewOverride && map[viewOverride]) || null;
+  const View = map[viewKey] || OfferInkommen;
 
-  if (!View) {
-    View =
-      status === "besvarad" ? OfferBesvarad
-      : status === "godkand" || status === "godkänd" ? OfferGodkand
-      : status === "makulerad" || status === "avbojd" || status === "avböjd" ? OfferMakulerad
-      : OfferInkommen;
-  }
-
+  // Kundkomponenterna förväntar sig { offer } eller platt objekt – behåll båda för bakåtkomp.
   const commonProps: any = { ...offer, offer };
 
   return (
     <>
-      <Head><title>{title}</title></Head>
+      <Head>
+        <title>{title}</title>
+        <meta name="robots" content="noindex,nofollow" />
+      </Head>
       <View {...commonProps} />
     </>
   );

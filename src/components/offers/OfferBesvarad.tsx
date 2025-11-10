@@ -103,6 +103,29 @@ export default function OfferBesvarad({ offer }: any) {
     });
   }
 
+  // Skapar bokning utifrån offert (använder din API-route /api/bookings/from-offer)
+  async function createBookingFromOffer(): Promise<{ id?: string } | null> {
+    try {
+      const res = await fetch("/api/bookings/from-offer", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          offerId: offer?.id ?? null,
+          offerNumber: offer?.offer_number ?? null,
+          // valfria overrides kan skickas här:
+          assigned_vehicle_id: null,
+          assigned_driver_id: null,
+          notes: offer?.notes ?? null,
+        }),
+      });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(j?.error || `HTTP ${res.status}`);
+      return j?.booking ?? null;
+    } catch {
+      return null; // misslyckas tyst (vi fortsätter ändå med godkännandeflödet)
+    }
+  }
+
   async function onAcceptOffer() {
     if (!offer?.offer_number || !email) {
       alert("Saknas uppgifter (offertnummer/e-post).");
@@ -110,6 +133,8 @@ export default function OfferBesvarad({ offer }: any) {
     }
     try {
       setBusy("accept");
+
+      // 1) Markera som accepterad (din backend kan maila bekräftelse etc.)
       const res = await postWithFallback(
         `/api/offers/${offer.id}/accept`,
         `/api/offers/accept`,
@@ -119,7 +144,13 @@ export default function OfferBesvarad({ offer }: any) {
         const j = await res.json().catch(() => ({}));
         throw new Error(j?.error || `Kunde inte acceptera (HTTP ${res.status})`);
       }
-      window.location.href = `/offert/${offer.offer_number}?view=godkand`;
+
+      // 2) Skapa bokning i admin baserat på offerten
+      const booking = await createBookingFromOffer();
+
+      // 3) Skicka kunden till "godkänd"-vyn (inkl. boknings-ID om vi har det)
+      const q = booking?.id ? `?view=godkand&bk=${encodeURIComponent(booking.id)}` : `?view=godkand`;
+      window.location.href = `/offert/${offer.offer_number}${q}`;
     } catch (e: any) {
       alert(e?.message || "Tekniskt fel vid godkännande.");
     } finally {
@@ -134,10 +165,16 @@ export default function OfferBesvarad({ offer }: any) {
     }
     try {
       setBusy("decline");
+      // Din backend kan här: skicka notis + sätta status "makulerad"
       const res = await postWithFallback(
         `/api/offers/${offer.id}/decline`,
         `/api/offers/decline`,
-        { customerEmail: email, offerNumber: offer.offer_number }
+        {
+          customerEmail: email,
+          offerNumber: offer.offer_number,
+          updateStatusTo: "makulerad", // hint till API:t (ignoreras om ej stöds)
+          notifyTeam: true,             // hint till API:t (ignoreras om ej stöds)
+        }
       );
       if (!res.ok) {
         const j = await res.json().catch(() => ({}));

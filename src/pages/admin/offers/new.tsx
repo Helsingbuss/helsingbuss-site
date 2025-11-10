@@ -23,6 +23,16 @@ function todayISO() {
   return `${d.getFullYear()}-${mm}-${dd}`;
 }
 
+const svValidation = {
+  required: "Detta fält är obligatoriskt",
+  email: "Ange en giltig e-postadress",
+  numberMin1: "Ange minst 1 passagerare",
+  phone: "Ange ett giltigt telefonnummer (t.ex. +46 70 123 45 67)",
+};
+
+const emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const phoneRe = /^(?:\+?[1-9]\d{1,14}|0\d{6,14})$/; // enkel E.164/SE-tolerant
+
 export default function NewOfferAdmin() {
   const [step, setStep] = useState<Step>(1);
 
@@ -46,14 +56,32 @@ export default function NewOfferAdmin() {
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
+  // Fältfel (visas under inputs)
+  const [legErrors, setLegErrors] = useState<Partial<Record<keyof Leg, string>>>({});
+  const [step2Errors, setStep2Errors] = useState<Partial<Record<"ref"|"email"|"phone", string>>>({});
+
+  function validateDraft(): boolean {
+    const errs: Partial<Record<keyof Leg, string>> = {};
+    const pax = Number(draftLeg.passengers ?? 0);
+
+    if (!draftLeg.date) errs.date = svValidation.required;
+    if (!draftLeg.time || draftLeg.time.length < 4) errs.time = svValidation.required;
+    if (!draftLeg.from.trim()) errs.from = svValidation.required;
+    if (!draftLeg.to.trim()) errs.to = svValidation.required;
+    if (!pax || pax < 1) errs.passengers = svValidation.numberMin1;
+
+    setLegErrors(errs);
+    return Object.keys(errs).length === 0;
+  }
+
   const addLeg = () => {
-    if (!draftLeg.from || !draftLeg.to || !draftLeg.date || !draftLeg.time) return;
+    if (!validateDraft()) return;
     if (legs.length >= 2) {
       setSubmitError("Max två rader (tur & retur). Ta bort en rad om du vill lägga till en ny.");
       return;
     }
     setSubmitError(null);
-    setLegs((prev) => [...prev, draftLeg]);
+    setLegs((prev) => [...prev, { ...draftLeg }]);
     setDraftLeg({
       date: todayISO(),
       time: "08:00",
@@ -64,10 +92,10 @@ export default function NewOfferAdmin() {
       onboardContact: draftLeg.onboardContact,
       notes: "",
     });
+    setLegErrors({});
   };
 
-  const removeLeg = (idx: number) =>
-    setLegs((prev) => prev.filter((_, i) => i !== idx));
+  const removeLeg = (idx: number) => setLegs((prev) => prev.filter((_, i) => i !== idx));
 
   // Vänd pågående formulärrad (Från/Till)
   const flipDraft = () => setDraftLeg((d) => ({ ...d, from: d.to, to: d.from }));
@@ -101,71 +129,68 @@ export default function NewOfferAdmin() {
   const [phone, setPhone] = useState("");
   const [invoiceRef, setInvoiceRef] = useState("");
   const [freeNotes, setFreeNotes] = useState("");
+  const [attachedFile, setAttachedFile] = useState<File | null>(null); // visas bara i UI
 
   // Krav för att gå vidare: minst 1 körning och passagerare angivet
-  const canGoNext = legs.length >= 1 && !!(legs[0].passengers ?? 0);
+  const canGoNext = legs.length >= 1 && !!(Number(legs[0].passengers ?? 0) >= 1);
+
+  function validateStep2(): boolean {
+    const errs: Partial<Record<"ref"|"email"|"phone", string>> = {};
+    if (!customerReference.trim()) errs.ref = svValidation.required;
+    if (!email.trim() || !emailRe.test(email.trim())) errs.email = svValidation.email;
+    if (!phone.trim() || !phoneRe.test(phone.trim())) errs.phone = svValidation.phone;
+    setStep2Errors(errs);
+    return Object.keys(errs).length === 0;
+  }
+
+  function tidyTime(t?: string | null) {
+    if (!t) return null;
+    // Säkerställ "HH:MM"
+    return t.length === 5 ? t : (t.length >= 4 ? `${t.slice(0,2)}:${t.slice(2,4)}` : null);
+  }
 
   async function handleSubmit() {
     setSubmitError(null);
-
-    // ⭐ Obligatoriska fält i steg 2
-    const needRef = customerReference.trim();
-    const needEmail = email.trim();
-    const needPhone = phone.trim();
-    if (!needRef || !needEmail || !needPhone) {
-      setSubmitError("Fyll i Referens (beställarens namn), E-post och Telefon.");
-      return;
-    }
+    if (!validateStep2()) return;
 
     setSubmitting(true);
 
     const leg1 = legs[0];
     const leg2 = legs[1]; // retur (valfri)
 
-    const options: string[] = [];
-    if (leg1?.onboardContact) options.push(`Kontakt ombord: ${leg1.onboardContact}`);
+    // Trimma alla strängar
+    const _trim = (v?: string | null) => (v == null ? null : v.toString().trim() || null);
 
     const payload = {
       // kontakt (sparas konsekvent i DB)
-      contact_person: needRef,
-      customer_email: needEmail,
-      customer_phone: needPhone,
+      contact_person: _trim(customerReference),
+      customer_email: _trim(email),
+      customer_phone: _trim(phone),
 
-      // 👇 Viktigt: spara Kontakt ombord som customer_reference
-      customer_reference: leg1?.onboardContact || needRef,
+      // Spara "Kontakt ombord" som customer_reference om angivet, annars referensen
+      customer_reference: _trim(leg1?.onboardContact) || _trim(customerReference),
 
-      // övrigt kund (valfritt att spara parallellt)
-      customer_name: needRef,
+      // övrigt kund (frivilligt; stör inte DB)
+      customer_name: _trim(customerReference),
       customer_type: "privat",
-      invoice_ref: invoiceRef || null,
+      invoice_ref: _trim(invoiceRef),
 
       // primär sträcka
       passengers: Number(leg1?.passengers ?? 0),
-      departure_place: leg1?.from || null,
-      destination: leg1?.to || null,
-      departure_date: leg1?.date || null,
-      departure_time: leg1?.time || null,
-      stopover_places: leg1?.via || null,
+      departure_place: _trim(leg1?.from),
+      destination: _trim(leg1?.to),
+      departure_date: _trim(leg1?.date),
+      departure_time: tidyTime(_trim(leg1?.time)),
+      stopover_places: _trim(leg1?.via), // ← VIA -> stopover_places
 
       // retur
-      return_departure: leg2 ? leg2.from : null,
-      return_destination: leg2 ? leg2.to : null,
-      return_date: leg2 ? leg2.date : null,
-      return_time: leg2 ? leg2.time : null,
-
-      // ❌ Skickar INTE round_trip/trip_type (kolumner saknas i DB)
-      // round_trip: !!leg2,
-      // trip_type: "sverige",
+      return_departure: _trim(leg2?.from || null),
+      return_destination: _trim(leg2?.to || null),
+      return_date: _trim(leg2?.date || null),
+      return_time: tidyTime(_trim(leg2?.time || null)),
 
       // övrigt
-      options,
-      plans_description: null,
-      final_destination: null,
-      end_date: null,
-      end_time: null,
-      association: null,
-      org_number: null,
-      notes: freeNotes || leg1?.notes || null,
+      notes: _trim(freeNotes || leg1?.notes || null),
     };
 
     try {
@@ -239,9 +264,12 @@ export default function NewOfferAdmin() {
                     <input
                       type="date"
                       value={draftLeg.date}
+                      min={todayISO()}
                       onChange={(e) => setDraftLeg({ ...draftLeg, date: e.target.value })}
                       className="w-full border rounded px-2 py-1"
+                      aria-invalid={!!legErrors.date}
                     />
+                    {legErrors.date && <p className="text-xs text-red-600 mt-1">{legErrors.date}</p>}
                   </div>
                   <div>
                     <label className="block text-sm text-[#194C66]/80 mb-1">Kl. *</label>
@@ -250,7 +278,9 @@ export default function NewOfferAdmin() {
                       value={draftLeg.time}
                       onChange={(e) => setDraftLeg({ ...draftLeg, time: e.target.value })}
                       className="w-full border rounded px-2 py-1"
+                      aria-invalid={!!legErrors.time}
                     />
+                    {legErrors.time && <p className="text-xs text-red-600 mt-1">{legErrors.time}</p>}
                   </div>
                   <div>
                     <label className="block text-sm text-[#194C66]/80 mb-1">Antal passagerare *</label>
@@ -259,8 +289,11 @@ export default function NewOfferAdmin() {
                       min={1}
                       value={draftLeg.passengers ?? ""}
                       onChange={(e) => setDraftLeg({ ...draftLeg, passengers: Number(e.target.value) || 0 })}
+                      onKeyDown={(e) => e.key === "Enter" && addLeg()}
                       className="w-full border rounded px-2 py-1"
+                      aria-invalid={!!legErrors.passengers}
                     />
+                    {legErrors.passengers && <p className="text-xs text-red-600 mt-1">{legErrors.passengers}</p>}
                   </div>
                 </div>
 
@@ -272,9 +305,12 @@ export default function NewOfferAdmin() {
                       type="text"
                       value={draftLeg.from}
                       onChange={(e) => setDraftLeg({ ...draftLeg, from: e.target.value })}
+                      onKeyDown={(e) => e.key === "Enter" && addLeg()}
                       className="w-full border rounded px-2 py-1"
                       placeholder="Ange en plats"
+                      aria-invalid={!!legErrors.from}
                     />
+                    {legErrors.from && <p className="text-xs text-red-600 mt-1">{legErrors.from}</p>}
                   </div>
                   <div>
                     <label className="block text-sm text-[#194C66]/80 mb-1">Via</label>
@@ -296,9 +332,12 @@ export default function NewOfferAdmin() {
                       type="text"
                       value={draftLeg.to}
                       onChange={(e) => setDraftLeg({ ...draftLeg, to: e.target.value })}
+                      onKeyDown={(e) => e.key === "Enter" && addLeg()}
                       className="w-full border rounded px-2 py-1"
                       placeholder="Ange en plats"
+                      aria-invalid={!!legErrors.to}
                     />
+                    {legErrors.to && <p className="text-xs text-red-600 mt-1">{legErrors.to}</p>}
                   </div>
                   <div>
                     <label className="block text-sm text-[#194C66]/80 mb-1">
@@ -327,6 +366,7 @@ export default function NewOfferAdmin() {
                 <button
                   onClick={addLeg}
                   className="px-4 py-2 rounded-[25px] bg-[#194C66] text-white text-sm"
+                  title="Lägg till körning"
                 >
                   + Lägg till rad
                 </button>
@@ -408,7 +448,10 @@ export default function NewOfferAdmin() {
               <div className="flex justify-end">
                 <button
                   disabled={!canGoNext}
-                  onClick={() => setStep(2)}
+                  onClick={() => {
+                    if (!validateDraft() && legs.length === 0) return;
+                    setStep(2);
+                  }}
                   className="px-4 py-2 rounded-[25px] bg-[#194C66] text-white text-sm disabled:opacity-50"
                 >
                   Gå vidare med offertförfrågan
@@ -439,9 +482,11 @@ export default function NewOfferAdmin() {
                     <label className="block text-sm text-[#194C66]/80 mb-1">Referens *</label>
                     <input
                       value={customerReference}
-                      onChange={(e) => setCustomerReference(e.target.value)}
+                      onChange={(e) => { setCustomerReference(e.target.value); setStep2Errors(s => ({...s, ref: ""})); }}
                       className="w-full border rounded px-2 py-1"
+                      aria-invalid={!!step2Errors.ref}
                     />
+                    {step2Errors.ref && <p className="text-xs text-red-600 mt-1">{step2Errors.ref}</p>}
                   </div>
 
                   <div>
@@ -449,9 +494,11 @@ export default function NewOfferAdmin() {
                     <input
                       type="email"
                       value={email}
-                      onChange={(e) => setEmail(e.target.value)}
+                      onChange={(e) => { setEmail(e.target.value); setStep2Errors(s => ({...s, email: ""})); }}
                       className="w-full border rounded px-2 py-1"
+                      aria-invalid={!!step2Errors.email}
                     />
+                    {step2Errors.email && <p className="text-xs text-red-600 mt-1">{step2Errors.email}</p>}
                   </div>
 
                   <div>
@@ -459,9 +506,11 @@ export default function NewOfferAdmin() {
                     <input
                       type="tel"
                       value={phone}
-                      onChange={(e) => setPhone(e.target.value)}
+                      onChange={(e) => { setPhone(e.target.value); setStep2Errors(s => ({...s, phone: ""})); }}
                       className="w-full border rounded px-2 py-1"
+                      aria-invalid={!!step2Errors.phone}
                     />
+                    {step2Errors.phone && <p className="text-xs text-red-600 mt-1">{step2Errors.phone}</p>}
                   </div>
 
                   <div>
@@ -486,9 +535,19 @@ export default function NewOfferAdmin() {
                     />
                   </div>
                   <div>
-                    <button className="px-4 py-2 rounded border text-sm text-[#194C66]">
+                    {/* Behåller designen; kopplar till ett dolt file input utan backend-ändring */}
+                    <input
+                      id="offer-file"
+                      type="file"
+                      className="hidden"
+                      onChange={(e) => setAttachedFile(e.target.files?.[0] ?? null)}
+                    />
+                    <label htmlFor="offer-file" className="px-4 py-2 rounded border text-sm text-[#194C66] cursor-pointer inline-block">
                       Bifoga fil
-                    </button>
+                    </label>
+                    {attachedFile && (
+                      <span className="ml-2 text-sm text-[#194C66]/80">{attachedFile.name}</span>
+                    )}
                   </div>
                 </div>
               </div>

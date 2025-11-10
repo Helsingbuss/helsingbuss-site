@@ -1,6 +1,7 @@
 // src/pages/offert/preview/[id].tsx
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/router";
+import Head from "next/head";
 import { supabase } from "@/lib/supabaseClient";
 
 // Kundvyer (oförändrad design)
@@ -64,77 +65,144 @@ const FALLBACK: Offer = {
   notes: "Ingen information.",
 };
 
+const FIELDS =
+  "id,offer_number,status,customer_reference,contact_person,contact_email,contact_phone,customer_address,departure_place,destination,departure_date,departure_time,passengers,round_trip,return_departure,return_destination,return_date,return_time,price_ex_vat,vat,price_total,notes,trip_type";
+
+function normView(v?: string | null): "inkommen" | "besvarad" | "godkand" {
+  const s = (v || "").toLowerCase();
+  if (s === "besvarad") return "besvarad";
+  if (s === "godkand" || s === "godkänd") return "godkand";
+  return "inkommen";
+}
+
 export default function OfferPreviewPage() {
   const router = useRouter();
   const { id, view, demo } = router.query as {
-    id?: string; // <— samma namn som filsegmentet
-    view?: "inkommen" | "besvarad" | "godkand";
+    id?: string;
+    view?: string;
     demo?: string;
   };
 
   const [offer, setOffer] = useState<Offer | null>(null);
   const [loading, setLoading] = useState(true);
-  const chosenView = (view || "inkommen") as "inkommen" | "besvarad" | "godkand";
+  const [err, setErr] = useState<string | null>(null);
+
+  const chosenView = useMemo(
+    () => normView(view),
+    [view]
+  );
 
   useEffect(() => {
     if (!router.isReady || !id) return;
 
+    // Demo-läge: direkt fallback
     if (demo === "1") {
       setOffer(FALLBACK);
       setLoading(false);
+      setErr(null);
       return;
     }
 
     (async () => {
-      setLoading(true);
+      try {
+        setLoading(true);
+        setErr(null);
 
-      // 1) Försök via offer_number (HBxxxx)
-      let { data, error } = await supabase
-        .from("offers")
-        .select("*")
-        .eq("offer_number", id)
-        .maybeSingle();
-
-      // 2) Fallback via primärnyckeln (UUID)
-      if (!data) {
-        const tryId = await supabase
+        // 1) Försök via offer_number (t.ex. HB25XXXX)
+        let { data, error } = await supabase
           .from("offers")
-          .select("*")
-          .eq("id", id)
+          .select(FIELDS)
+          .eq("offer_number", id)
           .maybeSingle();
-        data = tryId.data as any;
-        error = tryId.error as any;
+
+        // 2) Om ingen träff: försök via primärnyckel (UUID)
+        if (!data) {
+          const r2 = await supabase
+            .from("offers")
+            .select(FIELDS)
+            .eq("id", id)
+            .maybeSingle();
+          data = r2.data as any;
+          error = r2.error as any;
+        }
+
+        if (error) {
+          // Logga i konsol, visa snäll feltext
+          console.error("Preview fetch error:", error);
+        }
+
+        if (!data) {
+          setOffer(null);
+          setErr("Ingen offert hittades.");
+        } else {
+          setOffer(data as Offer);
+          setErr(null);
+        }
+      } catch (e: any) {
+        console.error(e);
+        setOffer(null);
+        setErr(e?.message || "Kunde inte läsa offerten.");
+      } finally {
+        setLoading(false);
       }
-
-      if (error) console.error("Preview fetch error:", error);
-
-      setOffer((data as any) ?? null);
-      setLoading(false);
     })();
   }, [router.isReady, id, demo]);
 
-  const withinSweden = useMemo(() => {
-    const t = (offer?.trip_type || "sverige").toLowerCase();
-    return t !== "utrikes";
-  }, [offer?.trip_type]);
+  const pageTitle = useMemo(() => {
+    if (loading) return "Offert – hämtar… | Helsingbuss";
+    if (!offer) return "Offert saknas | Helsingbuss";
+    const nr = offer.offer_number || offer.id;
+    return `Offert ${nr} – förhandsvisning | Helsingbuss`;
+  }, [loading, offer]);
 
-  if (loading) return <div className="min-h-screen bg-[#f5f4f0] p-6">Laddar…</div>;
-
-  if (!offer) {
+  if (loading) {
     return (
       <div className="min-h-screen bg-[#f5f4f0] p-6">
-        <div className="max-w-3xl mx-auto bg-white rounded-lg shadow p-6">
-          <h1 className="text-xl font-semibold text-[#0f172a] mb-2">Hittade ingen offert</h1>
-          <p className="text-[#0f172a]/70">
-            Ingen offert med nummer eller id <strong>{id}</strong>. Lägg till{" "}
-            <code>?demo=1</code> för att se layouten utan DB.
-          </p>
+        <Head>
+          <title>{pageTitle}</title>
+          <meta name="robots" content="noindex,nofollow" />
+        </Head>
+        <div className="max-w-3xl mx-auto bg-white rounded-lg shadow p-6" role="status" aria-live="polite">
+          Laddar…
         </div>
       </div>
     );
   }
 
-  if (chosenView === "besvarad") return <OfferBesvarad offer={offer} />;
-  if (chosenView === "godkand") return <OfferGodkand offer={offer} />;
-  return <OfferInkommen offer={offer} />;
+  if (!offer) {
+    return (
+      <div className="min-h-screen bg-[#f5f4f0] p-6">
+        <Head>
+          <title>{pageTitle}</title>
+          <meta name="robots" content="noindex,nofollow" />
+        </Head>
+        <div className="max-w-3xl mx-auto bg-white rounded-lg shadow p-6">
+          <h1 className="text-xl font-semibold text-[#0f172a] mb-2">Hittade ingen offert</h1>
+          <p className="text-[#0f172a]/70">
+            Ingen offert med nummer eller id <strong>{id}</strong>. Lägg till{" "}
+            <code>?demo=1</code> för att se layouten utan databas.
+          </p>
+          {err && <p className="mt-2 text-red-600">{err}</p>}
+        </div>
+      </div>
+    );
+  }
+
+  // Välj vy (kundkomponenterna är oförändrade)
+  const ViewComp =
+    chosenView === "besvarad"
+      ? OfferBesvarad
+      : chosenView === "godkand"
+      ? OfferGodkand
+      : OfferInkommen;
+
+  return (
+    <>
+      <Head>
+        <title>{pageTitle}</title>
+        <meta name="robots" content="noindex,nofollow" />
+      </Head>
+      <ViewComp offer={offer} />
+    </>
+  );
 }

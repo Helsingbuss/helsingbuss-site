@@ -1,3 +1,4 @@
+// src/pages/admin/offers/index.tsx
 import { useEffect, useMemo, useState } from "react";
 import AdminMenu from "@/components/AdminMenu";
 import Header from "@/components/Header";
@@ -12,7 +13,7 @@ type OfferListRow = {
   created_at: string | null;
   out: { from: string | null; to: string | null; date: string | null; time: string | null } | null;
   ret: { from: string | null; to: string | null; date: string | null; time: string | null } | null;
-  passengers?: number | null; // <-- NYTT
+  passengers?: number | null; // NYTT
 };
 
 // Prio-trösklar
@@ -32,7 +33,8 @@ function prioForRow(r: OfferListRow) {
   const d = r.out?.date || null; // utresa styr prion
   if (!d) return { label: "—", cls: "bg-gray-200 text-gray-700", title: "Saknar avresedatum" };
   const t = r.out?.time || "00:00";
-  const target = new Date(`${d}T${t.length === 5 ? t : "00:00"}`);
+  const iso = `${d}T${t.length === 5 ? t : "00:00"}`;
+  const target = new Date(iso);
   const diffH = (target.getTime() - Date.now()) / 36e5;
   if (diffH < RED_HOURS) return { label: "Röd", cls: "bg-red-100 text-red-800", title: "< 48h kvar" };
   if (diffH < ORANGE_HOURS) return { label: "Orange", cls: "bg-amber-100 text-amber-800", title: "48h–7 dygn kvar" };

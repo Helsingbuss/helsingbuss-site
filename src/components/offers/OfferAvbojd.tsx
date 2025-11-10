@@ -1,7 +1,5 @@
-// src/components/offers/OfferBokningsbekraftelse.tsx
+// src/components/offers/OfferAvbojd.tsx
 import Image from "next/image";
-
-// Återanvänd layout/komponenter (identiskt som Besvarad)
 import OfferTopBar from "@/components/offers/OfferTopBar";
 import OfferLeftSidebar from "@/components/offers/OfferLeftSidebar";
 import TripLegGrid from "@/components/offers/TripLegGrid";
@@ -27,20 +25,8 @@ function v(x: any, fallback = "—") {
   return String(x);
 }
 
-// ——— små hjälpare (utan designpåverkan)
-function tidyTime(t?: string | null) {
-  if (!t) return undefined;
-  if (t.includes(":")) return t.slice(0, 5);
-  if (t.length >= 4) return `${t.slice(0, 2)}:${t.slice(2, 4)}`;
-  return undefined;
-}
-function telSanitize(t?: string | null) {
-  if (!t) return "";
-  return t.replace(/[^\d+]/g, "");
-}
-
-export default function OfferBokningsbekraftelse({ offer }: any) {
-  // härledning tur/retur (samma som Besvarad)
+export default function OfferAvbojd({ offer }: any) {
+  // härledning tur/retur (som övriga vyer)
   const roundTrip = Boolean(
     offer?.round_trip ??
       offer?.return_date ??
@@ -56,7 +42,7 @@ export default function OfferBokningsbekraftelse({ offer }: any) {
     {
       title: roundTrip ? "Utresa" : "Bussresa",
       date: offer?.departure_date,
-      time: tidyTime(offer?.departure_time),
+      time: offer?.departure_time,
       from: offer?.departure_place,
       to: offer?.destination,
       pax: offer?.passengers,
@@ -67,7 +53,7 @@ export default function OfferBokningsbekraftelse({ offer }: any) {
           {
             title: "Återresa",
             date: offer?.return_date,
-            time: tidyTime(offer?.return_time),
+            time: offer?.return_time,
             from: offer?.destination,
             to: offer?.departure_place,
             pax: offer?.passengers,
@@ -90,25 +76,25 @@ export default function OfferBokningsbekraftelse({ offer }: any) {
 
   return (
     <div className="bg-[#f5f4f0] overflow-hidden">
-      {/* TOPPRAD – exakt samma dimension/spacing som övriga sidor */}
+      {/* TOPPRAD */}
       <div style={{ height: TOPBAR_PX }}>
         <OfferTopBar
           offerNumber={offer?.offer_number ?? "HB25XXXX"}
           customerNumber={offer?.customer_number ?? "K10023"}
           customerName={offer?.contact_person ?? "Kund"}
-          status="bokningsbekräftelse"
+          status="avböjd"
         />
       </div>
 
-      {/* TRE-KOLUMNERS LAYOUT – oförändrad */}
+      {/* LAYOUT */}
       <div style={{ height: `calc(100vh - ${TOPBAR_PX}px)` }}>
         <div className="grid h-full grid-cols-1 lg:grid-cols-[280px_minmax(0,1fr)_550px] gap-0">
-          {/* Vänster: fast panel */}
+          {/* Vänster */}
           <div className="h-full">
             <OfferLeftSidebar />
           </div>
 
-          {/* Mitten: resekort + texter (oförändrat upplägg) */}
+          {/* Mitten */}
           <main className="h-full pl-4 lg:pl-6 pr-2 lg:pr-3 py-4 lg:py-6">
             <div className="h-full bg-white rounded-xl shadow flex flex-col">
               <div className="px-6 pt-6">
@@ -120,81 +106,85 @@ export default function OfferBokningsbekraftelse({ offer }: any) {
                   priority
                 />
                 <h1 className="mt-2 text-2xl font-semibold text-[#0f172a]">
-                  Bokningsbekräftelse {offer?.offer_number || "—"}
+                  Tack för beskedet – offerten är avböjd.
                 </h1>
 
-                {/* Introtext – kort och saklig för bokningsvy */}
                 <div
                   className="mt-5 text-[14px] text-[#0f172a]/80"
                   style={{ lineHeight: LINE_HEIGHT }}
                 >
                   <p>
-                    Hej!<br />
-                    Er bokning är bekräftad. Nedan ser ni resans uppgifter. Behöver ni justera
-                    tider, hållplatser, passagerare eller service ombord? Maila{" "}
+                    Hej!
+                    <br />
+                    Vi har registrerat att ni avböjt offerten. Tråkigt att det inte passade denna
+                    gång – men ni är varmt välkomna tillbaka när planerna ändras. Behöver ni en ny
+                    lösning framåt kan vi snabbt ta fram en uppdaterad offert efter era önskemål.
+                    Frågor eller feedback? Maila{" "}
                     <a className="underline" href="mailto:kundteam@helsingbuss.se">
                       kundteam@helsingbuss.se
                     </a>{" "}
-                    så hjälper vi er. Vi ser fram emot att köra er!
+                    så återkommer vi direkt.
                   </p>
                 </div>
 
-                {/* Resekort (identiskt utseende som Besvarad) */}
+                {/* Resekort (visas som historik, struket) */}
                 <div className="mt-5">
                   <TripLegGrid>
                     {trips.map((trip, idx) => {
                       const leg = breakdown?.legs?.[idx];
                       return (
-                        <TripLegCard
-                          key={idx}
-                          title={
-                            withinSweden
-                              ? `Bussresa inom Sverige • ${trip.title}`
-                              : `Bussresa utomlands • ${trip.title}`
-                          }
-                          subtitle="Avstånd och tider baseras preliminärt"
-                          date={trip.date}
-                          time={trip.time}
-                          from={trip.from}
-                          to={trip.to}
-                          pax={trip.pax}
-                          extra={trip.extra}
-                          iconSrc="/busie.png"
-                          footer={
-                            breakdown?.legs ? (
-                              <div className="grid grid-cols-[1fr_auto] gap-x-4 gap-y-1 mt-3 text-[14px]">
-                                <div className="text-[#0f172a]/70">Pris exkl. moms</div>
-                                <div>{money(leg?.subtotExVat)}</div>
-                                <div className="text-[#0f172a]/70">Moms</div>
-                                <div>{money(leg?.vat)}</div>
-                                <div className="text-[#0f172a]/70">Summa</div>
-                                <div>{money(leg?.total)}</div>
-                              </div>
-                            ) : null
-                          }
-                        />
+                        <div key={idx} className="line-through opacity-60">
+                          <TripLegCard
+                            title={
+                              withinSweden
+                                ? `Bussresa inom Sverige • ${trip.title}`
+                                : `Bussresa utomlands • ${trip.title}`
+                            }
+                            subtitle="(tidigare uppgifter)"
+                            date={trip.date}
+                            time={trip.time}
+                            from={trip.from}
+                            to={trip.to}
+                            pax={trip.pax}
+                            extra={trip.extra}
+                            iconSrc="/busie.png"
+                            footer={
+                              breakdown?.legs ? (
+                                <div className="grid grid-cols-[1fr_auto] gap-x-4 gap-y-1 mt-3 text-[14px]">
+                                  <div className="text-[#0f172a]/70">Pris exkl. moms</div>
+                                  <div>{money(leg?.subtotExVat)}</div>
+                                  <div className="text-[#0f172a]/70">Moms</div>
+                                  <div>{money(leg?.vat)}</div>
+                                  <div className="text-[#0f172a]/70">Summa</div>
+                                  <div>{money(leg?.total)}</div>
+                                </div>
+                              ) : null
+                            }
+                          />
+                        </div>
                       );
                     })}
                   </TripLegGrid>
                 </div>
 
-                {/* Informationsrader (samma stil/rytm som Besvarad) */}
+                {/* Info */}
                 <div
                   className="mt-6 text-[14px] text-[#0f172a]/80"
                   style={{ lineHeight: LINE_HEIGHT }}
                 >
                   <p>
-                    Bekräftelsen avser ovan angivna uppgifter. Eventuella ändringar bekräftas
-                    skriftligt av oss. Slutlig kapacitet är säkrad enligt denna bekräftelse.
+                    Inga resurser är reserverade. Om ni vill återuppta ärendet kontrollerar vi
+                    tillgänglighet och tar fram en ny offert. Våra resevillkor börjar gälla först
+                    när en bokning bekräftas skriftligt av oss.
                   </p>
                   <p className="mt-3">
-                    Frågor inför resan? Vi hjälper gärna på vardagar kl. 08:00–17:00. För akuta
-                    ärenden närmare än två arbetsdagar, ring <strong>jour: 010–777 21 58</strong>.
+                    Behöver ni hjälp? Vardagar kl. 08:00–17:00. För brådskande nya förfrågningar,
+                    ring jour: <strong>010–777 21 58</strong>.
                   </p>
                 </div>
               </div>
 
-              {/* Footer – oförändrad 4-kolumn (enligt din senaste justering) */}
+              {/* Footer – 4 kolumner (linje med dina andra sidor) */}
               <div className="mt-auto px-6 pb-6">
                 <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 text-[13px] text-[#0f172a]">
                   <div>
@@ -223,7 +213,7 @@ export default function OfferBokningsbekraftelse({ offer }: any) {
             </div>
           </main>
 
-          {/* Höger: Kund + Pris (oförändrat) + NY sektion för Buss/Chaufför + TL-kommentar */}
+          {/* Höger – Kund + Pris (struket) */}
           <aside className="h-full p-4 lg:p-6">
             <div className="h-full bg-white rounded-xl shadow flex flex-col">
               <div className="px-6 pt-6">
@@ -231,7 +221,6 @@ export default function OfferBokningsbekraftelse({ offer }: any) {
                   Kunduppgifter
                 </div>
 
-                {/* Kunduppgifter (samma grid som Besvarad) */}
                 <dl className="mt-4 grid grid-cols-[auto,1fr] gap-x-6 gap-y-1 text-[14px] text-[#0f172a] leading-tight">
                   <DT>Offertdatum:</DT><DD>{v(offer?.offer_date, "—")}</DD>
                   <DT>Er referens:</DT><DD>{v(offer?.customer_reference, "—")}</DD>
@@ -242,36 +231,9 @@ export default function OfferBokningsbekraftelse({ offer }: any) {
                   <DT>E-post:</DT><DD>{v(email, "—")}</DD>
                 </dl>
 
-                {/* NY: Buss & Chaufför */}
+                {/* Prisöversyn – struket likt Makulerad */}
                 <div className="mt-6">
-                  <div className="font-semibold text-[#0f172a]">Buss & chaufför</div>
-                  <dl className="mt-3 grid grid-cols-[auto,1fr] gap-x-6 gap-y-1 text-[14px] text-[#0f172a] leading-tight">
-                    <DT>Buss:</DT>
-                    <DD>
-                      {v(offer?.bus_name, "—")}
-                      {offer?.bus_reg ? ` • ${offer.bus_reg}` : ""}
-                    </DD>
-                    <DT>Chaufför:</DT>
-                    <DD>{v(offer?.driver_name, "—")}</DD>
-                    <DT>Telefon:</DT>
-                    <DD>
-                      {offer?.driver_phone ? (
-                        <a className="underline" href={`tel:${telSanitize(offer.driver_phone)}`}>
-                          {offer.driver_phone}
-                        </a>
-                      ) : (
-                        "—"
-                      )}
-                    </DD>
-                  </dl>
-                </div>
-
-                {/* Pris – identiskt som Besvarad */}
-                <div className="mt-6">
-                  <div className="font-semibold text-[#0f172a]">
-                    Offertinformation om kostnad
-                  </div>
-
+                  <div className="font-semibold text-[#0f172a]">Offertinformation om kostnad</div>
                   <div className="mt-3">
                     <div
                       className="grid"
@@ -284,44 +246,37 @@ export default function OfferBokningsbekraftelse({ offer }: any) {
                       )}
                     </div>
 
-                    <Row
+                    <RowStrike
                       roundTrip={roundTrip}
                       label="Summa exkl. moms"
                       enkel={money(breakdown?.legs?.[0]?.subtotExVat ?? totals.ex)}
                       retur={roundTrip ? money(breakdown?.legs?.[1]?.subtotExVat) : undefined}
                     />
-                    <Row
+                    <RowStrike
                       roundTrip={roundTrip}
                       label="Moms"
                       enkel={money(breakdown?.legs?.[0]?.vat ?? totals.vat)}
                       retur={roundTrip ? money(breakdown?.legs?.[1]?.vat) : undefined}
                     />
-                    <Row
+                    <RowStrike
                       roundTrip={roundTrip}
                       label="Totalsumma"
                       enkel={money(breakdown?.legs?.[0]?.total ?? totals.sum)}
                       retur={roundTrip ? money(breakdown?.legs?.[1]?.total) : undefined}
                     />
 
-                    <div className="mt-3 grid grid-cols-[1fr_auto] items-baseline">
+                    <div className="mt-3 grid grid-cols-[1fr_auto] items-baseline line-through opacity-60">
                       <div className="text-[#0f172a]/70 text-sm">Offertkostnad för detta uppdrag</div>
                       <div className="font-medium">{money(totals.sum)}</div>
                     </div>
-                  </div>
-                </div>
 
-                {/* NY: Trafikledningens kommentar */}
-                <div className="mt-6">
-                  <div className="font-semibold text-[#0f172a]">
-                    Trafikledningens kommentar
-                  </div>
-                  <div className="mt-2 rounded-lg border border-[#e5e7eb] bg-[#fafafa] p-3 text-[14px] text-[#0f172a]">
-                    {v(offer?.ops_comment || offer?.traffic_comment, "—")}
+                    <div className="mt-2 text-[12px] text-[#0f172a]/60">
+                      (Priserna är inte längre aktuella – offerten är avböjd)
+                    </div>
                   </div>
                 </div>
               </div>
 
-              {/* Behåller samma nederkant/luft som Besvarad (inga extra knappar här) */}
               <div className="mt-auto px-6 pb-6" />
             </div>
           </aside>
@@ -338,7 +293,7 @@ function DD({ children }: { children: React.ReactNode }) {
   return <dd className="text-[#0f172a] break-words">{children}</dd>;
 }
 
-function Row({
+function RowStrike({
   roundTrip,
   label,
   enkel,
@@ -351,7 +306,7 @@ function Row({
 }) {
   return (
     <div
-      className="mt-1 grid items-baseline text-[14px]"
+      className="mt-1 grid items-baseline text-[14px] line-through opacity-60"
       style={{ gridTemplateColumns: roundTrip ? "1fr 1fr 1fr" : "1fr 1fr" }}
     >
       <div className="text-[#0f172a]/70">{label}</div>

@@ -1,3 +1,4 @@
+//src/pages/api/bookings/options.ts
 import type { NextApiRequest, NextApiResponse } from "next";
 import * as admin from "@/lib/supabaseAdmin";
 

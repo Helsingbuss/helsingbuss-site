@@ -24,6 +24,13 @@ function v(x: any, fallback = "—") {
   if (x === null || x === undefined || x === "") return fallback;
   return String(x);
 }
+function tidyTime(t?: string | null) {
+  if (!t) return undefined;
+  const s = String(t);
+  if (s.includes(":")) return s.slice(0, 5);
+  if (s.length >= 4) return `${s.slice(0, 2)}:${s.slice(2, 4)}`;
+  return s;
+}
 
 export default function OfferMakulerad({ offer }: any) {
   const roundTrip = Boolean(
@@ -33,15 +40,18 @@ export default function OfferMakulerad({ offer }: any) {
       offer?.return_departure ??
       offer?.return_destination
   );
+
   const withinSweden = (offer?.trip_type || "sverige") !== "utrikes";
+
   const email: string | undefined =
     offer?.contact_email || offer?.customer_email || undefined;
 
+  // Mittens resekort (markerade som ogiltiga)
   const trips = [
     {
       title: roundTrip ? "Utresa" : "Bussresa",
       date: offer?.departure_date,
-      time: offer?.departure_time,
+      time: tidyTime(offer?.departure_time),
       from: offer?.departure_place,
       to: offer?.destination,
       pax: offer?.passengers,
@@ -52,7 +62,7 @@ export default function OfferMakulerad({ offer }: any) {
           {
             title: "Återresa",
             date: offer?.return_date,
-            time: offer?.return_time,
+            time: tidyTime(offer?.return_time),
             from: offer?.destination,
             to: offer?.departure_place,
             pax: offer?.passengers,
@@ -75,6 +85,7 @@ export default function OfferMakulerad({ offer }: any) {
 
   return (
     <div className="bg-[#f5f4f0] overflow-hidden">
+      {/* Topprad */}
       <div style={{ height: TOPBAR_PX }}>
         <OfferTopBar
           offerNumber={offer?.offer_number ?? "HB25XXXX"}
@@ -84,12 +95,15 @@ export default function OfferMakulerad({ offer }: any) {
         />
       </div>
 
+      {/* Arbetsyta */}
       <div style={{ height: `calc(100vh - ${TOPBAR_PX}px)` }}>
         <div className="grid h-full grid-cols-1 lg:grid-cols-[280px_minmax(0,1fr)_550px] gap-0">
+          {/* Vänster – oförändrad */}
           <div className="h-full">
             <OfferLeftSidebar />
           </div>
 
+          {/* Mitten */}
           <main className="h-full pl-4 lg:pl-6 pr-2 lg:pr-3 py-4 lg:py-6">
             <div className="h-full bg-white rounded-xl shadow flex flex-col">
               <div className="px-6 pt-6">
@@ -109,7 +123,8 @@ export default function OfferMakulerad({ offer }: any) {
                   style={{ lineHeight: LINE_HEIGHT }}
                 >
                   <p>
-                    Hej!<br />
+                    Hej!
+                    <br />
                     Tack för beskedet. Vi har makulerat er offert. Tråkigt att ni valde att tacka nej
                     den här gången – vi hoppas på ett återseende. Om planerna ändras kan vi snabbt
                     återöppna underlaget och ta fram en ny lösning. Har ni frågor eller vill ge
@@ -121,6 +136,7 @@ export default function OfferMakulerad({ offer }: any) {
                   </p>
                 </div>
 
+                {/* Reseinfo – markerad som ogiltig */}
                 <div className="mt-5">
                   <TripLegGrid>
                     {trips.map((trip, idx) => {
@@ -179,7 +195,7 @@ export default function OfferMakulerad({ offer }: any) {
                 </div>
               </div>
 
-              {/* FOOTER — UPPDATERAD till 4 kolumner */}
+              {/* Footer — 4 kolumner */}
               <div className="mt-auto px-6 pb-6">
                 <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 text-[13px] text-[#0f172a]">
                   <div>
@@ -208,6 +224,7 @@ export default function OfferMakulerad({ offer }: any) {
             </div>
           </main>
 
+          {/* Höger – kund + kostnadsinfo (markerad som ogiltig) */}
           <aside className="h-full p-4 lg:p-6">
             <div className="h-full bg-white rounded-xl shadow flex flex-col">
               <div className="px-6 pt-6">
@@ -231,6 +248,7 @@ export default function OfferMakulerad({ offer }: any) {
                   </div>
 
                   <div className="mt-3">
+                    {/* Head */}
                     <div
                       className="grid"
                       style={{ gridTemplateColumns: roundTrip ? "1fr 1fr 1fr" : "1fr 1fr" }}
@@ -238,10 +256,11 @@ export default function OfferMakulerad({ offer }: any) {
                       <div className="text-[#0f172a]/70 text-sm"> </div>
                       <div className="text-[#0f172a]/70 text-sm font-semibold">Enkel</div>
                       {roundTrip && (
-                        <div className="text-[#0f172a]/70 text-sm font-semibold">Tur&Retur</div>
+                        <div className="text-[#0f172a]/70 text-sm font-semibold">Tur & Retur</div>
                       )}
                     </div>
 
+                    {/* Rows (strike-through) */}
                     <RowMak
                       roundTrip={roundTrip}
                       label="Summa exkl. moms"
@@ -261,6 +280,7 @@ export default function OfferMakulerad({ offer }: any) {
                       retur={roundTrip ? money(breakdown?.legs?.[1]?.total) : undefined}
                     />
 
+                    {/* Total (ogiltig) */}
                     <div className="mt-3 grid grid-cols-[1fr_auto] items-baseline line-through opacity-60">
                       <div className="text-[#0f172a]/70 text-sm">Offertkostnad för detta uppdrag</div>
                       <div className="font-medium">{money(totals.sum)}</div>

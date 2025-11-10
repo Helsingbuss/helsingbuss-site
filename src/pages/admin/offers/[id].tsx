@@ -10,6 +10,7 @@ type Offer = {
   offer_number: string | null;
   status: string | null;
 
+  // Kontakt/kund
   customer_reference: string | null;
   contact_email: string | null;
   contact_phone: string | null;
@@ -26,8 +27,27 @@ type Offer = {
   return_date: string | null;
   return_time: string | null;
 
+  // Nya fält (formuläret)
   passengers: number | null;
-  notes: string | null;
+  stopover_places: string | null;        // via / stopp
+  extra_stops: string | null;            // om du skickar separat "stop"
+  trip_kind: string | null;              // enkel_tur_retur (t.ex. "enkel" | "tur_ret")
+  final_destination: string | null;      // ev. slutmål
+  need_bus_on_site: string | null;       // behöver buss på plats?
+  site_notes: string | null;             // notis på plats
+  base_at_destination: string | null;    // basplats på destinationen
+  last_day_on_site: string | null;       // sista dagen (på plats)
+  end_time: string | null;               // sluttid
+  local_runs: string | null;             // lokala körningar
+  standby_hours: string | null;          // väntetid/standby (timmar)
+  parking: string | null;                // parkering & tillstånd
+  company_name: string | null;           // företag/förening
+  po_reference: string | null;           // referens / PO-nummer
+  org_number: string | null;             // organisationsnummer
+  onboard_contact: string | null;        // kontaktperson ombord
+  more_trip_info: string | null;         // mer om resplanen
+
+  notes: string | null;                  // legacy "notes"
 };
 
 function toIntOrNull(v: any): number | null {
@@ -40,12 +60,16 @@ function toIntOrNull(v: any): number | null {
 /** Normalisera olika API-svar till Offer */
 function normalizeOffer(o: any | null | undefined): Offer | null {
   if (!o) return null;
+
   return {
     id: o.id,
+
     offer_number: o.offer_number ?? o.offer_no ?? o.offerId ?? null,
     status: o.status ?? null,
 
-    customer_reference: o.customer_reference ?? o.reference ?? null,
+    // Kontakt/kund
+    customer_reference:
+      o.customer_reference ?? o.reference ?? o.contact_person ?? null,
     contact_email: o.contact_email ?? o.customer_email ?? o.email ?? null,
     contact_phone: o.contact_phone ?? o.customer_phone ?? o.phone ?? null,
 
@@ -61,7 +85,26 @@ function normalizeOffer(o: any | null | undefined): Offer | null {
     return_date: o.return_date ?? o.ret_date ?? null,
     return_time: o.return_time ?? o.ret_time ?? null,
 
+    // Nya fält
     passengers: toIntOrNull(o.passengers),
+    stopover_places: o.stopover_places ?? o.via ?? null,
+    extra_stops: o.stop ?? null,
+    trip_kind: o.trip_kind ?? o.enkel_tur_retur ?? null,
+    final_destination: o.final_destination ?? null,
+    need_bus_on_site: o.need_bus_on_site ?? o.behov_er_buss ?? null,
+    site_notes: o.site_notes ?? o.notis_pa_plats ?? null,
+    base_at_destination: o.base_at_destination ?? o.basplats_pa_destination ?? null,
+    last_day_on_site: o.last_day_on_site ?? o.last_day_ ?? null,
+    end_time: o.end_time ?? null,
+    local_runs: o.local_runs ?? o.local_kor ?? null,
+    standby_hours: o.standby_hours ?? o.standby ?? null,
+    parking: o.parking ?? null,
+    company_name: o.company_name ?? o.foretag_forening ?? null,
+    po_reference: o.po_reference ?? o.referens_po_nummer ?? null,
+    org_number: o.org_number ?? null,
+    onboard_contact: o.onboard_contact ?? null,
+    more_trip_info: o.more_trip_info ?? o.contact_person ?? null, // om legacy fältet råkade användas för "mer info"
+
     notes: o.notes ?? o.message ?? o.other_info ?? null,
   };
 }
@@ -113,7 +156,10 @@ export default function AdminOfferDetail() {
 
   const titleSuffix = offer?.offer_number ? ` (${offer.offer_number})` : "";
   const hasReturn =
-    !!(offer?.return_departure || offer?.return_destination || offer?.return_date || offer?.return_time);
+    !!(offer?.return_departure ||
+       offer?.return_destination ||
+       offer?.return_date ||
+       offer?.return_time);
 
   // OfferCalculator behöver dessa tre:
   const calculatorProps =
@@ -140,7 +186,6 @@ export default function AdminOfferDetail() {
       const j = await r.json().catch(() => ({} as any));
       if (!r.ok) throw new Error(j?.error || "Kunde inte skapa bokning.");
       alert(`Bokning skapad (${j.booking?.booking_number || "BK…"})`);
-      // Gå till listan "Alla bokningar"
       router.push("/admin/bookings");
     } catch (e: any) {
       alert(e?.message || "Ett fel uppstod vid skapande av bokning.");
@@ -161,7 +206,6 @@ export default function AdminOfferDetail() {
               Besvara offert{titleSuffix}
             </h1>
 
-            {/* Ny knapp – påverkar inte din övriga layout/design */}
             {offer && (
               <button
                 onClick={createBookingFromOffer}
@@ -197,6 +241,10 @@ export default function AdminOfferDetail() {
                         <span className="font-semibold">Status:</span>{" "}
                         {offer.status || "—"}
                       </div>
+                      <div>
+                        <span className="font-semibold">Typ av resa:</span>{" "}
+                        {offer.trip_kind || "—"}
+                      </div>
                     </div>
                   </div>
 
@@ -214,6 +262,18 @@ export default function AdminOfferDetail() {
                       <div>
                         <span className="font-semibold">Telefon:</span>{" "}
                         {offer.contact_phone || "—"}
+                      </div>
+                      <div>
+                        <span className="font-semibold">Företag/Förening:</span>{" "}
+                        {offer.company_name || "—"}
+                      </div>
+                      <div>
+                        <span className="font-semibold">Ref/PO-nummer:</span>{" "}
+                        {offer.po_reference || "—"}
+                      </div>
+                      <div>
+                        <span className="font-semibold">Organisationsnummer:</span>{" "}
+                        {offer.org_number || "—"}
                       </div>
                     </div>
                   </div>
@@ -235,6 +295,10 @@ export default function AdminOfferDetail() {
                         {offer.destination || "—"}
                       </div>
                       <div>
+                        <span className="font-semibold">Slutmål:</span>{" "}
+                        {offer.final_destination || "—"}
+                      </div>
+                      <div>
                         <span className="font-semibold">Datum:</span>{" "}
                         {offer.departure_date || "—"}
                       </div>
@@ -246,13 +310,52 @@ export default function AdminOfferDetail() {
                         <span className="font-semibold">Passagerare:</span>{" "}
                         {offer.passengers ?? "—"}
                       </div>
+                      <div>
+                        <span className="font-semibold">Via / stopp:</span>{" "}
+                        {offer.stopover_places || offer.extra_stops || "—"}
+                      </div>
+                      <div>
+                        <span className="font-semibold">Kontakt ombord:</span>{" "}
+                        {offer.onboard_contact || "—"}
+                      </div>
                     </div>
                   </div>
 
                   <div className="bg-[#f8fafc] rounded-lg p-4">
-                    <div className="text-sm text-[#194C66]/70 mb-1">Övrigt</div>
-                    <div className="text-[#194C66] whitespace-pre-wrap">
-                      {offer.notes || "Ingen information."}
+                    <div className="text-sm text-[#194C66]/70 mb-1">Plats & logistik</div>
+                    <div className="text-[#194C66]">
+                      <div>
+                        <span className="font-semibold">Behöver ni bussen på plats?</span>{" "}
+                        {offer.need_bus_on_site || "—"}
+                      </div>
+                      <div>
+                        <span className="font-semibold">Notis på plats:</span>{" "}
+                        {offer.site_notes || "—"}
+                      </div>
+                      <div>
+                        <span className="font-semibold">Basplats på destinationen:</span>{" "}
+                        {offer.base_at_destination || "—"}
+                      </div>
+                      <div>
+                        <span className="font-semibold">Sista dagen (på plats):</span>{" "}
+                        {offer.last_day_on_site || "—"}
+                      </div>
+                      <div>
+                        <span className="font-semibold">Sluttid:</span>{" "}
+                        {offer.end_time || "—"}
+                      </div>
+                      <div>
+                        <span className="font-semibold">Lokala körningar:</span>{" "}
+                        {offer.local_runs || "—"}
+                      </div>
+                      <div>
+                        <span className="font-semibold">Väntetid / standby (timmar):</span>{" "}
+                        {offer.standby_hours || "—"}
+                      </div>
+                      <div>
+                        <span className="font-semibold">Parkering & tillstånd:</span>{" "}
+                        {offer.parking || "—"}
+                      </div>
                     </div>
                   </div>
                 </section>
@@ -286,7 +389,24 @@ export default function AdminOfferDetail() {
                   </section>
                 )}
 
-                {/* Kalkyl (DIN komponent) */}
+                {/* Övrigt */}
+                <section className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="bg-[#f8fafc] rounded-lg p-4">
+                    <div className="text-sm text-[#194C66]/70 mb-1">Övrig information</div>
+                    <div className="text-[#194C66] whitespace-pre-wrap">
+                      {offer.notes || "Ingen information."}
+                    </div>
+                  </div>
+
+                  <div className="bg-[#f8fafc] rounded-lg p-4">
+                    <div className="text-sm text-[#194C66]/70 mb-1">Mer om resplanen</div>
+                    <div className="text-[#194C66] whitespace-pre-wrap">
+                      {offer.more_trip_info || "—"}
+                    </div>
+                  </div>
+                </section>
+
+                {/* Kalkyl (din komponent) */}
                 <section className="bg-white border rounded-lg p-4">
                   <div className="text-[#194C66] font-semibold mb-3">Kalkyl</div>
                   {calculatorProps ? (
