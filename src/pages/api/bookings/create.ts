@@ -166,11 +166,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return_end_time: tidyHHMM(p.return_end_time),
       return_on_site_minutes: toPosIntOrNull(p.return_on_site_minutes),
 
-      // interna
+      // interna (OBS: ta bort okända nycklar före insert)
       assigned_vehicle_id: trimOrNull(p.assigned_vehicle_id),
       assigned_driver_id: trimOrNull(p.assigned_driver_id),
 
-      // källa (offert)
+      // källa (offert) – kan saknas i din DB; vi filtrerar bort vid insert
       source_offer_id: trimOrNull(p.source_offer_id),
 
       // övrigt
@@ -191,9 +191,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       attempt += 1;
       const bk = record.booking_number || generateBookingNo();
 
+      // ⚠️ Filtrera bort fält som inte finns i schemat (t.ex. source_offer_id om kolumnen saknas)
+      const { source_offer_id, ...insertable } = record as any;
+
       const { data, error } = await supabaseAdmin
         .from("bookings")
-        .insert({ ...record, booking_number: bk })
+        .insert({ ...insertable, booking_number: bk })
         .select(
           [
             "id",
@@ -214,8 +217,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           inserted = candidate;
           break;
         } else {
-          // Ov�ntad form – behandla som fel för att bryta snyggt
-          lastErr = new Error("Ov�ntat insert-svar: saknar id/booking_number");
+          // Oväntad form – behandla som fel för att bryta snyggt
+          lastErr = new Error("Oväntat insert-svar: saknar id/booking_number");
           break;
         }
       }
