@@ -1,6 +1,6 @@
 ﻿// src/lib/sendOfferMail.ts
 import { sendMailWithOfferMirror } from "@/lib/sendMail";
-import { customerBaseUrl } from "./sendMail"; // du har redan denna helper i sendMail.ts
+import { sendMailWithOfferMirror, customerBaseUrl } from "@/lib/sendMail";
 
 type SendOfferParams = {
   offerId: string;           // uuid i DB (för interna länkar om du vill)
