@@ -3,6 +3,7 @@ import type { NextApiRequest, NextApiResponse } from "next";
 import * as admin from "@/lib/supabaseAdmin";
 import { sendOfferMail } from "@/lib/sendOfferMail";
 import { Resend } from "resend";
+import cors from "@/lib/cors"; // ✅ CORS
 
 // ---- Supabase klient (tål olika exports) ----
 const supabase =
@@ -56,14 +57,12 @@ function nextOfferNumberFactory(prefixYear?: string) {
 
     let nextNum = 7; // start fallback (HB{YY}007)
     if (lastOffer?.offer_number) {
-      // plocka ut löpnumret efter "HBxx"
       const m = String(lastOffer.offer_number).match(/^HB(\d{2})(\d{3,})$/);
       if (m) {
         const lastYY = m[1];
         const lastRun = parseInt(m[2], 10);
         nextNum = (lastYY === yy && Number.isFinite(lastRun)) ? lastRun + 1 : 7;
       } else {
-        // gammalt format? försök ta sista 3-4 siffrorna
         const tail = parseInt(String(lastOffer.offer_number).replace(/^HB\d{2}/, ""), 10);
         if (Number.isFinite(tail)) nextNum = tail + 1;
       }
@@ -73,6 +72,18 @@ function nextOfferNumberFactory(prefixYear?: string) {
 }
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  // ✅ CORS för publika formulär
+  await cors(req, res, {
+    methods: ["POST", "OPTIONS"],
+    origin: [
+      "https://helsingbuss.se",
+      "https://www.helsingbuss.se",
+      "https://kund.helsingbuss.se",
+      "https://login.helsingbuss.se",
+      "http://localhost:3000",
+    ],
+  });
+  if (req.method === "OPTIONS") return res.status(200).end();
   if (req.method !== "POST") return httpErr(res, 405, "Method not allowed");
 
   const t0 = Date.now();
@@ -89,7 +100,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const customer_email: string | null = lc(toNull(p.customer_email));
     const customer_phone: string | null = toNull(p.customer_phone);
 
-    // UI-fält: “Kontaktperson ombord (namn och nummer)” → fallback till customer_reference
+    // UI-fält → fallback till customer_reference
     const onboard_contact: string | null = toNull(p.onboard_contact);
     const customer_reference: string | null =
       toNull(p.customer_reference) ?? onboard_contact ?? customer_name;
@@ -178,7 +189,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     let mailError: string | null = null;
 
     try {
-      // Din primära HTML-mall
       await sendOfferMail({
         offerId: String(row.id ?? offer_number),
         offerNumber: String(offer_number),
@@ -244,7 +254,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       }
     }
 
-    // ---- Mail: 2) separat intern notis till OFFERS_INBOX (oavsett ovan)
+    // ---- Mail: 2) intern notis till OFFERS_INBOX
     try {
       if (RESEND_API_KEY && EMAIL_FROM && OFFERS_INBOX) {
         const resend = new Resend(RESEND_API_KEY);
@@ -271,7 +281,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       }
     } catch (internalErr: any) {
       console.error("[offert/create] internal notify failed:", internalErr?.message || internalErr);
-      // Fortsätt ändå – detta ska inte fälla användarflödet
     }
 
     console.log("[offert/create] done in", Date.now() - t0, "ms");
