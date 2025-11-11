@@ -3,9 +3,9 @@ import type { NextApiRequest, NextApiResponse } from "next";
 import * as admin from "@/lib/supabaseAdmin";
 import { sendOfferMail } from "@/lib/sendOfferMail";
 import { Resend } from "resend";
-import cors from "@/lib/cors"; // ✅ CORS
+import { cors } from "@/lib/cors"; // ✅ named import
 
-// ---- Supabase klient (tål olika exports) ----
+// ---- Supabase client (supports various exports) ----
 const supabase =
   (admin as any).supabaseAdmin ||
   (admin as any).supabase ||
@@ -22,13 +22,13 @@ const EMAIL_REPLY_TO = env(process.env.EMAIL_REPLY_TO) || "kundteam@helsingbuss.
 const SUPPORT_INBOX  = lc(process.env.SUPPORT_INBOX) || "kundteam@helsingbuss.se";
 const OFFERS_INBOX   = lc(process.env.OFFERS_INBOX)  || "offert@helsingbuss.se";
 
-// kunddomän för publika vyer
+// Public customer base URL for viewing the incoming offer
 const CUSTOMER_BASE_URL =
   env(process.env.CUSTOMER_BASE_URL) ||
   env(process.env.NEXT_PUBLIC_CUSTOMER_BASE_URL) ||
-  env(process.env.NEXT_PUBLIC_BASE_URL); // sista utvägen
+  env(process.env.NEXT_PUBLIC_BASE_URL);
 
-// ---- Små helpers ----
+// ---- Small helpers ----
 function toNull<T = any>(v: T | null | undefined): T | null {
   return v === "" || v === undefined ? null : (v as any);
 }
@@ -46,7 +46,7 @@ function httpErr(res: NextApiResponse, code: number, msg: string) {
   return res.status(code).json({ error: msg });
 }
 function nextOfferNumberFactory(prefixYear?: string) {
-  const yy = prefixYear ?? new Date().getFullYear().toString().slice(-2); // "25"
+  const yy = prefixYear ?? new Date().getFullYear().toString().slice(-2); // e.g. "25"
   return async function next(): Promise<string> {
     const { data: lastOffer } = await supabase
       .from("offers")
@@ -55,13 +55,13 @@ function nextOfferNumberFactory(prefixYear?: string) {
       .limit(1)
       .maybeSingle();
 
-    let nextNum = 7; // start fallback (HB{YY}007)
+    let nextNum = 7; // start fallback HB{YY}007
     if (lastOffer?.offer_number) {
       const m = String(lastOffer.offer_number).match(/^HB(\d{2})(\d{3,})$/);
       if (m) {
         const lastYY = m[1];
         const lastRun = parseInt(m[2], 10);
-        nextNum = (lastYY === yy && Number.isFinite(lastRun)) ? lastRun + 1 : 7;
+        nextNum = lastYY === yy && Number.isFinite(lastRun) ? lastRun + 1 : 7;
       } else {
         const tail = parseInt(String(lastOffer.offer_number).replace(/^HB\d{2}/, ""), 10);
         if (Number.isFinite(tail)) nextNum = tail + 1;
@@ -71,19 +71,29 @@ function nextOfferNumberFactory(prefixYear?: string) {
   };
 }
 
+// Optional: Next.js config if you want to allow big bodies (keep or remove)
+export const config = {
+  api: {
+    bodyParser: {
+      sizeLimit: "1mb",
+    },
+  },
+};
+
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  // ✅ CORS för publika formulär
+  // ✅ CORS first (allow your public form origins)
   await cors(req, res, {
-    methods: ["POST", "OPTIONS"],
     origin: [
-      "https://helsingbuss.se",
-      "https://www.helsingbuss.se",
-      "https://kund.helsingbuss.se",
       "https://login.helsingbuss.se",
+      "https://kund.helsingbuss.se",
       "http://localhost:3000",
+      "http://127.0.0.1:3000",
     ],
+    methods: ["POST", "OPTIONS"],
+    headers: ["Content-Type", "Authorization"],
   });
-  if (req.method === "OPTIONS") return res.status(200).end();
+  if (req.method === "OPTIONS") return; // preflight already answered
+
   if (req.method !== "POST") return httpErr(res, 405, "Method not allowed");
 
   const t0 = Date.now();
@@ -95,12 +105,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       hasBody: !!req.body,
     });
 
-    // ---- Fält från formulär ----
+    // ---- Read fields from form ----
     const customer_name:  string | null = toNull(p.customer_name);
     const customer_email: string | null = lc(toNull(p.customer_email));
     const customer_phone: string | null = toNull(p.customer_phone);
 
-    // UI-fält → fallback till customer_reference
+    // “Onboard contact” → fallback for customer_reference
     const onboard_contact: string | null = toNull(p.onboard_contact);
     const customer_reference: string | null =
       toNull(p.customer_reference) ?? onboard_contact ?? customer_name;
@@ -114,45 +124,45 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const departure_date:  string | null = pickYmd(toNull(p.departure_date));
     const departure_time:  string | null = toNull(p.departure_time);
 
-    const return_departure: string | null = toNull(p.return_departure);
+    const return_departure:   string | null = toNull(p.return_departure);
     const return_destination: string | null = toNull(p.return_destination);
-    const return_date: string | null = pickYmd(toNull(p.return_date));
-    const return_time: string | null = toNull(p.return_time);
+    const return_date:        string | null = pickYmd(toNull(p.return_date));
+    const return_time:        string | null = toNull(p.return_time);
 
     const stopover_places: string | null = toNull(p.stopover_places ?? p.via);
     const notes: string | null = toNull(p.notes);
 
-    // ---- Minimal validering ----
+    // ---- Minimal validation ----
     const missing: string[] = [];
-    if (!customer_name)  missing.push("customer_name");
-    if (!customer_email) missing.push("customer_email");
+    if (!customer_name)   missing.push("customer_name");
+    if (!customer_email)  missing.push("customer_email");
     if (!departure_place) missing.push("departure_place");
     if (!destination)     missing.push("destination");
     if (!departure_date)  missing.push("departure_date");
     if (!departure_time)  missing.push("departure_time");
-    if (missing.length) return httpErr(res, 400, `Saknar fält: ${missing.join(", ")}`);
+    if (missing.length) return httpErr(res, 400, `Missing fields: ${missing.join(", ")}`);
 
-    // ---- Offertnummer HB{YY}{xxx} ----
+    // ---- Offer number HB{YY}{xxx} ----
     const nextOfferNumber = nextOfferNumberFactory();
     const offer_number = await nextOfferNumber();
 
-    // ---- Spara i DB ----
+    // ---- Insert in DB ----
     const nowIso = new Date().toISOString();
     const insertPayload: any = {
       offer_number,
       status: "inkommen",
       offer_date: nowIso.slice(0, 10),
 
-      // kontakt
+      // contact
       contact_person: customer_name,
       contact_phone: customer_phone,
       contact_email: customer_email,
 
-      // referenser
+      // references
       customer_reference,
       internal_reference,
 
-      // resa
+      // trip
       passengers,
       departure_place,
       destination,
@@ -160,13 +170,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       departure_time,
       stopover_places,
 
-      // retur
+      // return
       return_departure,
       return_destination,
       return_date,
       return_time,
 
-      // övrigt
+      // misc
       notes,
 
       created_at: nowIso,
@@ -181,10 +191,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     if (insErr) {
       console.error("[offert/create] supabase insert error:", insErr);
-      return httpErr(res, 500, "Kunde inte spara offert");
+      return httpErr(res, 500, "Could not save offer");
     }
 
-    // ---- Mail: 1) till kund (med BCC till OFFERS_INBOX vid fallback)
+    // ---- Mail: 1) to customer (primary HTML template)
     let mailOk = false;
     let mailError: string | null = null;
 
@@ -254,7 +264,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       }
     }
 
-    // ---- Mail: 2) intern notis till OFFERS_INBOX
+    // ---- Mail: 2) internal notification to OFFERS_INBOX (always try)
     try {
       if (RESEND_API_KEY && EMAIL_FROM && OFFERS_INBOX) {
         const resend = new Resend(RESEND_API_KEY);
@@ -281,6 +291,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       }
     } catch (internalErr: any) {
       console.error("[offert/create] internal notify failed:", internalErr?.message || internalErr);
+      // non-fatal
     }
 
     console.log("[offert/create] done in", Date.now() - t0, "ms");
@@ -291,6 +302,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     });
   } catch (e: any) {
     console.error("[offert/create] unhandled:", e?.message || e);
-    return httpErr(res, 500, "Serverfel");
+    return httpErr(res, 500, "Server error");
   }
 }

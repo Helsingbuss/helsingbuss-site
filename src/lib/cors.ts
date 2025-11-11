@@ -1,32 +1,50 @@
 // src/lib/cors.ts
 import type { NextApiRequest, NextApiResponse } from "next";
 
-const split = (v?: string) =>
-  (v || "").split(",").map(s => s.trim()).filter(Boolean);
+type CorsOptions = {
+  origin?: string[] | string;
+  methods?: string[];
+  headers?: string[];
+  maxAge?: number;
+};
 
-const ALLOWED = split(process.env.ALLOWED_ORIGINS);
-// Ex: "https://helsingbuss.se,https://www.helsingbuss.se,https://kund.helsingbuss.se,https://login.helsingbuss.se"
+function headerList(v?: string[] | string): string {
+  if (!v) return "";
+  return Array.isArray(v) ? v.join(",") : v;
+}
 
-export function applyCors(req: NextApiRequest, res: NextApiResponse) {
-  const origin = (req.headers.origin as string) || "";
+/**
+ * Minimal CORS helper for Next.js API routes.
+ * Call: await cors(req, res, { origin: ["https://login.helsingbuss.se", "http://localhost:3000"] })
+ */
+export async function cors(
+  req: NextApiRequest,
+  res: NextApiResponse,
+  opts: CorsOptions = {}
+) {
+  const {
+    origin = "*",
+    methods = ["GET", "POST", "OPTIONS"],
+    headers = ["Content-Type", "Authorization"],
+    maxAge = 86400,
+  } = opts;
 
-  const allow =
-    ALLOWED.length === 0
-      ? origin // om ej satt -> tillåt current origin (för enkel felsökning)
-      : (ALLOWED.includes(origin) ? origin : ALLOWED[0]); // välj första godkända om mismatch
-
-  res.setHeader("Access-Control-Allow-Origin", allow);
+  // Vary so caches behave with Origin differences
   res.setHeader("Vary", "Origin");
-  res.setHeader("Access-Control-Allow-Credentials", "true");
-  res.setHeader(
-    "Access-Control-Allow-Headers",
-    "Content-Type, Authorization, X-Requested-With"
-  );
-  res.setHeader("Access-Control-Allow-Methods", "POST,OPTIONS");
 
+  // Allow origin(s)
+  res.setHeader("Access-Control-Allow-Origin", headerList(origin));
+
+  // Allow methods/headers
+  res.setHeader("Access-Control-Allow-Methods", headerList(methods));
+  res.setHeader("Access-Control-Allow-Headers", headerList(headers));
+
+  // Cache preflight
+  res.setHeader("Access-Control-Max-Age", String(maxAge));
+
+  // Short-circuit preflight
   if (req.method === "OPTIONS") {
     res.status(200).end();
-    return true; // preflight avslutad
+    return;
   }
-  return false;
 }
