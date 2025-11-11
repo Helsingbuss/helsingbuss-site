@@ -1,50 +1,68 @@
 // src/lib/cors.ts
 import type { NextApiRequest, NextApiResponse } from "next";
 
-type CorsOptions = {
-  origin?: string[] | string;
-  methods?: string[];
-  headers?: string[];
-  maxAge?: number;
+type CorsOpts = {
+  allowOrigins?: string[]; // fulla origin, t.ex. https://kund.helsingbuss.se
+  allowMethods?: string[];
+  allowHeaders?: string[];
+  allowCredentials?: boolean;
 };
 
-function headerList(v?: string[] | string): string {
-  if (!v) return "";
-  return Array.isArray(v) ? v.join(",") : v;
+const env = (v?: string | null) => (v ?? "").trim();
+
+function matchOrigin(reqOrigin: string | undefined, allow: string[]): string | null {
+  if (!reqOrigin) return null;
+  const o = reqOrigin.trim().toLowerCase();
+  for (const a of allow) {
+    if (a.trim().toLowerCase() === o) return a;
+  }
+  return null;
 }
 
 /**
- * Minimal CORS helper for Next.js API routes.
- * Call: await cors(req, res, { origin: ["https://login.helsingbuss.se", "http://localhost:3000"] })
+ * Default export: CORS-middleware för Next API routes.
+ * Användning:
+ *   await cors(req, res, { allowOrigins: ["https://kund.helsingbuss.se", "http://localhost:3000"] });
  */
-export async function cors(
+export default async function cors(
   req: NextApiRequest,
   res: NextApiResponse,
-  opts: CorsOptions = {}
+  opts: CorsOpts = {}
 ) {
-  const {
-    origin = "*",
-    methods = ["GET", "POST", "OPTIONS"],
-    headers = ["Content-Type", "Authorization"],
-    maxAge = 86400,
-  } = opts;
+  const allowOrigins = opts.allowOrigins ?? [
+    env(process.env.NEXT_PUBLIC_CUSTOMER_BASE_URL),
+    env(process.env.CUSTOMER_BASE_URL),
+    env(process.env.NEXT_PUBLIC_BASE_URL),
+    env(process.env.NEXT_PUBLIC_LOGIN_BASE_URL),
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+  ].filter(Boolean);
 
-  // Vary so caches behave with Origin differences
+  const allowMethods = opts.allowMethods ?? ["POST", "GET", "OPTIONS"];
+  const allowHeaders = opts.allowHeaders ?? [
+    "Content-Type",
+    "Authorization",
+    "X-Requested-With",
+  ];
+  const allowCredentials = opts.allowCredentials ?? false;
+
+  const reqOrigin = (req.headers.origin as string | undefined) || "";
+  const matched = matchOrigin(reqOrigin, allowOrigins);
+
+  if (matched) {
+    res.setHeader("Access-Control-Allow-Origin", matched);
+    if (allowCredentials) res.setHeader("Access-Control-Allow-Credentials", "true");
+  }
+
   res.setHeader("Vary", "Origin");
+  res.setHeader("Access-Control-Allow-Methods", allowMethods.join(", "));
+  res.setHeader("Access-Control-Allow-Headers", allowHeaders.join(", "));
 
-  // Allow origin(s)
-  res.setHeader("Access-Control-Allow-Origin", headerList(origin));
-
-  // Allow methods/headers
-  res.setHeader("Access-Control-Allow-Methods", headerList(methods));
-  res.setHeader("Access-Control-Allow-Headers", headerList(headers));
-
-  // Cache preflight
-  res.setHeader("Access-Control-Max-Age", String(maxAge));
-
-  // Short-circuit preflight
+  // Preflight
   if (req.method === "OPTIONS") {
     res.status(200).end();
-    return;
+    return false; // signalera till anroparen att vi redan har svarat
   }
+
+  return true;
 }

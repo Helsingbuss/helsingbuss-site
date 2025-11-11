@@ -3,9 +3,9 @@ import type { NextApiRequest, NextApiResponse } from "next";
 import * as admin from "@/lib/supabaseAdmin";
 import { sendOfferMail } from "@/lib/sendOfferMail";
 import { Resend } from "resend";
-import { cors } from "@/lib/cors"; // ✅ named import
+import cors from "@/lib/cors"; // ✅ CORS
 
-// ---- Supabase client (supports various exports) ----
+// ---- Supabase klient (tål olika exports) ----
 const supabase =
   (admin as any).supabaseAdmin ||
   (admin as any).supabase ||
@@ -22,13 +22,13 @@ const EMAIL_REPLY_TO = env(process.env.EMAIL_REPLY_TO) || "kundteam@helsingbuss.
 const SUPPORT_INBOX  = lc(process.env.SUPPORT_INBOX) || "kundteam@helsingbuss.se";
 const OFFERS_INBOX   = lc(process.env.OFFERS_INBOX)  || "offert@helsingbuss.se";
 
-// Public customer base URL for viewing the incoming offer
+// kunddomän för publika vyer
 const CUSTOMER_BASE_URL =
   env(process.env.CUSTOMER_BASE_URL) ||
   env(process.env.NEXT_PUBLIC_CUSTOMER_BASE_URL) ||
-  env(process.env.NEXT_PUBLIC_BASE_URL);
+  env(process.env.NEXT_PUBLIC_BASE_URL); // sista utvägen
 
-// ---- Small helpers ----
+// ---- Små helpers ----
 function toNull<T = any>(v: T | null | undefined): T | null {
   return v === "" || v === undefined ? null : (v as any);
 }
@@ -46,7 +46,7 @@ function httpErr(res: NextApiResponse, code: number, msg: string) {
   return res.status(code).json({ error: msg });
 }
 function nextOfferNumberFactory(prefixYear?: string) {
-  const yy = prefixYear ?? new Date().getFullYear().toString().slice(-2); // e.g. "25"
+  const yy = prefixYear ?? new Date().getFullYear().toString().slice(-2); // "25"
   return async function next(): Promise<string> {
     const { data: lastOffer } = await supabase
       .from("offers")
@@ -55,14 +55,16 @@ function nextOfferNumberFactory(prefixYear?: string) {
       .limit(1)
       .maybeSingle();
 
-    let nextNum = 7; // start fallback HB{YY}007
+    let nextNum = 7; // start fallback (HB{YY}007)
     if (lastOffer?.offer_number) {
+      // plocka ut löpnumret efter "HBxx"
       const m = String(lastOffer.offer_number).match(/^HB(\d{2})(\d{3,})$/);
       if (m) {
         const lastYY = m[1];
         const lastRun = parseInt(m[2], 10);
-        nextNum = lastYY === yy && Number.isFinite(lastRun) ? lastRun + 1 : 7;
+        nextNum = (lastYY === yy && Number.isFinite(lastRun)) ? lastRun + 1 : 7;
       } else {
+        // äldre format? ta sista siffrorna efter HBYY
         const tail = parseInt(String(lastOffer.offer_number).replace(/^HB\d{2}/, ""), 10);
         if (Number.isFinite(tail)) nextNum = tail + 1;
       }
@@ -71,46 +73,48 @@ function nextOfferNumberFactory(prefixYear?: string) {
   };
 }
 
-// Optional: Next.js config if you want to allow big bodies (keep or remove)
-export const config = {
-  api: {
-    bodyParser: {
-      sizeLimit: "1mb",
-    },
-  },
-};
-
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  // ✅ CORS first (allow your public form origins)
-  await cors(req, res, {
-    origin: [
-      "https://login.helsingbuss.se",
-      "https://kund.helsingbuss.se",
+  // 1) CORS
+  const proceeded = await cors(req, res, {
+    allowOrigins: [
+      env(process.env.NEXT_PUBLIC_CUSTOMER_BASE_URL),
+      env(process.env.CUSTOMER_BASE_URL),
+      env(process.env.NEXT_PUBLIC_BASE_URL),
+      env(process.env.NEXT_PUBLIC_LOGIN_BASE_URL),
       "http://localhost:3000",
       "http://127.0.0.1:3000",
-    ],
-    methods: ["POST", "OPTIONS"],
-    headers: ["Content-Type", "Authorization"],
+    ].filter(Boolean),
+    allowMethods: ["POST", "OPTIONS"],
+    allowHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
   });
-  if (req.method === "OPTIONS") return; // preflight already answered
+  if (proceeded === false) return; // preflight svarat
 
   if (req.method !== "POST") return httpErr(res, 405, "Method not allowed");
 
+  // 2) Grundlogg
   const t0 = Date.now();
-  try {
-    const p = req.body ?? {};
-    console.log("[offert/create] incoming", {
-      contentType: req.headers["content-type"],
-      origin: req.headers.origin,
-      hasBody: !!req.body,
-    });
+  const contentType = (req.headers["content-type"] || "").toString();
+  console.log("[offert/create] start", {
+    origin: req.headers.origin,
+    contentType,
+  });
 
-    // ---- Read fields from form ----
+  try {
+    // 3) Säkerställ att vi har JSON
+    if (!contentType.includes("application/json")) {
+      console.warn("[offert/create] Wrong content-type:", contentType);
+      return httpErr(res, 415, "Content-Type must be application/json");
+    }
+
+    const p = req.body ?? {};
+    console.log("[offert/create] body keys", Object.keys(p || {}));
+
+    // ---- Fält från formulär ----
     const customer_name:  string | null = toNull(p.customer_name);
     const customer_email: string | null = lc(toNull(p.customer_email));
     const customer_phone: string | null = toNull(p.customer_phone);
 
-    // “Onboard contact” → fallback for customer_reference
+    // UI-fält: “Kontaktperson ombord (namn och nummer)” → fallback till customer_reference
     const onboard_contact: string | null = toNull(p.onboard_contact);
     const customer_reference: string | null =
       toNull(p.customer_reference) ?? onboard_contact ?? customer_name;
@@ -132,7 +136,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const stopover_places: string | null = toNull(p.stopover_places ?? p.via);
     const notes: string | null = toNull(p.notes);
 
-    // ---- Minimal validation ----
+    // ---- Minimal validering ----
     const missing: string[] = [];
     if (!customer_name)   missing.push("customer_name");
     if (!customer_email)  missing.push("customer_email");
@@ -140,29 +144,29 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     if (!destination)     missing.push("destination");
     if (!departure_date)  missing.push("departure_date");
     if (!departure_time)  missing.push("departure_time");
-    if (missing.length) return httpErr(res, 400, `Missing fields: ${missing.join(", ")}`);
+    if (missing.length) return httpErr(res, 400, `Saknar fält: ${missing.join(", ")}`);
 
-    // ---- Offer number HB{YY}{xxx} ----
+    // ---- Offertnummer HB{YY}{xxx} ----
     const nextOfferNumber = nextOfferNumberFactory();
     const offer_number = await nextOfferNumber();
 
-    // ---- Insert in DB ----
+    // ---- Spara i DB ----
     const nowIso = new Date().toISOString();
     const insertPayload: any = {
       offer_number,
       status: "inkommen",
       offer_date: nowIso.slice(0, 10),
 
-      // contact
+      // kontakt
       contact_person: customer_name,
       contact_phone: customer_phone,
       contact_email: customer_email,
 
-      // references
+      // referenser
       customer_reference,
       internal_reference,
 
-      // trip
+      // resa
       passengers,
       departure_place,
       destination,
@@ -170,13 +174,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       departure_time,
       stopover_places,
 
-      // return
+      // retur
       return_departure,
       return_destination,
       return_date,
       return_time,
 
-      // misc
+      // övrigt
       notes,
 
       created_at: nowIso,
@@ -191,10 +195,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     if (insErr) {
       console.error("[offert/create] supabase insert error:", insErr);
-      return httpErr(res, 500, "Could not save offer");
+      return httpErr(res, 500, "Kunde inte spara offert");
     }
 
-    // ---- Mail: 1) to customer (primary HTML template)
+    // ---- Mail: 1) till kund (primärt via sendOfferMail HTML)
     let mailOk = false;
     let mailError: string | null = null;
 
@@ -227,25 +231,26 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       mailError = err?.message || String(err);
       console.warn("[offert/create] sendOfferMail failed:", mailError);
 
-      // --- Fallback via Resend (BCC → OFFERS_INBOX) ---
+      // --- Fallback via Resend (text, BCC → OFFERS_INBOX) ---
       try {
         if (RESEND_API_KEY && EMAIL_FROM) {
           const resend = new Resend(RESEND_API_KEY);
-          const previewUrlBase = CUSTOMER_BASE_URL || env(process.env.NEXT_PUBLIC_BASE_URL);
-          const previewUrl = previewUrlBase
-            ? `${previewUrlBase.replace(/\/+$/, "")}/offert/${offer_number}?view=inkommen`
+          const previewBase = CUSTOMER_BASE_URL || env(process.env.NEXT_PUBLIC_BASE_URL);
+          const previewUrl = previewBase
+            ? `${previewBase.replace(/\/+$/, "")}/offert/${offer_number}?view=inkommen`
             : "";
 
           await resend.emails.send({
             from: EMAIL_FROM,
-            to: customer_email!,
-            ...(OFFERS_INBOX ? { bcc: [OFFERS_INBOX] } : {}),
+            to: customer_email!,            // kunden
+            ...(OFFERS_INBOX ? { bcc: [OFFERS_INBOX] } : {}), // intern spegling
             reply_to: EMAIL_REPLY_TO,
             subject: `Tack för din offertförfrågan – ${offer_number}`,
             text:
               `Hej ${customer_name || ""}!\n\n` +
-              `Vi har tagit emot er offertförfrågan.${previewUrl ? `\nGranska här: ${previewUrl}\n` : "\n"}\n` +
-              `Sammanfattning:\n` +
+              `Vi har tagit emot er offertförfrågan.` +
+              (previewUrl ? `\nGranska här: ${previewUrl}\n` : "\n") +
+              `\nSammanfattning:\n` +
               `Från: ${departure_place || "-"}\n` +
               `Till: ${destination || "-"}\n` +
               `Datum: ${departure_date || "-"}\n` +
@@ -254,9 +259,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
               (return_date || return_time || return_departure || return_destination
                 ? `\nRetur: ${return_departure || "-"} → ${return_destination || "-"} (${return_date || "-"} ${return_time || "-"})\n`
                 : "") +
+              (notes ? `\nNoteringar:\n${notes}\n` : "") +
               `\nHar du frågor eller vill justera något? Svara på detta mail eller kontakta oss på ${EMAIL_REPLY_TO}.\n\n` +
               `Vänliga hälsningar,\nHelsingbuss`,
           });
+
           mailOk = true;
         }
       } catch (fallbackErr: any) {
@@ -264,7 +271,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       }
     }
 
-    // ---- Mail: 2) internal notification to OFFERS_INBOX (always try)
+    // ---- Mail: 2) separat intern notis till OFFERS_INBOX (oavsett)
     try {
       if (RESEND_API_KEY && EMAIL_FROM && OFFERS_INBOX) {
         const resend = new Resend(RESEND_API_KEY);
@@ -291,7 +298,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       }
     } catch (internalErr: any) {
       console.error("[offert/create] internal notify failed:", internalErr?.message || internalErr);
-      // non-fatal
+      // Fortsätt ändå – detta ska inte fälla användarflödet
     }
 
     console.log("[offert/create] done in", Date.now() - t0, "ms");
@@ -302,6 +309,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     });
   } catch (e: any) {
     console.error("[offert/create] unhandled:", e?.message || e);
-    return httpErr(res, 500, "Server error");
+    return httpErr(res, 500, "Serverfel");
   }
 }
