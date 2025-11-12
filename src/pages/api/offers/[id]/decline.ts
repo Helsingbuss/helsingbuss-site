@@ -1,7 +1,8 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import * as admin from "@/lib/supabaseAdmin";
 import { sendOfferMail } from "@/lib/sendOfferMail";
-import { withCors } from "@/lib/cors";
+
+export const config = { runtime: "nodejs" };
 
 const supabase =
   (admin as any).supabaseAdmin || (admin as any).supabase || (admin as any).default;
@@ -9,12 +10,12 @@ const supabase =
 async function declineWithFallback(offerId: string) {
   const variants = [
     { status: "makulerad", stampField: "declined_at" as const },
-    { status: "avböjd", stampField: "declined_at" as const },
-    { status: "avbojd", stampField: "declined_at" as const },
-    { status: "declined", stampField: "declined_at" as const },
-    { status: "rejected", stampField: "declined_at" as const },
+    { status: "avböjd",    stampField: "declined_at" as const },
+    { status: "avbojd",    stampField: "declined_at" as const },
+    { status: "declined",  stampField: "declined_at" as const },
+    { status: "rejected",  stampField: "declined_at" as const },
     { status: "cancelled", stampField: "declined_at" as const },
-    { status: "canceled", stampField: "declined_at" as const },
+    { status: "canceled",  stampField: "declined_at" as const },
   ];
   const tried: string[] = [];
   for (const v of variants) {
@@ -29,7 +30,7 @@ async function declineWithFallback(offerId: string) {
   throw new Error(`Inget av statusvärdena tillåts av offers_status_check. Testade: ${tried.join(", ")}`);
 }
 
-async function handler(req: NextApiRequest, res: NextApiResponse) {
+export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
   try {
@@ -43,8 +44,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
     const to =
       customerEmail ||
-      (offer as any).contact_email ||
       (offer as any).customer_email ||
+      (offer as any).contact_email ||
       null;
 
     if (to) {
@@ -53,7 +54,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         offerNumber: String(offer.offer_number ?? offer.id),
         customerEmail: to,
         customerName: (offer as any).contact_person ?? null,
-        customerPhone: (offer as any).contact_phone ?? null,
+        customerPhone: (offer as any).customer_phone ?? (offer as any).contact_phone ?? null,
         from: (offer as any).departure_place ?? null,
         to: (offer as any).destination ?? null,
         date: (offer as any).departure_date ?? null,
@@ -74,5 +75,3 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return res.status(500).json({ error: e?.message || "Server error" });
   }
 }
-
-export default withCors(handler);

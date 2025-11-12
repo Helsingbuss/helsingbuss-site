@@ -1,13 +1,10 @@
-// middleware.ts
+// src/middleware.ts
 import { NextResponse } from "next/server";
-export function middleware(req: Request) {
-  const { pathname } = new URL(req.url);
-  if (
-    pathname.startsWith("/api/offert/create") ||
-    pathname.startsWith("/api/offert/ticket") ||
-    pathname.startsWith("/api/offert/selftest")
-  ) {
-    return NextResponse.next();
-  }
+import type { NextRequest } from "next/server";
+
+export const config = { matcher: ["/api/:path*"] };
+
+export function middleware(_req: NextRequest) {
+  // släpper igenom allt
   return NextResponse.next();
 }

@@ -1,34 +1,44 @@
-// src/pages/api/offers/[id]/accept.ts
 import type { NextApiRequest, NextApiResponse } from "next";
 import * as admin from "@/lib/supabaseAdmin";
 import { sendOfferMail } from "@/lib/sendOfferMail";
 import { Resend } from "resend";
 
+export const config = { runtime: "nodejs" };
+
 const supabase =
   (admin as any).supabaseAdmin || (admin as any).supabase || (admin as any).default;
 
-const BASE =
-  (process.env.NEXT_PUBLIC_BASE_URL || process.env.NEXT_PUBLIC_LOGIN_BASE_URL || "").replace(/\/$/, "") ||
-  "http://localhost:3000";
+const OFFERS_INBOX = process.env.OFFERS_INBOX || "";
+const ADMIN_ALERT  = process.env.ADMIN_ALERT_EMAIL || "";
+const FROM_PRIMARY = process.env.MAIL_FROM || "Helsingbuss <info@helsingbuss.se>";
+const FROM_FALLBACK = "Helsingbuss <onboarding@resend.dev>";
+const REPLY_TO = process.env.EMAIL_REPLY_TO || "";
 
-// Viktigt: OFFERS_INBOX först!
-const ADMIN_TO =
-  process.env.OFFERS_INBOX ||
-  process.env.MAIL_ADMIN ||
-  process.env.ADMIN_ALERT_EMAIL ||
-  "offert@helsingbuss.se";
+const BASE =
+  (process.env.NEXT_PUBLIC_BASE_URL || process.env.NEXT_PUBLIC_LOGIN_BASE_URL || "")
+    .replace(/\/$/, "") || "http://localhost:3000";
 
 const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 
+function pickAdminTo() {
+  // Prioritera ALLTID offert-inbox
+  return OFFERS_INBOX || ADMIN_ALERT || "";
+}
+
+function fromFor(to: string) {
+  return /@helsingbuss\.se$/i.test(to) ? FROM_FALLBACK : FROM_PRIMARY;
+}
+
+/** Prova flera statusvärden tills ett går igenom CHECK-constrainten */
 async function updateStatusWithFallback(offerId: string) {
   const variants = [
-    { status: "godkand",  stampField: "accepted_at" as const },
-    { status: "godkänd",  stampField: "accepted_at" as const },
-    { status: "accepted", stampField: "accepted_at" as const },
-    { status: "approved", stampField: "accepted_at" as const },
+    { status: "godkand",   stampField: "accepted_at" as const },
+    { status: "godkänd",   stampField: "accepted_at" as const },
+    { status: "accepted",  stampField: "accepted_at" as const },
+    { status: "approved",  stampField: "accepted_at" as const },
     { status: "bekräftad", stampField: "accepted_at" as const },
     { status: "bekraftad", stampField: "accepted_at" as const },
-    { status: "booked",   stampField: "accepted_at" as const },
+    { status: "booked",    stampField: "accepted_at" as const },
   ];
 
   const tried: string[] = [];
@@ -61,17 +71,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     const finalStatus = await updateStatusWithFallback(offer.id);
 
+    // Kund
     const to =
       b.customerEmail ||
-      (offer as any).customer_email ||   // DB-fält
-      (offer as any).contact_email ||    // ev. äldre
+      (offer as any).customer_email ||
+      (offer as any).contact_email ||
       null;
 
     if (to) {
       await sendOfferMail({
         offerId: String(offer.id ?? offer.offer_number),
         offerNumber: String(offer.offer_number ?? offer.id),
-        customer_email: to,
+        customerEmail: to,
         customerName: (offer as any).contact_person ?? null,
         customerPhone: (offer as any).customer_phone ?? (offer as any).contact_phone ?? null,
         from: (offer as any).departure_place ?? null,
@@ -87,10 +98,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       });
     }
 
-    if (resend && ADMIN_TO) {
-      const r = await resend.emails.send({
-        from: process.env.MAIL_FROM || "Helsingbuss <info@helsingbuss.se>",
-        to: ADMIN_TO,
+    // Admin-notis → OFFERS_INBOX (med fallback-from för intern adress)
+    const adminTo = pickAdminTo();
+    if (resend && adminTo) {
+      await resend.emails.send({
+        from: fromFor(adminTo),
+        to: adminTo,
+        ...(REPLY_TO ? { reply_to: REPLY_TO } : {}),
         subject: `✅ Offert godkänd (${offer.offer_number || offer.id})`,
         html: `
           <p>En offert har godkänts av kund.</p>
@@ -99,8 +113,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           <p><a href="${BASE}/admin/offers/${offer.id}">Öppna offert i Admin</a></p>
           <p><a href="${BASE}/admin/bookings/new?fromOffer=${offer.id}">Skapa bokning från offerten</a></p>
         `,
+        text: [
+          `En offert har godkänts av kund.`,
+          `Offert: ${offer.offer_number || offer.id}`,
+          `Status i DB: ${finalStatus}`,
+          `${BASE}/admin/offers/${offer.id}`,
+          `${BASE}/admin/bookings/new?fromOffer=${offer.id}`,
+        ].join("\n"),
       } as any);
-      if ((r as any)?.error) console.warn("Admin notify error:", (r as any).error);
     }
 
     return res.status(200).json({

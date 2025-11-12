@@ -1,24 +1,8 @@
-﻿// src/pages/api/offert/create.ts
-import type { NextApiRequest, NextApiResponse } from "next";
-import supabase from "@/lib/supabaseAdmin";        // ✅ service_role
+﻿import type { NextApiRequest, NextApiResponse } from "next";
+import supabase from "@/lib/supabaseAdmin";
 import { sendOfferMail } from "@/lib/sendOfferMail";
 
-export const config = { runtime: "nodejs" };
-
-/* --- Minimal, icke-blockerande CORS --- */
-function allowCors(req: NextApiRequest, res: NextApiResponse) {
-  const origin = String(req.headers.origin || "");
-  res.setHeader("Vary", "Origin");
-  res.setHeader("Access-Control-Allow-Credentials", "true");
-  res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
-  res.setHeader("Access-Control-Allow-Origin", origin || "*");
-  if (req.method === "OPTIONS") {
-    res.status(204).end();
-    return false;
-  }
-  return true;
-}
+export const config = { runtime: "nodejs" }; // viktig: ren sträng
 
 function pickYmd(v?: string | null) {
   if (!v) return null;
@@ -38,7 +22,7 @@ async function nextOfferNumber(): Promise<string> {
     .limit(100);
 
   if (error) {
-    console.warn("[offert/create] nextOfferNumber warn:", error.message);
+    console.error("[offert/create] nextOfferNumber error:", error);
   }
 
   let nextRun = 7;
@@ -58,24 +42,20 @@ async function nextOfferNumber(): Promise<string> {
   return `${prefix}${String(nextRun).padStart(3, "0")}`;
 }
 
-const isEmail = (s: string) => /\S+@\S+\.\S+/.test(s);
-
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  if (!allowCors(req, res)) return;
   if (req.method !== "POST") {
     return res.status(405).json({ ok: false, error: "Method not allowed" });
   }
 
   try {
-    const b = (typeof req.body === "string" ? JSON.parse(req.body) : req.body) || {};
+    const b = (req.body || {}) as Record<string, any>;
 
-    // --- OBS: läs indata, men skriv till DB med DINA kolumner ---
-    const customer_name   = String(b.contact_person || b.customer_name || b.name || "").trim();
-    const customer_email  = String(b.customer_email || b.email || "").trim();
-    const customer_phone  = String(b.customer_phone || b.phone || "").trim();
+    const customerName  = (b.contact_person || b.customer_name || "").toString().trim();
+    const customerEmail = (b.customer_email || b.email || "").toString().trim();
+    const customerPhone = (b.customer_phone || b.phone || "").toString().trim();
 
-    if (!customer_name || !isEmail(customer_email)) {
-      return res.status(400).json({ ok: false, error: "Fyll i namn och giltig e-post." });
+    if (!customerName || !customerEmail) {
+      return res.status(400).json({ ok: false, error: "Fyll i namn och e-post." });
     }
 
     const passengers         = Number(b.passengers ?? 0) || null;
@@ -87,24 +67,25 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const return_destination = b.return_destination ?? b.return_to ?? null;
     const return_date        = pickYmd(b.return_date ?? b.ret_date);
     const return_time        = b.return_time ?? b.ret_time ?? null;
-    const stopover_places    = b.stopover_places ?? b.via ?? null;
-    const onboard_contact    = b.onboard_contact ?? null;
+    const via                = b.stopover_places ?? b.via ?? null;
+    const onboardContact     = b.onboard_contact ?? null;
     const notes              = b.notes ?? b.message ?? null;
 
-    const customer_reference = String(b.customer_reference || customer_name).trim();
+    const customer_reference = (b.customer_reference || customerName).toString().trim();
+    const internal_reference = (b.internal_reference || "").toString().trim();
 
     const offer_number = await nextOfferNumber();
     const status = "inkommen";
 
-    // === DIREKT IN I SUPABASE (service_role) ===
     const row = {
       offer_number,
       status,
       customer_reference,
-      // 🟩 Ditt schema:
-      contact_person: customer_name,     // (namnkolumnen du använder)
-      customer_email,                    // 🟩 du sa att e-post heter "customer_email"
-      contact_phone: customer_phone,
+      // Viktigt: skriv till båda kolumnerna så alla vyer/ändpunkter funkar
+      customer_email: customerEmail,
+      contact_email: customerEmail,
+      customer_phone: customerPhone,
+      contact_phone: customerPhone,
 
       passengers,
       departure_place,
@@ -115,47 +96,59 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return_destination,
       return_date,
       return_time,
-      stopover_places,
-      onboard_contact,
+      stopover_places: via,
+      onboard_contact: onboardContact,
       notes,
+      internal_reference,
       offer_date: new Date().toISOString().split("T")[0],
     };
+
+    console.log("[offert/create] inserting:", {
+      offer_number,
+      customerEmail,
+      destination,
+      departure_date,
+      passengers,
+    });
 
     const ins = await supabase
       .from("offers")
       .insert(row)
-      .select("id, offer_number")
+      .select("id, offer_number, customer_email")
       .single();
 
     if (ins.error) {
-      console.error("[offert/create] INSERT ERROR:", ins.error, { rowKeys: Object.keys(row) });
+      console.error("[offert/create] insert error:", ins.error);
       return res.status(500).json({ ok: false, error: ins.error.message });
     }
 
-    // === MAIL (kör EFTER lyckad insert; får faila utan att stoppa DB) ===
+    // === MAIL ===
     try {
-      await sendOfferMail({
+      const result = await sendOfferMail({
         offerId: String(ins.data.id),
         offerNumber: offer_number,
-        customerEmail: customer_email, // mejl-funktionen använder denna prop
-        customerName: customer_name,
-        customerPhone: customer_phone,
+        // OBS: Signaturen heter customerEmail (camelCase)
+        customerEmail: customerEmail,
+
+        customerName,
+        customerPhone,
         from: departure_place,
         to: destination,
         date: departure_date,
         time: departure_time,
         passengers,
-        via: stopover_places,
-        onboardContact: onboard_contact,
+        via,
+        onboardContact,
         return_from: return_departure,
         return_to: return_destination,
-        return_date: return_date,
-        return_time: return_time,
+        return_date,
+        return_time,
         notes,
       });
+      console.log("[offert/create] mail result:", result);
     } catch (mailErr: any) {
-      console.warn("[offert/create] mail failed (DB OK):", mailErr?.message || mailErr);
-      // vi returnerar ändå 200 – offerten ligger i DB
+      // Vi loggar men blockerar inte själva offerten
+      console.error("[offert/create] mail failed:", mailErr?.message || mailErr);
     }
 
     return res.status(200).json({ ok: true, offer: ins.data });

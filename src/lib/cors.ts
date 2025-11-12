@@ -1,59 +1,57 @@
+// src/lib/cors.ts
 import type { NextApiRequest, NextApiResponse } from "next";
 
-function parseOrigins(raw?: string) {
-  return (raw || "")
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
+const DEFAULT_ORIGINS = [
+  "https://login.helsingbuss.se",
+  "https://kund.helsingbuss.se",
+  "https://helsingbuss.se",
+  "https://www.helsingbuss.se",
+];
+
+function norm(u: string) {
+  return u.trim().toLowerCase().replace(/\/+$/, "");
 }
 
-/**
- * allowCors – legacy-stöd (returnerar true om handler ska fortsätta; svarar själv på OPTIONS).
- * Användning i route: if (!allowCors(req, res)) return;
- */
-export function allowCors(req: NextApiRequest, res: NextApiResponse): boolean {
-  const allowList = parseOrigins(process.env.ALLOWED_ORIGINS);
-  const origin = req.headers.origin || "";
-  const allowed = !origin || allowList.length === 0 || allowList.includes(origin);
+const fromEnv = (process.env.ALLOWED_ORIGINS || "")
+  .split(",")
+  .map(norm)
+  .filter(Boolean);
 
-  // CORS headers
-  if (origin && allowed) {
-    res.setHeader("Access-Control-Allow-Origin", origin);
-    res.setHeader("Vary", "Origin");
-  } else {
-    res.setHeader("Vary", "Origin");
-  }
-  res.setHeader("Access-Control-Allow-Credentials", "true");
+const ALLOWED = (fromEnv.length ? fromEnv : DEFAULT_ORIGINS);
+const ALLOWED_HOSTS = ALLOWED.map(u => {
+  try { return new URL(u).host.toLowerCase(); } catch { return ""; }
+}).filter(Boolean);
+
+export function allowCors(req: NextApiRequest, res: NextApiResponse) {
+  const origin = norm(String(req.headers.origin || ""));
+  const host   = String(req.headers.host || "").toLowerCase();
+
+  res.setHeader("Vary", "Origin");
   res.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  // sätt bara ACAO när vi faktiskt har en origin att spegla
 
   // Preflight
   if (req.method === "OPTIONS") {
-    if (!allowed && origin) {
-      res.status(403).end();
+    if (!origin || ALLOWED.includes(origin) || (host && ALLOWED_HOSTS.includes(host))) {
+      if (origin) res.setHeader("Access-Control-Allow-Origin", origin);
+      res.status(200).end();
       return false;
     }
-    res.status(200).end();
+    res.status(401).json({ error: "Unauthorized" });
     return false;
   }
 
-  if (origin && !allowed) {
-    res.status(403).json({ ok: false as any, error: "CORS: Origin not allowed" } as any);
-    return false;
+  // Vanliga requests:
+  // Tillåt server-to-server (ingen Origin)
+  if (!origin) return true;
+
+  // Tillåt om origin vitlistad ELLER host matchar
+  if (ALLOWED.includes(origin) || (host && ALLOWED_HOSTS.includes(host))) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+    return true;
   }
 
-  return true;
-}
-
-/**
- * withCors – rekommenderad wrapper för pages/api.
- * Användning: export default withCors(handler)
- */
-export function withCors<T>(
-  handler: (req: NextApiRequest, res: NextApiResponse<T>) => Promise<void> | void
-) {
-  return async (req: NextApiRequest, res: NextApiResponse<T>) => {
-    if (!allowCors(req, res)) return;
-    return handler(req, res);
-  };
+  res.status(401).json({ error: "Unauthorized" });
+  return false;
 }
