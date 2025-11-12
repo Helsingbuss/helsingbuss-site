@@ -1,12 +1,8 @@
-// src/lib/sendMail.ts
 import { Resend } from "resend";
-import sg from "@sendgrid/mail";
-import nodemailer from "nodemailer";
 
-/** Inparametrar för utskick när en offert skapas */
 export type SendOfferParams = {
   offerId: string;
-  offerNumber: string;     // t.ex. HB251234
+  offerNumber: string;
   customerEmail: string;
 
   customerName?: string | null;
@@ -14,8 +10,8 @@ export type SendOfferParams = {
 
   from?: string | null;
   to?: string | null;
-  date?: string | null;    // YYYY-MM-DD
-  time?: string | null;    // HH:mm
+  date?: string | null;
+  time?: string | null;
   passengers?: number | null;
   via?: string | null;
   onboardContact?: string | null;
@@ -28,102 +24,15 @@ export type SendOfferParams = {
   notes?: string | null;
 };
 
-/** Avsändare och admin-adress */
-const FROM  = process.env.MAIL_FROM || "Helsingbuss <no-reply@helsingbuss.se>";
-const ADMIN = process.env.ADMIN_ALERT_EMAIL || "";
+const env = (v?: string | null) => (v ?? "").toString().trim();
 
-/** Leverantörsväljare med debug */
-function pickProvider() {
-  const haveResend   = !!process.env.RESEND_API_KEY;
-  const haveSendgrid = !!process.env.SENDGRID_API_KEY;
-  const haveSmtp     =
-    !!process.env.SMTP_HOST &&
-    !!process.env.SMTP_PORT &&
-    !!process.env.SMTP_USER &&
-    !!process.env.SMTP_PASS;
+const RESEND_KEY   = env(process.env.RESEND_API_KEY);
+const FROM         = env(process.env.MAIL_FROM) || env(process.env.EMAIL_FROM) || "Helsingbuss <onboarding@resend.dev>";
+const REPLY_TO     = env(process.env.EMAIL_REPLY_TO);
+const ADMIN        = env(process.env.ADMIN_ALERT_EMAIL);
+const OFFERS_INBOX = env(process.env.OFFERS_INBOX);
+const FORCE_TO     = env(process.env.MAIL_FORCE_TO); // testsäkring – skicka ALLT hit
 
-  const provider =
-    haveResend ? "resend" :
-    haveSendgrid ? "sendgrid" :
-    haveSmtp ? "smtp" : null;
-
-  if (!provider) {
-    throw new Error(
-      "Ingen mejlkonfiguration: sätt RESEND_API_KEY eller SENDGRID_API_KEY eller SMTP_* i miljövariabler."
-    );
-  }
-
-  console.log("[sendMail] provider:", provider, {
-    hasResend: haveResend,
-    hasSendgrid: haveSendgrid,
-    hasSmtp: haveSmtp,
-    from: FROM,
-    adminSet: !!ADMIN,
-  });
-
-  return provider as "resend" | "sendgrid" | "smtp";
-}
-
-async function sendWithResend(args: { to: string; subject: string; html: string; text: string; }) {
-  const resend = new Resend(process.env.RESEND_API_KEY!);
-  try {
-    const r = await resend.emails.send({
-      from: FROM,          // måste vara verifierad domän i Resend
-      to: args.to,
-      subject: args.subject,
-      html: args.html,
-      text: args.text,
-    });
-    // Resend SDK returnerar { data?: { id: string }, error?: ... }
-    const id = (r as any)?.data?.id ?? (r as any)?.id ?? "no-id";
-    console.log("[sendMail] Resend OK:", id);
-  } catch (e: any) {
-    console.error("[sendMail] Resend FAIL:", e?.message || e);
-    throw e;
-  }
-}
-
-async function sendWithSendgrid(args: { to: string; subject: string; html: string; text: string; }) {
-  try {
-    sg.setApiKey(process.env.SENDGRID_API_KEY!);
-    const [resp] = await sg.send({
-      from: FROM,
-      to: args.to,
-      subject: args.subject,
-      html: args.html,
-      text: args.text,
-    });
-    console.log("[sendMail] SendGrid OK:", resp?.statusCode);
-  } catch (e: any) {
-    console.error("[sendMail] SendGrid FAIL:", e?.message || e);
-    throw e;
-  }
-}
-
-async function sendWithSMTP(args: { to: string; subject: string; html: string; text: string; }) {
-  const transporter = nodemailer.createTransport({
-    host: process.env.SMTP_HOST!,
-    port: Number(process.env.SMTP_PORT || 587),
-    secure: String(process.env.SMTP_SECURE || "false") === "true",
-    auth: { user: process.env.SMTP_USER!, pass: process.env.SMTP_PASS! },
-  });
-
-  try {
-    const info = await transporter.sendMail({
-      from: FROM,
-      to: args.to,
-      subject: args.subject,
-      html: args.html,
-      text: args.text,
-    });
-    console.log("[sendMail] SMTP OK:", info?.messageId);
-  } catch (e: any) {
-    console.error("[sendMail] SMTP FAIL:", e?.message || e);
-    throw e;
-  }
-}
-
-/** === Template helpers === */
 function safe(v?: string | null) { return (v ?? "").trim() || "—"; }
 
 function tripBlock(p: SendOfferParams) {
@@ -133,9 +42,8 @@ function tripBlock(p: SendOfferParams) {
     `<b>Datum:</b> ${safe(p.date)}<br/>` +
     `<b>Tid:</b> ${safe(p.time)}<br/>` +
     `<b>Passagerare:</b> ${p.passengers ?? "—"}<br/>` +
-    (p.via ? `<b>Via:</b> ${safe(p.via)}<br/>` : "") +
-    (p.onboardContact ? `<b>Kontakt ombord:</b> ${safe(p.onboardContact)}<br/>` : "");
-
+    (p.via ? `<b>Via:</b> ${p.via}<br/>` : "") +
+    (p.onboardContact ? `<b>Kontakt ombord:</b> ${p.onboardContact}<br/>` : "");
   const ret =
     p.return_from || p.return_to || p.return_date || p.return_time
       ? `<hr style="border:none;border-top:1px solid #eee;margin:12px 0" />
@@ -145,7 +53,6 @@ function tripBlock(p: SendOfferParams) {
          <b>Datum:</b> ${safe(p.return_date)}<br/>
          <b>Tid:</b> ${safe(p.return_time)}<br/>`
       : "";
-
   return `<div>${first}</div>${ret}`;
 }
 
@@ -157,21 +64,21 @@ function renderAdminHtml(p: SendOfferParams) {
     <div><b>Beställare:</b> ${safe(p.customerName)}</div>
     <div><b>E-post:</b> ${safe(p.customerEmail)}</div>
     <div><b>Telefon:</b> ${safe(p.customerPhone)}</div>
+
     <hr style="border:none;border-top:1px solid #eee;margin:12px 0" />
     <div style="font-weight:600;margin-bottom:4px">Reseinformation</div>
     ${tripBlock(p)}
-    ${
-      p.notes
-        ? `<hr style="border:none;border-top:1px solid #eee;margin:12px 0" />
-           <div style="font-weight:600;margin-bottom:4px">Övrigt</div>
-           <div>${safe(p.notes)}</div>`
-        : ""
-    }
+
+    ${p.notes ? `<hr style="border:none;border-top:1px solid #eee;margin:12px 0" />
+                 <div style="font-weight:600;margin-bottom:4px">Övrigt</div>
+                 <div>${safe(p.notes)}</div>` : ""}
+
     <hr style="border:none;border-top:1px solid #eee;margin:16px 0" />
-    <div style="color:#6b7280;font-size:12px">Automatiskt från Helsingbuss Portal.</div>
+    <div style="color:#6b7280;font-size:12px">
+      Denna notifiering skickades automatiskt från Helsingbuss Portal.
+    </div>
   </div>`;
 }
-
 function renderCustomerHtml(p: SendOfferParams) {
   return `
   <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif; color:#111">
@@ -180,12 +87,13 @@ function renderCustomerHtml(p: SendOfferParams) {
     <p>Vi återkommer så snart vi har gått igenom uppgifterna.</p>
     <div style="font-weight:600;margin:12px 0 4px">Sammanfattning</div>
     ${tripBlock(p)}
-    ${ p.notes ? `<div style="margin-top:8px"><b>Övrigt:</b><br/>${safe(p.notes)}</div>` : "" }
+    ${p.notes ? `<div style="margin-top:8px"><b>Övrig information:</b><br/>${safe(p.notes)}</div>` : ""}
     <hr style="border:none;border-top:1px solid #eee;margin:16px 0" />
-    <div style="color:#6b7280;font-size:12px">Detta är ett automatiskt bekräftelsemejl – svara gärna om du vill komplettera något.</div>
+    <div style="color:#6b7280;font-size:12px">
+      Helsingbuss • Detta är ett automatiskt bekräftelsemejl – svara gärna om du vill komplettera något.
+    </div>
   </div>`;
 }
-
 function renderText(p: SendOfferParams) {
   const lines = [
     `Offert: ${p.offerNumber}`,
@@ -214,14 +122,64 @@ function renderText(p: SendOfferParams) {
   return lines.join("\n");
 }
 
-/** Skicka två mejl: admin + kund */
-export async function sendOfferMail(p: SendOfferParams) {
-  const provider = pickProvider();
-  const send =
-    provider === "resend"   ? sendWithResend :
-    provider === "sendgrid" ? sendWithSendgrid :
-    sendWithSMTP;
+async function sendViaResend(args: {
+  to: string;
+  subject: string;
+  html: string;
+  text: string;
+  bcc?: string[];
+}) {
+  if (!RESEND_KEY) throw new Error("RESEND_API_KEY saknas");
+  const resend = new Resend(RESEND_KEY);
 
+  const payload: any = {
+    from: FROM,
+    to: args.to,
+    subject: args.subject,
+    html: args.html,
+    text: args.text,
+  };
+  if (REPLY_TO) payload.reply_to = REPLY_TO;
+  if (args.bcc?.length) payload.bcc = args.bcc;
+
+  try {
+    const r = await resend.emails.send(payload);
+    console.log("[sendMail] Resend primary OK:", r);
+    return r;
+  } catch (e: any) {
+    const status = e?.statusCode || e?.response?.statusCode || e?.code || "unknown";
+    const name   = e?.name || "Error";
+    const msg    = e?.message || e?.response?.body || e;
+
+    console.warn("[sendMail] Resend primary FAIL:", { status, name, msg });
+
+    // Fångar vanliga block: 403/422 + “verify domain”/testing-only
+    const looksLikeDomainBlock =
+      String(status).startsWith("4") ||
+      /verify a domain/i.test(String(msg)) ||
+      /testing emails/i.test(String(msg));
+
+    if (looksLikeDomainBlock) {
+      const fallbackTo = FORCE_TO || ADMIN || args.to;
+      const fallback = {
+        from: "Helsingbuss <onboarding@resend.dev>",
+        to: fallbackTo,
+        subject: args.subject,
+        html: args.html,
+        text: args.text,
+      };
+      console.warn("[sendMail] Using fallback onboarding@resend.dev →", fallbackTo);
+      const r2 = await resend.emails.send(fallback);
+      console.log("[sendMail] Resend fallback OK:", r2);
+      return r2;
+    }
+
+    throw e;
+  }
+}
+
+/** Skicka admin-notis + kundbekräftelse. Respekterar MAIL_FORCE_TO. */
+export async function sendOfferMail(p: SendOfferParams) {
   const adminSubject    = `Ny offertförfrågan ${p.offerNumber}`;
   const customerSubject = `Tack! Vi har mottagit din offertförfrågan (${p.offerNumber})`;
 
@@ -229,19 +187,33 @@ export async function sendOfferMail(p: SendOfferParams) {
   const htmlCustomer = renderCustomerHtml(p);
   const text         = renderText(p);
 
-  // Admin
-  if (ADMIN) {
-    await send({ to: ADMIN, subject: adminSubject, html: htmlAdmin, text });
+  // 1) ADMIN
+  const toAdmin = FORCE_TO || ADMIN;
+  if (toAdmin) {
+    await sendViaResend({
+      to: toAdmin,
+      subject: adminSubject,
+      html: htmlAdmin,
+      text,
+    });
   } else {
-    console.warn("[sendMail] ADMIN_ALERT_EMAIL saknas – skickar inget adminmail.");
+    console.warn("[sendMail] ADMIN_ALERT_EMAIL saknas – hoppar över admin-notis");
   }
 
-  // Kund
-  if (p.customerEmail && /\S+@\S+\.\S+/.test(p.customerEmail)) {
-    await send({ to: p.customerEmail, subject: customerSubject, html: htmlCustomer, text });
+  // 2) KUND
+  const emailRegex = /\S+@\S+\.\S+/;
+  const toCustomer = FORCE_TO || p.customerEmail;
+  if (toCustomer && emailRegex.test(toCustomer)) {
+    await sendViaResend({
+      to: toCustomer,
+      subject: customerSubject,
+      html: htmlCustomer,
+      text,
+      bcc: FORCE_TO ? undefined : (OFFERS_INBOX ? [OFFERS_INBOX] : undefined),
+    });
   } else {
-    console.warn("[sendMail] Ogiltig kundadress – skickar inget kundmail.", { email: p.customerEmail });
+    console.warn("[sendMail] Ogiltig kundadress – hoppar över kundmejl:", toCustomer);
   }
 
-  return { ok: true as const, provider };
+  return { ok: true as const, forced: !!FORCE_TO };
 }
