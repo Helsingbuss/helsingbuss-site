@@ -46,25 +46,21 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   try {
     const b = (req.body || {}) as Record<string, any>;
 
-    // Kontakt (DB: customer_email / customer_phone)
     const customerName  = (b.contact_person || b.customer_name || "").toString().trim();
     const customerEmail = (b.customer_email || b.email || "").toString().trim();
     const customerPhone = (b.customer_phone || b.phone || "").toString().trim();
 
-    // Grundvalidering
     const emailOk = /\S+@\S+\.\S+/.test(customerEmail);
     if (!customerName || !emailOk) {
       return res.status(400).json({ ok: false, error: "Fyll i namn och en giltig e-postadress." });
     }
 
-    // Primär sträcka
     const passengers         = Number(b.passengers ?? 0) || null;
     const departure_place    = b.departure_place ?? b.from ?? null;
     const destination        = b.destination ?? b.to ?? null;
     const departure_date     = pickYmd(b.departure_date ?? b.date);
     const departure_time     = b.departure_time ?? b.time ?? null;
 
-    // Retur
     const return_departure   = b.return_departure ?? b.return_from ?? null;
     const return_destination = b.return_destination ?? b.return_to ?? null;
     const return_date        = pickYmd(b.return_date ?? b.ret_date);
@@ -75,10 +71,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const notes          = b.notes ?? b.message ?? null;
 
     const customer_reference = (b.customer_reference || customerName).toString().trim();
+
     const offer_number = await nextOfferNumber();
     const status = "inkommen";
 
-    // === INSERT (med customer_email/customer_phone) ===
     const row = {
       offer_number,
       status,
@@ -103,26 +99,24 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       offer_date: new Date().toISOString().split("T")[0],
     };
 
-    const ins = await supabase.from("offers").insert(row).select("id, offer_number").single();
+    const ins = await supabase
+      .from("offers")
+      .insert(row)
+      .select("id, offer_number")
+      .single();
 
     if (ins.error) {
       console.error("[offert/create] insert error:", ins.error);
       return res.status(500).json({ ok: false, error: ins.error.message });
     }
 
-    // === MAIL ===
     try {
       await sendOfferMail({
         offerId: String(ins.data.id),
         offerNumber: offer_number,
-
-        // Mailern accepterar både customer_email och customerEmail,
-        // vi skickar snake_case för tydlighet mot DB.
-        customer_email: customerEmail,
-
+        customer_email: customerEmail, // <- snake_case in
         customerName,
         customerPhone,
-
         from: departure_place,
         to: destination,
         date: departure_date,
@@ -130,17 +124,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         passengers,
         via,
         onboardContact,
-
         return_from: return_departure,
         return_to: return_destination,
         return_date,
         return_time,
-
         notes,
       });
     } catch (mailErr: any) {
       console.error("[offert/create] mail failed:", mailErr?.message || mailErr);
-      // fortsätt ändå – själva offerten är sparad
     }
 
     return res.status(200).json({ ok: true, offer: ins.data });
