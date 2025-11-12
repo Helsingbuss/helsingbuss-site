@@ -1,12 +1,10 @@
-// src/pages/api/offers/[id]/change-request.ts
 import type { NextApiRequest, NextApiResponse } from "next";
 import * as admin from "@/lib/supabaseAdmin";
 import { Resend } from "resend";
 import sg from "@sendgrid/mail";
 import nodemailer from "nodemailer";
 import { createOfferToken } from "@/lib/offerToken";
-
-export const config = { runtime: "nodejs" };
+import { withCors } from "@/lib/cors";
 
 const supabase =
   (admin as any).supabaseAdmin || (admin as any).supabase || (admin as any).default;
@@ -179,7 +177,7 @@ function renderTextCustomer(offer: any, msg?: string) {
   ].filter(Boolean).join("\n");
 }
 
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
   try {
@@ -189,7 +187,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const { data: offer, error } = await supabase.from("offers").select("*").eq("id", id).single();
     if (error || !offer) return res.status(404).json({ error: "Offer not found" });
 
-    // valfri logg/flagga
     await supabase
       .from("offers")
       .update({
@@ -198,7 +195,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       })
       .eq("id", id);
 
-    // ADMIN-notis
     if (OFFERS_INBOX) {
       await sendWithProvider({
         to: OFFERS_INBOX,
@@ -208,7 +204,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       });
     }
 
-    // KUND-bekräftelse (FORCE_TO för test)
     const target = (FORCE_TO || (offer as any).contact_email || "").trim();
     if (/\S+@\S+\.\S+/.test(target)) {
       await sendWithProvider({
@@ -225,3 +220,5 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(500).json({ error: e?.message || "Server error" });
   }
 }
+
+export default withCors(handler);

@@ -2,8 +2,7 @@ import type { NextApiRequest, NextApiResponse } from "next";
 import * as admin from "@/lib/supabaseAdmin";
 import { sendOfferMail } from "@/lib/sendOfferMail";
 import { Resend } from "resend";
-
-export const config = { runtime: "nodejs" };
+import { withCors } from "@/lib/cors";
 
 const supabase =
   (admin as any).supabaseAdmin || (admin as any).supabase || (admin as any).default;
@@ -41,7 +40,7 @@ async function updateStatusWithFallback(offerId: string) {
   throw new Error(`Inget av statusvärdena tillåts av offers_status_check. Testade: ${tried.join(", ")}`);
 }
 
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
   try {
@@ -107,3 +106,5 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(500).json({ error: e?.message || "Server error" });
   }
 }
+
+export default withCors(handler);

@@ -1,3 +1,4 @@
+// src/lib/offerToken.ts
 import jwt from "jsonwebtoken";
 
 const SECRET = process.env.OFFER_JWT_SECRET || "";
