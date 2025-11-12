@@ -1,7 +1,8 @@
-// src/pages/api/offers/[id]/quote.ts
 import type { NextApiRequest, NextApiResponse } from "next";
 import { supabase } from "@/lib/supabaseClient";
 import { sendOfferMail } from "@/lib/sendOfferMail";
+
+export const config = { runtime: "nodejs" };
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== "POST") {
@@ -24,7 +25,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   };
 
   try {
-    // 1) Hämta nödvändig info för ev. mail
     const { data: offer, error: fetchErr } = await supabase
       .from("offers")
       .select("id, offer_number, contact_email, status")
@@ -35,7 +35,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(404).json({ error: "Offert hittades inte" });
     }
 
-    // 2) Spara kalkyl / totals / metadata
     const patch: any = {
       amount_ex_vat: breakdown?.grandExVat ?? null,
       vat_amount: breakdown?.grandVat ?? null,
@@ -46,7 +45,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     };
 
     if (mode === "send") {
-      // Viktigt: sätt till 'besvarad' så listan “Obesvarade” uppdateras
       patch.status = "besvarad";
       patch.sent_at = new Date().toISOString();
     }
@@ -54,18 +52,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const { error: updErr } = await supabase.from("offers").update(patch).eq("id", id);
     if (updErr) throw updErr;
 
-    // 3) Skicka mail när vi faktiskt skickar prisförslaget (tyst felhantering)
     if (mode === "send" && offer.contact_email && offer.offer_number) {
       try {
         await sendOfferMail({
           offerId: String(offer.id),
           offerNumber: String(offer.offer_number),
           customerEmail: offer.contact_email,
-          // Övriga fält valfria — inte tillgängliga här, så vi hoppar dem
         });
       } catch (mailErr) {
         console.error("sendOfferMail failed:", mailErr);
-        // Fortsätt ändå – uppdateringen är sparad
       }
     }
 

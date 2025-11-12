@@ -1,4 +1,3 @@
-// src/lib/sendBookingMail.ts
 import { Resend } from "resend";
 import sg from "@sendgrid/mail";
 import nodemailer from "nodemailer";
@@ -12,7 +11,7 @@ type LegInfo = {
 
 export type SendBookingMailParams = {
   to: string;                    // kundens e-post
-  bookingNumber: string;         // BK25XXXX
+  bookingNumber: string;         // BK25XXX
   passengers?: number | null;
   out?: LegInfo;                 // utresa
   ret?: LegInfo | null;          // retur (om finns)
@@ -24,6 +23,8 @@ function resolveBaseUrl(explicit?: string | null) {
   const envUrl =
     process.env.PUBLIC_BASE_URL ||
     process.env.NEXT_PUBLIC_SITE_URL ||
+    process.env.NEXT_PUBLIC_CUSTOMER_BASE_URL ||
+    process.env.CUSTOMER_BASE_URL ||
     process.env.VERCEL_PROJECT_PRODUCTION_URL ||
     process.env.VERCEL_URL ||
     "";
@@ -109,35 +110,30 @@ function buildText({ bookingNumber, out, ret, passengers, link }: { bookingNumbe
 
 export async function sendBookingMail(params: SendBookingMailParams) {
   const from = process.env.MAIL_FROM || "Helsingbuss <no-reply@helsingbuss.se>";
-  const base = resolveBaseUrl(params.baseUrl);
-  const link = `${base}/bokning/${encodeURIComponent(params.bookingNumber)}`;
+  const link = `${resolveBaseUrl(params.baseUrl)}/bokning/${encodeURIComponent(params.bookingNumber)}`;
   const subject = `Bokning (${params.bookingNumber})`;
   const html = buildHtml({ bookingNumber: params.bookingNumber, out: params.out, ret: params.ret || null, passengers: params.passengers, link });
   const text = buildText({ bookingNumber: params.bookingNumber, out: params.out, ret: params.ret || null, passengers: params.passengers, link });
 
   // 1) Resend
   if (process.env.RESEND_API_KEY) {
-    try {
-      const resend = new Resend(process.env.RESEND_API_KEY);
-      await resend.emails.send({ from, to: params.to, subject, html, text, bcc: process.env.MAIL_BOOKINGS_BCC || undefined });
-      return { ok: true, provider: "resend" as const };
-    } catch (e) { /* fall through */ }
+    const resend = new Resend(process.env.RESEND_API_KEY);
+    const r = await resend.emails.send({ from, to: params.to, subject, html, text, bcc: process.env.MAIL_BOOKINGS_BCC || undefined } as any);
+    if (!(r as any)?.error) return { ok: true, provider: "resend" as const };
   }
 
   // 2) SendGrid
   if (process.env.SENDGRID_API_KEY) {
-    try {
-      sg.setApiKey(process.env.SENDGRID_API_KEY);
-      await sg.send({
-        from,
-        to: params.to,
-        bcc: process.env.MAIL_BOOKINGS_BCC || undefined,
-        subject,
-        html,
-        text,
-      } as any);
-      return { ok: true, provider: "sendgrid" as const };
-    } catch (e) { /* fall through */ }
+    sg.setApiKey(process.env.SENDGRID_API_KEY);
+    await sg.send({
+      from,
+      to: params.to,
+      bcc: process.env.MAIL_BOOKINGS_BCC || undefined,
+      subject,
+      html,
+      text,
+    } as any);
+    return { ok: true, provider: "sendgrid" as const };
   }
 
   // 3) SMTP (nodemailer)
