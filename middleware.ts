@@ -1,27 +1,14 @@
 // middleware.ts
 import { NextResponse } from "next/server";
-import type { NextRequest } from "next/server";
 
-export function middleware(req: NextRequest) {
-  const { pathname } = req.nextUrl;
+export function middleware(req: Request) {
+  const { pathname } = new URL(req.url);
 
-  // ✅ Tillåt publika endpoints utan auth
-  if (
-    pathname.startsWith("/api/offert/create") ||
-    pathname.startsWith("/api/bookings/create") ||
-    pathname.startsWith("/api/debug/email") ||   // valfri
-    pathname.startsWith("/_next") ||
-    pathname.startsWith("/favicon") ||
-    pathname === "/"
-  ) {
+  // Släpp igenom publika offert-endpoints; de sköter egen säkerhet
+  if (pathname.startsWith("/api/offert/create") || pathname.startsWith("/api/offert/ticket")) {
     return NextResponse.next();
   }
 
-  // …din övriga auth-logik här (session/JWT etc) …
+  // ...övrigt middleware (ev. JWT-skydd för admin mm)...
   return NextResponse.next();
 }
-
-// Matcher för allt (standard), men vi låter tidigt return i funktionen släppa igenom ovan
-export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"],
-};

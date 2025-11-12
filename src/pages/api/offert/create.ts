@@ -4,6 +4,8 @@ import * as admin from "@/lib/supabaseAdmin";
 import { sendOfferMail } from "@/lib/sendOfferMail";
 import { Resend } from "resend";
 import cors from "@/lib/cors"; // ✅ CORS
+import { verifyTurnstile } from "@/lib/turnstile";      // 👈 NYTT
+import { verifyTicket } from "@/lib/formTicket";        // 👈 NYTT
 
 // ---- Supabase klient (tål olika exports) ----
 const supabase =
@@ -79,17 +81,20 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       env(process.env.CUSTOMER_BASE_URL),
       env(process.env.NEXT_PUBLIC_BASE_URL),
       env(process.env.NEXT_PUBLIC_LOGIN_BASE_URL),
+      "https://helsingbuss.se",
+      "https://www.helsingbuss.se",
+      "https://hbshuttle.se",
+      "https://www.hbshuttle.se",
       "http://localhost:3000",
       "http://127.0.0.1:3000",
     ].filter(Boolean),
-    allowMethods: ["GET", "POST", "OPTIONS"], // 👈 la till GET
+    allowMethods: ["GET", "POST", "OPTIONS"],
     allowHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
   });
   if (proceeded === false) return; // preflight svarat
 
-  // 1b) Enkel GET för att slippa "Method not allowed" i webbläsaren
+  // 1b) GET för ping & exempel
   if (req.method === "GET") {
-    // valfri "ping" => /api/offert/create?ping=1 testar DB-koppling
     if ("ping" in (req.query || {})) {
       try {
         await supabase.from("offers").select("id").limit(1);
@@ -98,7 +103,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         return res.status(200).json({ ok: false, message: "pong (db unavailable)", service: "offert/create" });
       }
     }
-
     return res.status(200).json({
       ok: true,
       message: "Use POST to create an offer.",
@@ -129,13 +133,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   // 2) Grundlogg
   const t0 = Date.now();
   const contentType = (req.headers["content-type"] || "").toString();
-  console.log("[offert/create] start", {
-    origin: req.headers.origin,
-    contentType,
-  });
+  const origin = (req.headers.origin as string) || null;
+  const ua = (req.headers["user-agent"] || "").toString();
+  const ip = (req.headers["x-forwarded-for"] || req.socket.remoteAddress || "").toString();
+  console.log("[offert/create] start", { origin, contentType });
 
   try {
-    // 3) Säkerställ att vi har JSON (gäller bara POST)
+    // 3) Säkerställ JSON
     if (!contentType.includes("application/json")) {
       console.warn("[offert/create] Wrong content-type:", contentType);
       return httpErr(res, 415, "Content-Type must be application/json");
@@ -143,6 +147,29 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     const p = req.body ?? {};
     console.log("[offert/create] body keys", Object.keys(p || {}));
+
+    // 3a) Bot-skydd: honeypot
+    const honeypot = (p.hp ?? p.honeypot ?? p._hp ?? "").toString().trim();
+    if (honeypot) return httpErr(res, 400, "Bot suspected");
+
+    // 3b) Säkerhetskontroll: Turnstile ELLER signerad ticket måste vara OK
+    const turnstileToken = (p.turnstile_token || p["cf-turnstile-response"] || "").toString();
+    const formTicket = (p.form_ticket || "").toString();
+
+    const turnstileOk = turnstileToken ? await verifyTurnstile(turnstileToken, ip) : false;
+    const ticketOk = formTicket ? verifyTicket(formTicket, ua, origin) : false;
+
+    if (!turnstileOk && !ticketOk) {
+      return httpErr(res, 401, "Security check failed");
+    }
+
+    // (Frivillig) JWT avläsning – ska inte fälla publikt flöde
+    try {
+      const auth = req.headers.authorization || "";
+      if (auth.startsWith("Bearer ")) {
+        // validera om ni vill – men kasta INTE fel här
+      }
+    } catch {}
 
     // ---- Fält från formulär ----
     const customer_name:  string | null = toNull(p.customer_name);
