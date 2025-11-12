@@ -1,10 +1,8 @@
-﻿// src/pages/api/offert/create.ts
-import type { NextApiRequest, NextApiResponse } from "next";
+﻿import type { NextApiRequest, NextApiResponse } from "next";
 import supabase from "@/lib/supabaseAdmin";
 import { sendOfferMail } from "@/lib/sendMail";
 import { allowCors } from "@/lib/cors";
 
-// Viktigt: REN statisk sträng (eller ta bort helt)
 export const config = { runtime: "nodejs" };
 
 function pickYmd(v?: string | null) {
@@ -51,13 +49,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   try {
     const b = (req.body || {}) as Record<string, any>;
+    const emailRegex = /\S+@\S+\.\S+/;
 
     const customerName   = (b.contact_person || b.customer_name || "").toString().trim();
-    const customerEmail  = (b.customer_email || b.email || "").toString().trim();
+
+    // VIKTIGT: acceptera bara e-post som ser ut som e-post
+    const rawEmail = (b.customer_email ?? b.contact_email ?? b.email ?? "").toString().trim();
+    const customerEmail  = emailRegex.test(rawEmail) ? rawEmail : "";
+
     const customerPhone  = (b.customer_phone || b.phone || "").toString().trim();
 
     if (!customerName || !customerEmail) {
-      return res.status(400).json({ ok: false, error: "Fyll i namn och e-post." });
+      return res.status(400).json({ ok: false, error: "Fyll i namn och e-post (korrekt e-postadress krävs)." });
     }
 
     const passengers         = Number(b.passengers ?? 0) || null;
@@ -73,7 +76,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const onboardContact     = b.onboard_contact ?? null;
     const notes              = b.notes ?? b.message ?? null;
 
-    const customer_reference = (b.customer_reference || customerName).toString().trim();
+    const customer_reference = (b.customer_reference || "").toString().trim();
     const internal_reference = (b.internal_reference || "").toString().trim();
 
     const offer_number = await nextOfferNumber();
@@ -112,12 +115,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(500).json({ ok: false, error: ins.error.message });
     }
 
-    // === MAIL === (kasta vid fel så frontend ser det)
+    // === MAIL ===
     try {
       const result = await sendOfferMail({
         offerId: String(ins.data.id),
         offerNumber: offer_number,
-        customerEmail: customerEmail,
+        customerEmail,
         customerName,
         customerPhone,
         from: departure_place,
@@ -131,6 +134,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         return_to: return_destination,
         return_date,
         return_time,
+        customerReference: customer_reference,  // <-- skickas till mallen
+        internalReference: internal_reference,  // <-- (om du vill visa i admin-mail)
         notes,
       });
       console.log("[offert/create] mail result:", result);

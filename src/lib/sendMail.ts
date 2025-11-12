@@ -1,9 +1,10 @@
 import { Resend } from "resend";
+import { createOfferToken } from "./offerToken";
 
 /** Publika parametrar för offertmejl */
 export type SendOfferParams = {
   offerId: string;
-  offerNumber: string;       // t.ex. HB25007
+  offerNumber: string;       // t.ex. HB25011
   customerEmail: string;
 
   customerName?: string | null;
@@ -22,6 +23,9 @@ export type SendOfferParams = {
   return_date?: string | null;
   return_time?: string | null;
 
+  customerReference?: string | null; // <-- NYTT
+  internalReference?: string | null; // <-- NYTT
+
   notes?: string | null;
 };
 
@@ -34,7 +38,7 @@ const FROM         = env(process.env.MAIL_FROM) || env(process.env.EMAIL_FROM) |
 const REPLY_TO     = env(process.env.EMAIL_REPLY_TO);
 const ADMIN        = env(process.env.ADMIN_ALERT_EMAIL);
 const OFFERS_INBOX = env(process.env.OFFERS_INBOX);
-const FORCE_TO     = env(process.env.MAIL_FORCE_TO); // test: tvinga mottagare
+const FORCE_TO     = env(process.env.MAIL_FORCE_TO); // endast för TEST
 
 // Länkar/branding
 const CUSTOMER_BASE_URL =
@@ -55,9 +59,10 @@ const BRAND = {
 
 function safe(v?: string | null) { return (v ?? "").trim() || "—"; }
 
-function buildPreviewUrl(offerNumber: string) {
+function buildPreviewUrl(offerId: string, offerNumber: string, role: "customer" | "admin" = "customer") {
   const base = CUSTOMER_BASE_URL.replace(/\/+$/, "");
-  return `${base}/offert/${encodeURIComponent(offerNumber)}?view=inkommen`;
+  const t = createOfferToken({ sub: offerId, no: offerNumber, role }, "14d");
+  return `${base}/offert/${encodeURIComponent(offerNumber)}?view=inkommen&t=${encodeURIComponent(t)}`;
 }
 
 function tripBlockHtml(p: SendOfferParams) {
@@ -146,9 +151,10 @@ function renderWrapper(inner: string, heading?: string, sub?: string, cta?: { hr
 function renderAdminHtml(p: SendOfferParams) {
   const inner = `
     <div style="margin:0 0 12px 0"><b>Offert-ID:</b> ${safe(p.offerNumber)}</div>
-    <div><b>Beställare:</b> ${safe(p.customerName)}<br/>
+    <div><b>Beställare:</b> ${safe(p.customerName)}${p.customerPhone ? `, ${safe(p.customerPhone)}` : ""}<br/>
          <b>E-post:</b> ${safe(p.customerEmail)}<br/>
-         <b>Telefon:</b> ${safe(p.customerPhone)}</div>
+         ${p.customerReference ? `<b>Referens / PO-nummer:</b> ${safe(p.customerReference)}<br/>` : ""}
+    </div>
     <hr style="border:none;border-top:1px solid ${BRAND.border};margin:16px 0"/>
     <div style="font-weight:600;margin-bottom:6px">Reseinformation</div>
     ${tripBlockHtml(p)}
@@ -158,21 +164,21 @@ function renderAdminHtml(p: SendOfferParams) {
       <div>${safe(p.notes)}</div>
     ` : ""}
   `;
-  const cta = { href: buildPreviewUrl(p.offerNumber), label: "Öppna i portalen" };
+  const cta = { href: buildPreviewUrl(p.offerId, p.offerNumber, "admin"), label: "Öppna i portalen" };
   return renderWrapper(inner, "Ny offertförfrågan", undefined, cta);
 }
 
 function renderCustomerHtml(p: SendOfferParams) {
   const inner = `
     <div style="margin-bottom:8px"><b>Ärendenummer:</b> ${safe(p.offerNumber)}</div>
-    <p style="margin:0 0 10px 0">Tack! Vi återkommer så snart vi har gått igenom uppgifterna.</p>
+    <p style="margin:0 0 10px 0">Tack! Vi har mottagit din förfrågan. Vi återkommer med pris och upplägg.</p>
     <div style="font-weight:600;margin:12px 0 6px">Sammanfattning</div>
     ${tripBlockHtml(p)}
     ${p.notes ? `
       <div style="margin-top:8px"><b>Övrig information:</b><br/>${safe(p.notes)}</div>
     ` : ""}
   `;
-  const cta = { href: buildPreviewUrl(p.offerNumber), label: "Visa din offert" };
+  const cta = { href: buildPreviewUrl(p.offerId, p.offerNumber, "customer"), label: "Visa din offert" };
   return renderWrapper(inner, "Vi har mottagit din offertförfrågan", undefined, cta);
 }
 
@@ -182,6 +188,7 @@ function renderText(p: SendOfferParams) {
     `Beställare: ${p.customerName || "-"}`,
     `E-post: ${p.customerEmail}`,
     `Telefon: ${p.customerPhone || "-"}`,
+    ...(p.customerReference ? [`Referens/PO: ${p.customerReference}`] : []),
     "",
     "Reseinformation",
     `Från: ${p.from || "-"}`,
@@ -193,19 +200,15 @@ function renderText(p: SendOfferParams) {
   if (p.via) lines.push(`Via: ${p.via}`);
   if (p.onboardContact) lines.push(`Kontakt ombord: ${p.onboardContact}`);
   if (p.return_from || p.return_to || p.return_date || p.return_time) {
-    lines.push(
-      "",
-      "Retur",
+    lines.push("", "Retur",
       `Från: ${p.return_from || "-"}`,
       `Till: ${p.return_to || "-"}`,
       `Datum: ${p.return_date || "-"}`,
       `Tid: ${p.return_time || "-"}`
     );
   }
-  if (p.notes) {
-    lines.push("", "Övrigt", p.notes);
-  }
-  lines.push("", buildPreviewUrl(p.offerNumber));
+  if (p.notes) lines.push("", "Övrigt", p.notes);
+  lines.push("", buildPreviewUrl(p.offerId, p.offerNumber));
   return lines.join("\n");
 }
 
@@ -229,12 +232,9 @@ async function sendViaResend(args: {
   if (REPLY_TO) payload.reply_to = REPLY_TO;
   if (args.bcc?.length) payload.bcc = args.bcc;
 
-  // Resend returnerar { data, error } – inte throw per automatik
   const r = await resend.emails.send(payload as any);
   if ((r as any)?.error) {
     const e = (r as any).error;
-    console.warn("[sendMail] Resend primary ERROR:", e);
-
     const msg = String(e?.message || e);
     const status = e?.statusCode || e?.code || "unknown";
 
@@ -244,8 +244,8 @@ async function sendViaResend(args: {
       /testing emails/i.test(msg);
 
     if (looksLikeDomainBlock) {
-      // Fallback till onboarding från Resend + FORCE_TO/ADMIN
-      const fallbackTo = FORCE_TO || ADMIN || args.to;
+      // Fallback → onboarding för ADMIN/test. KUND ska inte få onboarding-avsändare i prod.
+      const fallbackTo = args.to; // håll samma mottagare för admin/test
       const fallbackPayload: any = {
         from: "Helsingbuss <onboarding@resend.dev>",
         to: fallbackTo,
@@ -253,10 +253,8 @@ async function sendViaResend(args: {
         html: args.html,
         text: args.text,
       };
-      console.warn("[sendMail] Using fallback onboarding@resend.dev →", fallbackTo);
       const r2 = await resend.emails.send(fallbackPayload as any);
       if ((r2 as any)?.error) {
-        console.error("[sendMail] Resend fallback ERROR:", (r2 as any).error);
         throw new Error(`Resend fallback failed: ${(r2 as any).error?.message || "unknown"}`);
       }
       return r2;
@@ -277,20 +275,18 @@ export async function sendOfferMail(p: SendOfferParams) {
   const htmlCustomer = renderCustomerHtml(p);
   const text         = renderText(p);
 
-  // 1) ADMIN
-  const toAdmin = FORCE_TO || ADMIN || OFFERS_INBOX;
-  if (toAdmin) {
+  // 1) ADMIN → alltid OFFERS_INBOX om den finns (ignorera FORCE_TO här)
+  const adminTo = OFFERS_INBOX || ADMIN;
+  if (adminTo) {
     await sendViaResend({
-      to: toAdmin,
+      to: adminTo,
       subject: adminSubject,
       html: htmlAdmin,
       text,
     });
-  } else {
-    console.warn("[sendMail] ADMIN_ALERT_EMAIL/OFFERS_INBOX saknas – hoppar över admin-notis");
   }
 
-  // 2) KUND
+  // 2) KUND → endast FORCE_TO under test
   const emailRegex = /\S+@\S+\.\S+/;
   const toCustomer = FORCE_TO || p.customerEmail;
   if (toCustomer && emailRegex.test(toCustomer)) {
