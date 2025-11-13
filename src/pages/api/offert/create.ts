@@ -4,27 +4,23 @@ import * as admin from "@/lib/supabaseAdmin";
 import { sendOfferMail } from "@/lib/sendOfferMail";
 import qs from "node:querystring";
 
-/** Hämta Supabase-klient oavsett hur supabaseAdmin.ts exporterar */
+/** Hämtar Supabase-adminklient oavsett export-sätt */
 function getAdminClient(): any {
   const a: any = admin;
   try {
-    if (typeof a === "function") return a();                   // default export är en factory
+    if (typeof a === "function") return a();                       // default export factory
     if (typeof a?.requireAdmin === "function") return a.requireAdmin(); // named factory
-  } catch { /* ignore */ }
-
-  // named/dflt klient-objekt
-  if (a?.supabaseAdmin) return a.supabaseAdmin;
-  if (a?.supabase) return a.supabase;
-  if (a?.default) return a.default;
-
+  } catch {}
+  if (a?.supabaseAdmin) return a.supabaseAdmin; // named klient
+  if (a?.supabase) return a.supabase;           // ev. “supabase”
+  if (a?.default) return a.default;             // default klient
   return null;
 }
 
-/** CORS: tillåt anrop från dina domäner */
 function applyCors(req: NextApiRequest, res: NextApiResponse) {
   const allow = (process.env.ALLOWED_ORIGINS || "")
     .split(",")
-    .map((s) => s.trim().toLowerCase())
+    .map(s => s.trim().toLowerCase())
     .filter(Boolean);
 
   const origin = String(req.headers.origin || "").toLowerCase();
@@ -34,7 +30,6 @@ function applyCors(req: NextApiRequest, res: NextApiResponse) {
   }
   res.setHeader("Access-Control-Allow-Methods", "POST,OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type,Authorization");
-
   if (req.method === "OPTIONS") {
     res.status(204).end();
     // @ts-ignore
@@ -42,37 +37,28 @@ function applyCors(req: NextApiRequest, res: NextApiResponse) {
   }
 }
 
-/** Plocka body oavsett JSON eller urlencoded */
 function getBody(req: NextApiRequest): Record<string, any> {
   const ct = String(req.headers["content-type"] || "").toLowerCase();
   const b: any = req.body;
-
   if (b && typeof b === "object" && !Buffer.isBuffer(b)) return b;
-
   if (typeof b === "string") {
-    if (ct.includes("application/json")) {
-      try { return JSON.parse(b); } catch { /* fallthrough */ }
-    }
+    if (ct.includes("application/json")) { try { return JSON.parse(b); } catch {} }
     return qs.parse(b) as any; // urlencoded
   }
-
-  if (ct.includes("application/x-www-form-urlencoded") && typeof b === "object") {
-    return b;
-  }
-
+  if (ct.includes("application/x-www-form-urlencoded") && typeof b === "object") return b;
   return {};
 }
 
-const get = (obj: any, ...keys: string[]) => {
+const get = (o: any, ...keys: string[]) => {
   for (const k of keys) {
-    const v = obj?.[k];
+    const v = o?.[k];
     if (typeof v === "string" && v.trim()) return v.trim();
   }
   return "";
 };
-const getNum = (obj: any, ...keys: string[]) => {
+const getNum = (o: any, ...keys: string[]) => {
   for (const k of keys) {
-    const v = obj?.[k];
+    const v = o?.[k];
     if (v == null || v === "") continue;
     const n = Number(v);
     if (!Number.isNaN(n)) return n;
@@ -84,10 +70,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   applyCors(req, res);
   // @ts-ignore
   if (res.__corsEnded) return;
-
-  if (req.method !== "POST") {
-    return res.status(405).json({ ok: false, error: "Method not allowed" });
-  }
+  if (req.method !== "POST") return res.status(405).json({ ok: false, error: "Method not allowed" });
 
   try {
     const input = getBody(req);
@@ -97,18 +80,19 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(500).json({ ok: false, error: "Server config error" });
     }
 
-    // Normalisering (tål olika fältnamn från hemsidan)
+    // Fält från hemsidan/admin (tål olika namn)
     const customerEmail = get(input, "customer_email", "email", "E-post", "epost", "mail");
     const customerName  = get(input, "customer_name", "name", "contact_person", "kontaktperson");
     const customerPhone = get(input, "customer_phone", "phone", "telefon");
+    const customerRefIn = get(input, "customer_reference", "customerRef");
 
-    const from = get(input, "from", "fran", "departure_place", "start");
-    const to   = get(input, "to", "till", "destination", "mål", "mal");
-    const date = get(input, "date", "datum", "departure_date");
-    const time = get(input, "time", "tid", "departure_time");
-    const passengers = getNum(input, "passengers", "pax", "antal", "antal_personer");
+    const from  = get(input, "from", "fran", "departure_place", "start");
+    const to    = get(input, "to", "till", "destination");
+    const date  = get(input, "date", "datum", "departure_date");
+    const time  = get(input, "time", "tid", "departure_time");
 
-    const via            = get(input, "via", "stopp", "stopover_places");
+    const passengers     = getNum(input, "passengers", "pax", "antal", "antal_personer");
+    const stopoversRaw   = get(input, "stopover_places", "via", "stopp"); // <-- läs “via”, men mappa till kolumnen nedan
     const onboardContact = get(input, "onboardContact", "onboard_contact", "kontakt_ombord");
 
     const return_from = get(input, "return_from", "retur_fran", "return_departure");
@@ -118,22 +102,29 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     const notes = get(input, "notes", "message", "meddelande", "ovrigt", "övrigt");
 
-    // 1) Spara i DB
+    // Spara i DB – KORREKT kolumnnamn
     const insertPayload = {
-      contact_email: customerEmail || null,
-      contact_person: customerName || null,
-      contact_phone: customerPhone || null,
-      departure_place: from || null,
-      destination: to || null,
-      departure_date: date || null,
-      departure_time: time || null,
-      passengers: passengers,
-      via: via || null,
-      onboard_contact: onboardContact || null,
-      return_departure: return_from || null,
-      return_destination: return_to || null,
-      return_date: return_date || null,
-      return_time: return_time || null,
+      contact_email:  customerEmail || null,
+      contact_person: customerName  || null,
+      customer_phone: customerPhone || null,
+
+      // kontakt ombord -> customer_reference om given, annars kundens referens om den finns
+      customer_reference: onboardContact || customerRefIn || null,
+
+      departure_place:  from  || null,
+      destination:      to    || null,
+      departure_date:   date  || null,
+      departure_time:   time  || null,
+      passengers:       passengers,
+
+      // VIKTIGT: kolumnen heter stopover_places (inte “via”)
+      stopover_places:  stopoversRaw || null,
+
+      return_departure:   return_from || null,
+      return_destination: return_to   || null,
+      return_date:        return_date || null,
+      return_time:        return_time || null,
+
       notes: notes || null,
       status: "inkommen",
       offer_date: new Date().toISOString().slice(0, 10),
@@ -153,35 +144,37 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const offerId     = String(row?.id);
     const offerNumber = String(row?.offer_number ?? row?.id);
 
-    // 2) Skicka mejl (vänta in, logga om fel)
-    let mailOk = true;
+    // Skicka mejl (kund + admin)
     try {
       await sendOfferMail({
         offerId,
         offerNumber,
-        customerEmail: customerEmail,
+        customerEmail,
         customerName,
         customerPhone,
         from, to, date, time,
         passengers: passengers ?? null,
-        via, onboardContact,
+        via: stopoversRaw,
+        onboardContact,
         return_from, return_to, return_date, return_time,
         notes,
       });
     } catch (mailErr: any) {
-      mailOk = false;
       console.error("[offert/create] sendOfferMail failed:", mailErr?.message || mailErr);
+      // fortsätt ändå; DB är skapad
     }
 
-    return res.status(200).json({ ok: true, id: offerId, offer_number: offerNumber, mailOk });
+    // svar som funkar för både hemsidan och admin/new.tsx (behöver offer.id)
+    return res.status(200).json({
+      ok: true,
+      id: offerId,
+      offer_number: offerNumber,
+      offer: { id: offerId },
+    });
   } catch (e: any) {
     console.error("[offert/create] fatal:", e?.message || e);
     return res.status(500).json({ ok: false, error: "Server error" });
   }
 }
 
-export const config = {
-  api: {
-    bodyParser: { sizeLimit: "1mb" },
-  },
-};
+export const config = { api: { bodyParser: { sizeLimit: "1mb" } } };
