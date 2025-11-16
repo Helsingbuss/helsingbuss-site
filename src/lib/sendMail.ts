@@ -1,305 +1,220 @@
+// src/lib/sendMail.ts
 import { Resend } from "resend";
-import { createOfferToken } from "./offerToken";
+import { signOfferToken } from "@/lib/offerToken";
 
-/** Publika parametrar för offertmejl */
-export type SendOfferParams = {
+/* ============ ENV HELPERS ============ */
+const RESEND_API_KEY = process.env.RESEND_API_KEY || "";
+const MAIL_FROM =
+  process.env.MAIL_FROM?.trim() || "Helsingbuss <onboarding@resend.dev>";
+const EMAIL_REPLY_TO = process.env.EMAIL_REPLY_TO?.trim() || undefined;
+
+const OFFERS_INBOX = process.env.OFFERS_INBOX?.trim() || "";
+const ADMIN_ALERT_EMAIL = process.env.ADMIN_ALERT_EMAIL?.trim() || "";
+const MAIL_BCC_ALL = (process.env.MAIL_BCC_ALL || "")
+  .split(/[;,]/)
+  .map((s) => s.trim())
+  .filter(Boolean);
+const MAIL_FORCE_TO = (process.env.MAIL_FORCE_TO || "")
+  .split(/[;,]/)
+  .map((s) => s.trim())
+  .filter(Boolean);
+
+const resendClient = new Resend(RESEND_API_KEY);
+
+/* ============ TYPES ============ */
+export type SendReceiptParams = {
+  to: string | string[];
+  from?: string;
+  replyTo?: string | string[];
+  offerNumber?: string | null;
   offerId: string;
-  offerNumber: string;       // t.ex. HB25011
-  customerEmail: string;
-
   customerName?: string | null;
+  customerEmail?: string | null;
   customerPhone?: string | null;
-
-  from?: string | null;
-  to?: string | null;
-  date?: string | null;      // YYYY-MM-DD
-  time?: string | null;      // HH:mm
-  passengers?: number | null;
-  via?: string | null;
-  onboardContact?: string | null;
-
-  return_from?: string | null;
-  return_to?: string | null;
-  return_date?: string | null;
-  return_time?: string | null;
-
-  customerReference?: string | null; // <-- NYTT
-  internalReference?: string | null; // <-- NYTT
-
-  notes?: string | null;
+  // valfritt extra innehåll
+  htmlIntro?: string | null;
 };
 
-const env = (v?: string | null) => (v ?? "").toString().trim();
-
-const RESEND_KEY   = env(process.env.RESEND_API_KEY);
-
-// Avsändare & mottagare
-const FROM         = env(process.env.MAIL_FROM) || env(process.env.EMAIL_FROM) || "Helsingbuss <onboarding@resend.dev>";
-const REPLY_TO     = env(process.env.EMAIL_REPLY_TO);
-const ADMIN        = env(process.env.ADMIN_ALERT_EMAIL);
-const OFFERS_INBOX = env(process.env.OFFERS_INBOX);
-const FORCE_TO     = env(process.env.MAIL_FORCE_TO); // endast för TEST
-
-// Länkar/branding
-const CUSTOMER_BASE_URL =
-  env(process.env.CUSTOMER_BASE_URL) ||
-  env(process.env.NEXT_PUBLIC_CUSTOMER_BASE_URL) ||
-  env(process.env.NEXT_PUBLIC_BASE_URL) ||
-  "https://kund.helsingbuss.se";
-
-const BRAND = {
-  name: "Helsingbuss",
-  logoUrl: env(process.env.MAIL_BRAND_LOGO_URL) || "https://helsingbuss.se/assets/mail/logo-helsingbuss.png",
-  primary: env(process.env.MAIL_BRAND_COLOR) || "#1D2937",
-  primaryText: env(process.env.MAIL_BRAND_TEXT_COLOR) || "#ffffff",
-  border: "#e5e7eb",
-  muted: "#6b7280",
-  link: env(process.env.MAIL_LINK_COLOR) || "#1D2937",
+export type SendOfferParams = {
+  to?: string | string[]; // default: OFFERS_INBOX / ADMIN_ALERT_EMAIL
+  from?: string;
+  replyTo?: string | string[];
+  offerId: string;
+  offerNumber?: string | null;
+  summary?: string | null; // t.ex. sträcka/kund
 };
 
-function safe(v?: string | null) { return (v ?? "").trim() || "—"; }
-
-function buildPreviewUrl(offerId: string, offerNumber: string, role: "customer" | "admin" = "customer") {
-  const base = CUSTOMER_BASE_URL.replace(/\/+$/, "");
-  const t = createOfferToken({ sub: offerId, no: offerNumber, role }, "14d");
-  return `${base}/offert/${encodeURIComponent(offerNumber)}?view=inkommen&t=${encodeURIComponent(t)}`;
+/* ============ UTIL ============ */
+function arr(v?: string | string[]): string[] {
+  if (!v) return [];
+  return Array.isArray(v)
+    ? v.filter(Boolean)
+    : v
+        .split(/[;,]/)
+        .map((s) => s.trim())
+        .filter(Boolean);
 }
 
-function tripBlockHtml(p: SendOfferParams) {
-  const rows: string[] = [];
-  rows.push(row("Från", p.from));
-  rows.push(row("Till", p.to));
-  rows.push(row("Datum", p.date));
-  rows.push(row("Tid", p.time));
-  rows.push(row("Passagerare", (p.passengers ?? "—").toString()));
-  if (p.via) rows.push(row("Via", p.via));
-  if (p.onboardContact) rows.push(row("Kontakt ombord", p.onboardContact));
-
-  const ret: string[] = [];
-  if (p.return_from || p.return_to || p.return_date || p.return_time) {
-    ret.push(
-      `<div style="font-weight:600;margin:14px 0 6px">Retur</div>`,
-      row("Från", p.return_from),
-      row("Till", p.return_to),
-      row("Datum", p.return_date),
-      row("Tid", p.return_time)
-    );
-  }
-
-  return `
-    <table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse">
-      <tbody>
-        ${rows.join("")}
-        ${ret.join("")}
-      </tbody>
-    </table>
-  `;
-
-  function row(label: string, value?: string | null) {
-    return `
-      <tr>
-        <td style="padding:6px 0;color:#111;font-weight:600;width:160px;vertical-align:top">${label}</td>
-        <td style="padding:6px 0;color:#111">${safe(value)}</td>
-      </tr>
-    `;
-  }
+/** Respekt för MAIL_FORCE_TO: om satt skickar vi endast dit. */
+function computeTo(original: string | string[]): string[] {
+  const originalList = arr(original);
+  if (MAIL_FORCE_TO.length > 0) return MAIL_FORCE_TO;
+  return originalList.length ? originalList : MAIL_FORCE_TO; // fallback om original var tomt
 }
 
-function renderWrapper(inner: string, heading?: string, sub?: string, cta?: { href: string; label: string }) {
-  const ctaBtn = cta ? `
-    <table role="presentation" cellpadding="0" cellspacing="0" style="margin:18px 0 4px">
-      <tr>
-        <td>
-          <a href="${cta.href}"
-             style="display:inline-block;background:${BRAND.primary};color:${BRAND.primaryText};text-decoration:none;
-                    padding:12px 18px;border-radius:10px;font-weight:700">
-            ${cta.label}
-          </a>
-        </td>
-      </tr>
-    </table>
-  ` : "";
+function brandLink(href: string, label: string) {
+  return `<a href="${href}" style="color:#194C66;text-decoration:none">${label}</a>`;
+}
 
-  const logo = BRAND.logoUrl ? `
-    <div style="text-align:left;margin-bottom:12px">
-      <img src="${BRAND.logoUrl}" alt="${BRAND.name}" height="36" style="display:block"/>
-    </div>` : "";
+/** Publik länk till offert (JWT-baserad): /offert/[id]?t=... */
+export function buildOfferPublicLink(baseUrl: string, offerId: string, offerNumber?: string | null) {
+  const payload: Record<string, any> = { sub: offerId };
+  if (offerNumber) payload.no = offerNumber;
+  const token = signOfferToken(payload, "14d");
+  const url = new URL(`/offert/${encodeURIComponent(offerId)}`, baseUrl);
+  if (token) url.searchParams.set("t", token);
+  return url.toString();
+}
 
-  const subline = sub ? `<div style="color:${BRAND.muted};margin-top:6px">${sub}</div>` : "";
+/* ============ EMAIL BUILDERS (enkla, icke-intrusiva) ============ */
+
+function customerReceiptHtml(p: SendReceiptParams) {
+  const appBase =
+    process.env.NEXT_PUBLIC_LOGIN_BASE_URL ||
+    process.env.NEXT_PUBLIC_BASE_URL ||
+    "https://login.helsingbuss.se";
+  const link = buildOfferPublicLink(
+    appBase,
+    p.offerId,
+    p.offerNumber ?? null
+  );
+
+  const intro =
+    p.htmlIntro ??
+    `Vi har tagit emot din offertförfrågan${
+      p.offerNumber ? ` (${p.offerNumber})` : ""
+    }.`;
 
   return `
-  <div style="background:#f7f7f8;padding:24px 0">
-    <table role="presentation" cellpadding="0" cellspacing="0" align="center" style="width:100%;max-width:640px;border-collapse:collapse">
-      <tr>
-        <td style="padding:0 16px">
-          ${logo}
-          <div style="background:#fff;border:1px solid ${BRAND.border};border-radius:14px;padding:22px">
-            ${heading ? `<h2 style="margin:0 0 6px 0;color:#111;font-size:20px">${heading}</h2>` : ""}
-            ${subline}
-            <div style="margin-top:14px">${inner}</div>
-            ${ctaBtn}
-          </div>
-          <div style="color:${BRAND.muted};font-size:12px;margin-top:12px;text-align:left">
-            ${BRAND.name} • Detta är ett automatiskt meddelande – svara gärna om du vill komplettera något.
-          </div>
-        </td>
-      </tr>
-    </table>
+  <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;line-height:1.5;color:#111827">
+    <h2 style="margin:0 0 8px 0;color:#194C66">Tack för din förfrågan!</h2>
+    <p style="margin:0 0 12px 0">${intro}</p>
+    <p style="margin:0 0 12px 0">Du kan följa och bekräfta din offert via knappen nedan:</p>
+    <p style="margin:16px 0">
+      <a href="${link}" style="display:inline-block;background:#194C66;color:#fff;padding:10px 16px;border-radius:999px;text-decoration:none">Visa offert</a>
+    </p>
+    ${
+      p.customerPhone || p.customerEmail
+        ? `<p style="margin:16px 0 0 0;font-size:14px;color:#374151">
+            Kontaktuppgifter: ${
+              [p.customerEmail, p.customerPhone].filter(Boolean).join(" · ")
+            }
+          </p>`
+        : ""
+    }
+    <hr style="margin:24px 0;border:none;border-top:1px solid #e5e7eb" />
+    <p style="margin:0;font-size:12px;color:#6b7280">
+      Behöver du hjälp? Svara på detta e-postmeddelande eller besök ${brandLink(
+        "https://helsingbuss.se",
+        "helsingbuss.se"
+      )}.
+    </p>
   </div>`;
 }
 
-function renderAdminHtml(p: SendOfferParams) {
-  const inner = `
-    <div style="margin:0 0 12px 0"><b>Offert-ID:</b> ${safe(p.offerNumber)}</div>
-    <div><b>Beställare:</b> ${safe(p.customerName)}${p.customerPhone ? `, ${safe(p.customerPhone)}` : ""}<br/>
-         <b>E-post:</b> ${safe(p.customerEmail)}<br/>
-         ${p.customerReference ? `<b>Referens / PO-nummer:</b> ${safe(p.customerReference)}<br/>` : ""}
-    </div>
-    <hr style="border:none;border-top:1px solid ${BRAND.border};margin:16px 0"/>
-    <div style="font-weight:600;margin-bottom:6px">Reseinformation</div>
-    ${tripBlockHtml(p)}
-    ${p.notes ? `
-      <hr style="border:none;border-top:1px solid ${BRAND.border};margin:16px 0"/>
-      <div style="font-weight:600;margin-bottom:6px">Övrigt</div>
-      <div>${safe(p.notes)}</div>
-    ` : ""}
-  `;
-  const cta = { href: buildPreviewUrl(p.offerId, p.offerNumber, "admin"), label: "Öppna i portalen" };
-  return renderWrapper(inner, "Ny offertförfrågan", undefined, cta);
-}
+function internalOfferHtml(p: SendOfferParams) {
+  const appBase =
+    process.env.NEXT_PUBLIC_LOGIN_BASE_URL ||
+    process.env.NEXT_PUBLIC_BASE_URL ||
+    "https://login.helsingbuss.se";
+  const link = buildOfferPublicLink(
+    appBase,
+    p.offerId,
+    p.offerNumber ?? null
+  );
 
-function renderCustomerHtml(p: SendOfferParams) {
-  const inner = `
-    <div style="margin-bottom:8px"><b>Ärendenummer:</b> ${safe(p.offerNumber)}</div>
-    <p style="margin:0 0 10px 0">Tack! Vi har mottagit din förfrågan. Vi återkommer med pris och upplägg.</p>
-    <div style="font-weight:600;margin:12px 0 6px">Sammanfattning</div>
-    ${tripBlockHtml(p)}
-    ${p.notes ? `
-      <div style="margin-top:8px"><b>Övrig information:</b><br/>${safe(p.notes)}</div>
-    ` : ""}
-  `;
-  const cta = { href: buildPreviewUrl(p.offerId, p.offerNumber, "customer"), label: "Visa din offert" };
-  return renderWrapper(inner, "Vi har mottagit din offertförfrågan", undefined, cta);
-}
-
-function renderText(p: SendOfferParams) {
-  const lines = [
-    `Offert: ${p.offerNumber}`,
-    `Beställare: ${p.customerName || "-"}`,
-    `E-post: ${p.customerEmail}`,
-    `Telefon: ${p.customerPhone || "-"}`,
-    ...(p.customerReference ? [`Referens/PO: ${p.customerReference}`] : []),
-    "",
-    "Reseinformation",
-    `Från: ${p.from || "-"}`,
-    `Till: ${p.to || "-"}`,
-    `Datum: ${p.date || "-"}`,
-    `Tid: ${p.time || "-"}`,
-    `Passagerare: ${p.passengers ?? "-"}`,
-  ];
-  if (p.via) lines.push(`Via: ${p.via}`);
-  if (p.onboardContact) lines.push(`Kontakt ombord: ${p.onboardContact}`);
-  if (p.return_from || p.return_to || p.return_date || p.return_time) {
-    lines.push("", "Retur",
-      `Från: ${p.return_from || "-"}`,
-      `Till: ${p.return_to || "-"}`,
-      `Datum: ${p.return_date || "-"}`,
-      `Tid: ${p.return_time || "-"}`
-    );
-  }
-  if (p.notes) lines.push("", "Övrigt", p.notes);
-  lines.push("", buildPreviewUrl(p.offerId, p.offerNumber));
-  return lines.join("\n");
-}
-
-async function sendViaResend(args: {
-  to: string;
-  subject: string;
-  html: string;
-  text: string;
-  bcc?: string[];
-}) {
-  if (!RESEND_KEY) throw new Error("RESEND_API_KEY saknas");
-  const resend = new Resend(RESEND_KEY);
-
-  const payload: any = {
-    from: FROM,
-    to: args.to,
-    subject: args.subject,
-    html: args.html,
-    text: args.text,
-  };
-  if (REPLY_TO) payload.reply_to = REPLY_TO;
-  if (args.bcc?.length) payload.bcc = args.bcc;
-
-  const r = await resend.emails.send(payload as any);
-  if ((r as any)?.error) {
-    const e = (r as any).error;
-    const msg = String(e?.message || e);
-    const status = e?.statusCode || e?.code || "unknown";
-
-    const looksLikeDomainBlock =
-      String(status).startsWith("4") ||
-      /verify a domain/i.test(msg) ||
-      /testing emails/i.test(msg);
-
-    if (looksLikeDomainBlock) {
-      // Fallback → onboarding för ADMIN/test. KUND ska inte få onboarding-avsändare i prod.
-      const fallbackTo = args.to; // håll samma mottagare för admin/test
-      const fallbackPayload: any = {
-        from: "Helsingbuss <onboarding@resend.dev>",
-        to: fallbackTo,
-        subject: args.subject,
-        html: args.html,
-        text: args.text,
-      };
-      const r2 = await resend.emails.send(fallbackPayload as any);
-      if ((r2 as any)?.error) {
-        throw new Error(`Resend fallback failed: ${(r2 as any).error?.message || "unknown"}`);
-      }
-      return r2;
+  return `
+  <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;line-height:1.5;color:#111827">
+    <h2 style="margin:0 0 8px 0;color:#194C66">Ny offertförfrågan${
+      p.offerNumber ? ` (${p.offerNumber})` : ""
+    }</h2>
+    ${
+      p.summary
+        ? `<p style="margin:0 0 12px 0">${p.summary}</p>`
+        : `<p style="margin:0 0 12px 0">En ny offert har inkommit.</p>`
     }
-
-    throw new Error(`Resend failed: ${msg}`);
-  }
-
-  return r;
+    <p style="margin:16px 0">
+      <a href="${link}" style="display:inline-block;background:#194C66;color:#fff;padding:10px 16px;border-radius:999px;text-decoration:none">Öppna offert</a>
+    </p>
+    <hr style="margin:24px 0;border:none;border-top:1px solid #e5e7eb" />
+    <p style="margin:0;font-size:12px;color:#6b7280">
+      Automatiskt utskick från Helsingbuss Portal.
+    </p>
+  </div>`;
 }
 
-/** Skicka admin-notis + kundmejl, med CTA och HTML-layout */
-export async function sendOfferMail(p: SendOfferParams) {
-  const adminSubject    = `Ny offertförfrågan ${p.offerNumber}`;
-  const customerSubject = `Tack! Vi har mottagit din offertförfrågan (${p.offerNumber})`;
+/* ============ SENDERS (overloads som accepterar 1 eller 2 argument) ============ */
 
-  const htmlAdmin    = renderAdminHtml(p);
-  const htmlCustomer = renderCustomerHtml(p);
-  const text         = renderText(p);
+// --- sendCustomerReceipt ---
+export async function sendCustomerReceipt(params: SendReceiptParams): Promise<any>;
+export async function sendCustomerReceipt(resend: Resend, params: SendReceiptParams): Promise<any>;
+export async function sendCustomerReceipt(a: any, b?: any): Promise<any> {
+  const hasTwo = !!b;
+  const resend = (hasTwo ? a : resendClient) as Resend;
+  const p = (hasTwo ? b : a) as SendReceiptParams;
 
-  // 1) ADMIN → alltid OFFERS_INBOX om den finns (ignorera FORCE_TO här)
-  const adminTo = OFFERS_INBOX || ADMIN;
-  if (adminTo) {
-    await sendViaResend({
-      to: adminTo,
-      subject: adminSubject,
-      html: htmlAdmin,
-      text,
-    });
+  const toList = computeTo(p.to);
+  if (toList.length === 0) {
+    throw new Error("sendCustomerReceipt: mottagare saknas");
   }
 
-  // 2) KUND → endast FORCE_TO under test
-  const emailRegex = /\S+@\S+\.\S+/;
-  const toCustomer = FORCE_TO || p.customerEmail;
-  if (toCustomer && emailRegex.test(toCustomer)) {
-    await sendViaResend({
-      to: toCustomer,
-      subject: customerSubject,
-      html: htmlCustomer,
-      text,
-      bcc: FORCE_TO ? undefined : (OFFERS_INBOX ? [OFFERS_INBOX] : undefined),
-    });
-  } else {
-    console.warn("[sendMail] Ogiltig kundadress – hoppar över kundmejl:", toCustomer);
+  const from = p.from || MAIL_FROM;
+  const replyTo = p.replyTo || EMAIL_REPLY_TO;
+
+  const subject =
+    (p.offerNumber
+      ? `Din offertförfrågan (${p.offerNumber}) är mottagen – Helsingbuss`
+      : `Din offertförfrågan är mottagen – Helsingbuss`);
+
+  return resend.emails.send({
+    from,
+    to: toList,
+    reply_to: replyTo,
+    subject,
+    html: customerReceiptHtml(p),
+    bcc: MAIL_FORCE_TO.length ? undefined : MAIL_BCC_ALL,
+  });
+}
+
+// --- sendOfferMail ---
+export async function sendOfferMail(params: SendOfferParams): Promise<any>;
+export async function sendOfferMail(resend: Resend, params: SendOfferParams): Promise<any>;
+export async function sendOfferMail(a: any, b?: any): Promise<any> {
+  const hasTwo = !!b;
+  const resend = (hasTwo ? a : resendClient) as Resend;
+  const p = (hasTwo ? b : a) as SendOfferParams;
+
+  // internt: default till OFFERS_INBOX + ADMIN_ALERT_EMAIL
+  const defaults = [OFFERS_INBOX, ADMIN_ALERT_EMAIL].filter(Boolean);
+  const toList = computeTo(p.to ?? defaults);
+  if (toList.length === 0) {
+    throw new Error("sendOfferMail: mottagare saknas");
   }
 
-  return { ok: true as const, forced: !!FORCE_TO };
+  const from = p.from || MAIL_FROM;
+  const replyTo = p.replyTo || EMAIL_REPLY_TO;
+
+  const subject =
+    (p.offerNumber
+      ? `Ny offertförfrågan (${p.offerNumber})`
+      : `Ny offertförfrågan`);
+
+  return resend.emails.send({
+    from,
+    to: toList,
+    reply_to: replyTo,
+    subject,
+    html: internalOfferHtml(p),
+    bcc: MAIL_FORCE_TO.length ? undefined : MAIL_BCC_ALL,
+  });
 }

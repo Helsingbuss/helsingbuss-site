@@ -1,39 +1,42 @@
 // src/lib/offerToken.ts
-import jwt from "jsonwebtoken";
+import jwt, { type SignOptions, type Secret, type JwtPayload } from "jsonwebtoken";
 
-type JWTPayload = {
-  sub?: string;          // offert-id
-  no?: string;           // offer_number
-  role?: "customer" | "admin";
-  [k: string]: any;
-};
-
-const SECRET = (process.env.OFFER_JWT_SECRET || "").trim();
-const DEBUG_FALLBACK = (process.env.DEBUG_EMAIL_TOKEN || "debug-token").trim();
+const SECRET = process.env.OFFER_JWT_SECRET || "";
 
 /**
- * Skapar en länk-token för offert (kundlänk).
- * exp kan vara t.ex. "14d" eller 3600. Vi castar till any för att undvika typ-strul i jsonwebtoken@types.
+ * Signera en offert-token (JWT) med default giltighet 14 dagar.
+ * Används i API och mail-länkar.
  */
-export function createOfferToken(
-  payload: { sub: string; no: string; role?: "customer" | "admin" },
+export function signOfferToken(
+  payload: Record<string, any>,
   exp: string | number = "14d"
 ): string {
-  if (!SECRET) return DEBUG_FALLBACK;
+  // En del versioner av @types/jsonwebtoken bråkar om typen på expiresIn.
+  // Casta säkert så vi slipper TS-fel oavsett versionsmismatch.
+  const opts: SignOptions = { expiresIn: exp as any, algorithm: "HS256" as any };
 
-  const opts: jwt.SignOptions = {
-    algorithm: "HS256",
-    // jsonwebtoken-typerna använder en branded typ för strings -> casta för att accepteras
-    expiresIn: exp as any,
-  };
+  if (!SECRET) {
+    // Om hemligheten saknas returnerar vi tom sträng så att appen fortfarande kan bygga.
+    // (I produktion MÅSTE OFFER_JWT_SECRET vara satt)
+    return "";
+  }
 
-  return jwt.sign(payload as any, SECRET as jwt.Secret, opts);
+  return jwt.sign(payload as any, SECRET as Secret, opts);
 }
 
 /**
- * Verifierar token och returnerar payload (inkl. .sub och .no).
+ * Alias för bakåtkompatibilitet — vissa filer importerar createOfferToken.
  */
-export async function verifyOfferToken(token: string): Promise<JWTPayload> {
-  if (!SECRET) throw new Error("missing-secret");
-  return jwt.verify(token, SECRET as jwt.Secret) as JWTPayload;
+export const createOfferToken = signOfferToken;
+
+/**
+ * Verifiera token; returnerar payload eller null om ogiltig/utgången.
+ */
+export function verifyOfferToken(token: string): JwtPayload | null {
+  if (!SECRET) return null;
+  try {
+    return jwt.verify(token, SECRET as Secret) as JwtPayload;
+  } catch {
+    return null;
+  }
 }
