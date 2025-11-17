@@ -1,116 +1,152 @@
-﻿import type { NextApiRequest, NextApiResponse } from "next";
-import { supabase } from "@/lib/supabaseAdmin";
-import { sendOfferMail } from "@/lib/sendOfferMail";
-import { Resend } from "resend";
+﻿// src/pages/api/offers/send-proposal.ts
+import type { NextApiRequest, NextApiResponse } from "next";
+import supabase from "@/lib/supabaseAdmin";
+import { sendOfferMail } from "@/lib/sendMail";
 
-const env = (v?: string | null) => (v ?? "").toString().trim();
+// ===== Typ som matchar dina kolumner =====
+type OfferRow = {
+  id: string;
+  offer_number: string;
+  status?: string | null;
 
-const RESEND_KEY   = env(process.env.RESEND_API_KEY);
-const FROM_PRIMARY = env(process.env.MAIL_FROM) || env(process.env.EMAIL_FROM) || "Helsingbuss <onboarding@resend.dev>";
-const ADMIN_TO     = env(process.env.OFFERS_INBOX) || env(process.env.ADMIN_ALERT_EMAIL) || "offert@helsingbuss.se";
+  contact_person: string | null;
+  customer_email: string | null;
+  customer_phone: string | null;
 
-function adminStartUrl() {
-  const base =
-    env(process.env.NEXT_PUBLIC_LOGIN_BASE_URL) ||
-    env(process.env.NEXT_PUBLIC_BASE_URL) ||
-    "https://login.helsingbuss.se";
-  return base.replace(/\/+$/, "") + "/start";
+  departure_place: string | null;
+  destination: string | null;
+  departure_date: string | null;
+  departure_time: string | null;
+
+  via: string | null;   // ✅ nya fältet
+  stop: string | null;  // ✅ nya fältet
+  passengers?: number | null;
+
+  return_departure: string | null;
+  return_destination: string | null;
+  return_date: string | null;
+  return_time: string | null;
+
+  notes?: string | null;
+};
+
+// Typvakt så TS vet att vi har rätt struktur
+function isOfferRow(d: any): d is OfferRow {
+  return d && typeof d === "object" && typeof d.id === "string" && typeof d.offer_number === "string";
 }
 
+// Hjälpare: null/undefined → undefined (för mailparametrar)
+const U = <T extends string | number | null | undefined>(v: T) =>
+  (v == null ? undefined : (v as Exclude<T, null>));
+
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  if (req.method !== "POST") {
-    return res.status(405).json({ error: "Method not allowed" });
-  }
-
   try {
-    const {
-      offerId,        // UUID i tabellen offers
-      offerNumber,    // t.ex. HB25007
-      customerEmail,  // mottagare (kund)
-      totals,         // (valfritt) summering från kalkylen
-      pricing,        // (valfritt) radrader
-      input,          // (valfritt) inmatade fält
-    } = req.body ?? {};
+    if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
-    if (!offerId || !offerNumber || !customerEmail) {
-      return res.status(400).json({ error: "offerId, offerNumber och customerEmail krävs" });
+    // Body kan t.ex. komma från adminformulär
+    const input = (req.body || {}) as {
+      offer_id?: string;
+      // fält som kan komma från formuläret (valfria):
+      via?: string | null;
+      stop?: string | null;
+      notes?: string | null;
+      onboard_contact?: string | null;   // ← vi skickar inte detta som egen prop, vi lägger in i notes
+      return_departure?: string | null;
+      return_destination?: string | null;
+      return_date?: string | null;
+      return_time?: string | null;
+    };
+
+    const id = String(input.offer_id || req.query.id || "");
+    if (!id) return res.status(400).json({ error: "Saknar offert-id" });
+
+    // Hämta offerten
+    const { data, error } = await supabase
+      .from("offers")
+      .select([
+        "id",
+        "offer_number",
+        "status",
+        "contact_person",
+        "customer_email",
+        "customer_phone",
+        "departure_place",
+        "destination",
+        "departure_date",
+        "departure_time",
+        "via",
+        "stop",
+        "passengers",
+        "return_departure",
+        "return_destination",
+        "return_date",
+        "return_time",
+        "notes",
+      ].join(","))
+      .eq("id", id)
+      .single();
+
+    if (error) return res.status(500).json({ error: error.message });
+    if (!isOfferRow(data)) return res.status(500).json({ error: "Dataparsning misslyckades (OfferRow)" });
+
+    const offer = data;
+
+    // Sätt status "besvarad" om inte redan
+    const current = String(offer.status ?? "").toLowerCase();
+    if (current !== "besvarad") {
+      const { error: uerr } = await supabase
+        .from("offers")
+        .update({ status: "besvarad" })
+        .eq("id", id);
+      if (uerr) return res.status(500).json({ error: uerr.message });
+      offer.status = "besvarad";
     }
 
-    // Spara kalkyl och markera offerten som besvarad
-    const { error: updErr } = await supabase
-      .from("offers")
-      .update({
-        calc_totals: totals ?? null,
-        calc_pricing: pricing ?? null,
-        calc_input: input ?? null,
-        status: "besvarad",
-        sent_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", offerId);
+    // Bygg notes där vi klistrar in "Kontakt ombord" om det skickats in
+    let outNotes = input.notes ?? offer.notes ?? null;
+    if (input.onboard_contact && String(input.onboard_contact).trim() !== "") {
+      outNotes = [outNotes?.toString().trim() || "", `Kontakt ombord: ${input.onboard_contact}`]
+        .filter(Boolean)
+        .join("\n");
+    }
 
-    if (updErr) throw updErr;
+    // Tillåt att via/stop/retur-fält kan matas in i POST:en för att maila korrekt info
+    const viaOut  = input.via  ?? offer.via  ?? null;
+    const stopOut = input.stop ?? offer.stop ?? null;
 
-    // 1) SKICKA KUNDMEJL (sendOfferMail sköter kund + admin-kopia internt korrekt)
+    const retFrom = input.return_departure   ?? offer.return_departure   ?? null;
+    const retTo   = input.return_destination ?? offer.return_destination ?? null;
+    const retDate = input.return_date        ?? offer.return_date        ?? null;
+    const retTime = input.return_time        ?? offer.return_time        ?? null;
+
+    // Skicka “besvarad”-mail (sendMail väljer/hanterar mallar)
     await sendOfferMail({
-      offerId: String(offerId),
-      offerNumber: String(offerNumber),
-      customerEmail: String(customerEmail),
+      offerId: String(offer.id),
+      offerNumber: String(offer.offer_number),
 
-      // (valfritt) fyll på med inmatning om du vill
-      customerName: input?.customer_name ?? input?.contact_person ?? null,
-      customerPhone: input?.customer_phone ?? input?.contact_phone ?? null,
+      customerEmail: U(offer.customer_email),
+      customerName: U(offer.contact_person),
+      customerPhone: U(offer.customer_phone),
 
-      from: input?.departure_place ?? null,
-      to: input?.destination ?? null,
-      date: input?.departure_date ?? null,
-      time: input?.departure_time ?? null,
-      passengers:
-        typeof input?.passengers === "number"
-          ? input.passengers
-          : Number.isFinite(Number(input?.passengers))
-          ? Number(input?.passengers)
-          : null,
-      via: input?.via ?? null,
-      onboardContact: input?.onboard_contact ?? null,
+      from: U(offer.departure_place),
+      to: U(offer.destination),
+      date: U(offer.departure_date),
+      time: U(offer.departure_time),
+      via: U(viaOut),     // ✅
+      stop: U(stopOut),   // ✅
+      passengers: typeof offer.passengers === "number" ? offer.passengers : undefined,
 
-      return_from: input?.return_departure ?? null,
-      return_to: input?.return_destination ?? null,
-      return_date: input?.return_date ?? null,
-      return_time: input?.return_time ?? null,
+      return_from: U(retFrom),
+      return_to: U(retTo),
+      return_date: U(retDate),
+      return_time: U(retTime),
 
-      notes: input?.notes ?? null,
+      notes: U(outNotes),
     });
 
-    // 2) (VALFRITT) FRISTÅENDE ADMIN-NOTIS – länka ALLTID till /start
-    //    OBS: INTE via sendOfferMail (annars risk för kundlayout till admin).
-    if (RESEND_KEY && ADMIN_TO) {
-      const resend = new Resend(RESEND_KEY);
-      const href = adminStartUrl();
-      await resend.emails.send({
-        from: FROM_PRIMARY,
-        to: ADMIN_TO,
-        subject: `📤 Offert skickad (${String(offerNumber)})`,
-        html: `
-          <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#111">
-            <p>Prisförslag har skickats till kund.</p>
-            <p><strong>Offert:</strong> ${String(offerNumber)}</p>
-            <table role="presentation" cellspacing="0" cellpadding="0" style="margin:18px 0 6px">
-              <tr><td>
-                <a href="${href}" style="display:inline-block;background:#1D2937;color:#fff;text-decoration:none;padding:12px 18px;border-radius:10px;font-weight:700">
-                  Öppna i portalen
-                </a>
-              </td></tr>
-            </table>
-          </div>
-        `,
-        text: `Prisförslag har skickats.\nOffert: ${String(offerNumber)}\nÖppna i portalen: ${href}`,
-      } as any);
-    }
-
-    return res.status(200).json({ success: true });
-  } catch (err: any) {
-    console.error("send-proposal error:", err);
-    return res.status(500).json({ error: err?.message || "Serverfel" });
+    return res.status(200).json({ ok: true });
+  } catch (e: any) {
+    console.error("[offers/send-proposal] error:", e?.message || e);
+    return res.status(500).json({ error: e?.message || "Serverfel" });
   }
 }

@@ -39,5 +39,3 @@ export function customerBaseUrl() {
   return (process.env.NEXT_PUBLIC_CUSTOMER_BASE_URL || baseUrl()).replace(/\/$/, "");
 }
 
-
-

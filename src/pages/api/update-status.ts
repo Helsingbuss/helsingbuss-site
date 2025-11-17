@@ -1,65 +1,88 @@
 ﻿// src/pages/api/update-status.ts
 import type { NextApiRequest, NextApiResponse } from "next";
-import { supabase } from "@/lib/supabaseAdmin";
-import { sendOfferMail } from "@/lib/sendOfferMail";
+import supabase from "@/lib/supabaseAdmin";
+import { sendOfferMail } from "@/lib/sendMail";
+
+const S = (v: any) => (v == null ? null : String(v).trim() || null);
+const U = <T extends string | number | null | undefined>(v: T) =>
+  (v == null ? undefined : (v as Exclude<T, null>));
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  if (req.method !== "POST") {
-    return res.status(405).json({ error: "Method not allowed" });
-  }
-
   try {
-    const { customer_name, customer_email, customer_phone, notes } = req.body ?? {};
+    if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
-    if (!customer_email) {
-      return res.status(400).json({ error: "customer_email saknas" });
-    }
+    // Tillåt både body och query
+    const id = String(req.body?.id ?? req.query?.id ?? "");
+    const status = String(req.body?.status ?? "").trim();
 
-    // Skapa enkelt löpnummer (behåll ditt befintliga beteende)
-    const offerNumber = `HB${Date.now().toString().slice(-5)}`;
+    if (!id) return res.status(400).json({ error: "Saknar offert-id" });
+    if (!status) return res.status(400).json({ error: "Saknar status" });
 
-    // Spara en enkel rad i offers (behåll fält du redan använder)
+    // Uppdatera status
+    const { error: uerr } = await supabase.from("offers").update({ status }).eq("id", id);
+    if (uerr) return res.status(500).json({ error: uerr.message });
+
+    // Läs uppdaterad offert (alla fält vi behöver för mail)
     const { data, error } = await supabase
       .from("offers")
-      .insert([
-        {
-          offer_number: offerNumber,
-          customer_reference: customer_name ?? null,
-          contact_person: customer_name ?? null,
-          contact_email: customer_email ?? null,
-          contact_phone: customer_phone ?? null,
-          notes: notes ?? null,
-          status: "inkommen",
-          offer_date: new Date().toISOString().slice(0, 10),
-        },
-      ])
-      .select("*")
+      .select([
+        "id",
+        "offer_number",
+        "status",
+        "contact_person",
+        "customer_email",
+        "customer_phone",
+        "departure_place",
+        "destination",
+        "departure_date",
+        "departure_time",
+        "via",          // ✅ rätt fältnamn
+        "stop",         // ✅ rätt fältnamn
+        "passengers",
+        "return_departure",
+        "return_destination",
+        "return_date",
+        "return_time",
+        "notes",
+      ].join(","))
+      .eq("id", id)
       .single();
 
     if (error) return res.status(500).json({ error: error.message });
+    if (!data)  return res.status(404).json({ error: "Offerten hittades inte" });
 
-    // Skicka bekräftelse via nya helpern (objekt-signatur)
+    const offer: any = data;
+
+    // Skicka mail (utan null-värden → undefined)
     await sendOfferMail({
-      offerId: String(data.id ?? offerNumber),
-      offerNumber: String(data.offer_number ?? offerNumber),
-      customerEmail: String(customer_email),
+      offerId:      String(offer.id),
+      offerNumber:  String(offer.offer_number),
 
-      // valfria, för trevligare e-post
-      customerName: customer_name ?? null,
-      customerPhone: customer_phone ?? null,
-      notes: notes ?? null,
+      customerEmail: U(S(offer.customer_email)),
+      customerName:  U(S(offer.contact_person)),
+      customerPhone: U(S(offer.customer_phone)),
 
-      // primärsträcka okänd här → lämnas null (du kan fylla på om du har dem i req.body)
-      from: null,
-      to: null,
-      date: null,
-      time: null,
-      passengers: null,
+      from: U(S(offer.departure_place)),
+      to:   U(S(offer.destination)),
+      date: U(S(offer.departure_date)),
+      time: U(S(offer.departure_time)),
+
+      via:  U(S(offer.via)),
+      stop: U(S(offer.stop)),
+
+      passengers: typeof offer.passengers === "number" ? offer.passengers : undefined,
+
+      return_from: U(S(offer.return_departure)),
+      return_to:   U(S(offer.return_destination)),
+      return_date: U(S(offer.return_date)),
+      return_time: U(S(offer.return_time)),
+
+      notes: U(S(offer.notes)),
     });
 
-    return res.status(200).json({ success: true, offer: data });
+    return res.status(200).json({ ok: true });
   } catch (e: any) {
-    console.error("update-status error:", e);
+    console.error("[update-status] error:", e?.message || e);
     return res.status(500).json({ error: e?.message || "Serverfel" });
   }
 }

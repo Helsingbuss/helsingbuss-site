@@ -1,179 +1,56 @@
 // src/pages/api/bookings/[id].ts
 import type { NextApiRequest, NextApiResponse } from "next";
-import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import supabase from "@/lib/supabaseAdmin";
 
-type ApiOk = {
-  ok: true;
-  booking: any;
-  driver_label?: string | null;
-  vehicle_label?: string | null;
-};
-type ApiErr = { ok: false; error: string };
-
-// BK-nummer, t.ex. "BK25XXXX"
-function looksLikeBookingNo(v: string) {
-  return /^BK[0-9A-Z\-_.]+$/i.test(v);
-}
-function isUUID(s: string) {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(s || "");
-}
-
-// Säkerställ att vi har en fungerande klient (slipper "possibly null")
-function requireDB() {
-  if (!supabaseAdmin) {
-    throw new Error("Supabase not configured");
-  }
-  return supabaseAdmin;
-}
+type ApiOk = { ok: true; booking?: Record<string, any> };
+type ApiErr = { error: string };
 
 export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse<ApiOk | ApiErr>
 ) {
-  if (req.method !== "GET") {
-    return res.status(405).json({ ok: false, error: "Method not allowed" });
-  }
-
-  const rawId = (req.query.id as string | undefined)?.trim();
-  if (!rawId) {
-    return res.status(400).json({ ok: false, error: "Missing booking id" });
-  }
-
-  const db = requireDB();
-
   try {
-    const selectCols = [
-      "id",
-      "booking_number",
-      "status",
-      "passengers",
-      "contact_person",
-      "customer_email",
-      "customer_phone",
+    const id = String(req.query.id || "");
+    if (!id) return res.status(400).json({ error: "Saknar id" });
 
-      // utresa
-      "departure_place",
-      "destination",
-      "departure_date",
-      "departure_time",
-      "end_time",
-      "on_site_minutes",
-      "stopover_places",
-
-      // retur
-      "return_departure",
-      "return_destination",
-      "return_date",
-      "return_time",
-      "return_end_time",
-      "return_on_site_minutes",
-
-      // övrigt & tilldelning
-      "notes",
-      "assigned_driver_id",
-      "assigned_vehicle_id",
-
-      // ev. redundanta fält
-      "driver_name",
-      "driver_phone",
-      "vehicle_reg",
-      "vehicle_model",
-
-      "created_at",
-      "updated_at",
-    ].join(",");
-
-    let data: any = null;
-    let error: any = null;
-
-    const candidate = rawId.trim();
-    const isBk = looksLikeBookingNo(candidate);
-    const isId = isUUID(candidate);
-
-    if (isBk) {
-      // 1) Primärt: sök på booking_number (case-insensitive likamed)
-      const r1 = await db
+    if (req.method === "GET") {
+      const { data, error } = await supabase
         .from("bookings")
-        .select(selectCols)
-        .ilike("booking_number", candidate.toUpperCase())
+        .select("*")
+        .eq("id", id)
         .maybeSingle();
 
-      data = r1.data ?? null;
-      error = r1.error ?? null;
+      if (error) throw error;
+      if (!data) return res.status(404).json({ error: "Bokningen hittades inte" });
 
-      // Fallback till id om ingen träff
-      if (!error && !data && isId) {
-        const r2 = await db
-          .from("bookings")
-          .select(selectCols)
-          .eq("id", candidate)
-          .maybeSingle();
-        data = r2.data ?? null;
-        error = r2.error ?? null;
-      }
-    } else {
-      // 2) Primärt: UUID
-      if (isId) {
-        const r = await db
-          .from("bookings")
-          .select(selectCols)
-          .eq("id", candidate)
-          .maybeSingle();
-        data = r.data ?? null;
-        error = r.error ?? null;
-      }
-
-      // Fallback: prova som booking_number ändå
-      if (!error && !data) {
-        const r2 = await db
-          .from("bookings")
-          .select(selectCols)
-          .ilike("booking_number", candidate.toUpperCase())
-          .maybeSingle();
-        data = r2.data ?? null;
-        error = r2.error ?? null;
-      }
+      return res.status(200).json({ ok: true, booking: data as Record<string, any> });
     }
 
-    if (error) {
-      return res.status(500).json({ ok: false, error: "Database error" });
+    if (req.method === "PATCH" || req.method === "PUT") {
+      const payload = (req.body ?? {}) as Record<string, any>;
+
+      const { data, error } = await supabase
+        .from("bookings")
+        .update(payload)
+        .eq("id", id)
+        .select("*")
+        .maybeSingle();
+
+      if (error) throw error;
+      if (!data) return res.status(404).json({ error: "Bokningen hittades inte" });
+
+      return res.status(200).json({ ok: true, booking: data as Record<string, any> });
     }
-    if (!data) {
-      return res.status(404).json({ ok: false, error: "Not found" });
+
+    if (req.method === "DELETE") {
+      const { error } = await supabase.from("bookings").delete().eq("id", id);
+      if (error) throw error;
+      return res.status(200).json({ ok: true });
     }
 
-    // Best effort: etikett för tilldelad chaufför
-    let driver_label: string | null = null;
-    try {
-      if (data.assigned_driver_id) {
-        const d = await db
-          .from("drivers")
-          .select("id,name,label,email,active")
-          .eq("id", data.assigned_driver_id)
-          .maybeSingle();
-        if (!d.error && d.data) {
-          driver_label = d.data.label || d.data.name || d.data.email || null;
-        }
-      }
-    } catch {/* ignore */}
-
-    // Best effort: etikett för tilldelat fordon
-    let vehicle_label: string | null = null;
-    try {
-      if (data.assigned_vehicle_id) {
-        const v = await db
-          .from("vehicles")
-          .select("id,label,name,reg,registration")
-          .eq("id", data.assigned_vehicle_id)
-          .maybeSingle();
-        if (!v.error && v.data) {
-          vehicle_label = v.data.label || v.data.name || v.data.reg || v.data.registration || null;
-        }
-      }
-    } catch {/* ignore */}
-
-    return res.status(200).json({ ok: true, booking: data, driver_label, vehicle_label });
+    return res.status(405).json({ error: "Method not allowed" });
   } catch (e: any) {
-    return res.status(500).json({ ok: false, error: e?.message || "Server error" });
+    console.error("bookings/[id] error:", e?.message || e);
+    return res.status(500).json({ error: e?.message || "Serverfel" });
   }
 }

@@ -1,4 +1,4 @@
-﻿// src/pages/api/offert/send-offer.ts
+// src/pages/api/offers/[id]/send-offer.ts
 import type { NextApiRequest, NextApiResponse } from "next";
 import supabase from "@/lib/supabaseAdmin";
 import { sendOfferMail } from "@/lib/sendMail";
@@ -11,10 +11,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   try {
     if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
-    const id = String(req.query.id ?? req.body?.id ?? "");
+    const id = String(req.query.id ?? "");
     if (!id) return res.status(400).json({ error: "Saknar offert-id" });
 
-    // Hämta offerten
     const { data, error } = await supabase
       .from("offers")
       .select([
@@ -45,7 +44,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     const offer: any = data;
 
-    // Sätt status "besvarad" om inte redan
+    // Sätt status "besvarad"
     const current = String(offer.status ?? "").toLowerCase();
     if (current !== "besvarad") {
       const { error: uerr } = await supabase
@@ -56,7 +55,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       offer.status = "besvarad";
     }
 
-    // Skicka kundmail + adminnotis via din centraliserade mail-funktion
     await sendOfferMail({
       offerId:      String(offer.id),
       offerNumber:  String(offer.offer_number),
@@ -70,8 +68,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       date: U(S(offer.departure_date)),
       time: U(S(offer.departure_time)),
 
-      via:  U(S(offer.via)),   // ✅ nya fält
-      stop: U(S(offer.stop)),  // ✅ nya fält
+      via:  U(S(offer.via)),
+      stop: U(S(offer.stop)),
 
       passengers: typeof offer.passengers === "number" ? offer.passengers : undefined,
 
@@ -85,7 +83,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     return res.status(200).json({ ok: true });
   } catch (e: any) {
-    console.error("[offert/send-offer] error:", e?.message || e);
+    console.error("[offers/[id]/send-offer] error:", e?.message || e);
     return res.status(500).json({ error: e?.message || "Serverfel" });
   }
 }

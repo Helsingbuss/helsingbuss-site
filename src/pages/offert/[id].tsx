@@ -1,107 +1,182 @@
 // src/pages/offert/[id].tsx
+import type { GetServerSideProps, NextPage } from "next";
 import Head from "next/head";
-import type { GetServerSideProps } from "next";
+import supabase from "@/lib/supabaseAdmin";
+import { verifyOfferToken, type OfferTokenPayload } from "@/lib/offerToken";
+
+// Kundkomponenter (behåll dina befintliga)
 import OfferInkommen from "@/components/offers/OfferInkommen";
 import OfferBesvarad from "@/components/offers/OfferBesvarad";
 import OfferGodkand from "@/components/offers/OfferGodkand";
+import OfferAvbojd from "@/components/offers/OfferAvbojd";
 import OfferMakulerad from "@/components/offers/OfferMakulerad";
-import { verifyOfferToken } from "@/lib/offerToken";
+import OfferBokningsbekraftelse from "@/components/offers/OfferBokningsbekraftelse";
 
-type Offer = { id?: string; offer_number?: string | null; status?: string | null; [k: string]: any };
-type AuthFail = "missing" | "invalid" | "expired" | "forbidden";
-type Props = { offer: Offer | null; auth?: { ok: false; reason: AuthFail } | { ok: true }; viewOverride?: string | null };
+type OfferRow = {
+  id: string;
+  offer_number: string;
+  status?: string | null;
 
-function resolveSelfOrigin(ctx: Parameters<GetServerSideProps>[0]) {
-  const host = ((ctx.req.headers["x-forwarded-host"] as string) || ctx.req.headers.host || "").toString().split(",")[0].trim();
-  const xfProto = ((ctx.req.headers["x-forwarded-proto"] as string) || "").toString().split(",")[0].trim();
-  const proto = xfProto || (process.env.NODE_ENV === "production" ? "https" : "http");
-  return `${proto}://${host || "localhost:3000"}`;
-}
+  contact_person?: string | null;
+  customer_email?: string | null;
+  customer_phone?: string | null;
 
-export const getServerSideProps: GetServerSideProps<Props> = async (ctx) => {
-  const slug = String(ctx.params?.id || "");
-  const viewOverride = ctx.query?.view ? String(ctx.query.view).toLowerCase() : null;
+  departure_place?: string | null;
+  destination?: string | null;
+  departure_date?: string | null;
+  departure_time?: string | null;
 
-  const token = String(ctx.query?.t || ctx.query?.token || "");
-  if (!token) return { props: { offer: null, auth: { ok: false, reason: "missing" }, viewOverride } };
+  via?: string | null;   // ✅ nya namnet
+  stop?: string | null;  // ✅ nya namnet
+  passengers?: number | null;
 
-  try {
-    const payload = await verifyOfferToken(token);
-    const matchesNo = payload.no && String(payload.no) === slug;
-    const matchesId = payload.sub && String(payload.sub) === slug;
-    if (!matchesNo && !matchesId) return { props: { offer: null, auth: { ok: false, reason: "forbidden" }, viewOverride } };
-  } catch (e: any) {
-    const msg = String(e?.message || "").toLowerCase();
-    return { props: { offer: null, auth: { ok: false, reason: msg.includes("expired") ? "expired" : "invalid" }, viewOverride } };
-  }
+  return_departure?: string | null;
+  return_destination?: string | null;
+  return_date?: string | null;
+  return_time?: string | null;
 
-  try {
-    const base = resolveSelfOrigin(ctx);
-    const resp = await fetch(`${base}/api/offers/${encodeURIComponent(slug)}`, {
-      headers: { accept: "application/json", "x-offer-link": "jwt-ok", "x-offer-token": token },
-    });
-    if (!resp.ok) return { props: { offer: null, auth: { ok: true }, viewOverride } };
-    const json = await resp.json();
-    return { props: { offer: (json?.offer ?? null) as Offer | null, auth: { ok: true }, viewOverride } };
-  } catch {
-    return { props: { offer: null, auth: { ok: true }, viewOverride } };
-  }
+  notes?: string | null;
 };
 
-function normalizeViewKey(v?: string | null) {
-  const s = (v || "").toLowerCase();
-  if (s === "besvarad") return "besvarad";
-  if (s === "godkand" || s === "godkänd") return "godkand";
-  if (s === "makulerad" || s === "avbojd" || s === "avböjd") return "makulerad";
-  return "inkommen";
-}
+type Props = {
+  offer: OfferRow | null;
+  auth: { ok: boolean; reason?: string };
+  viewOverride: string | null;
+};
 
-export default function OffertPublic({ offer, auth, viewOverride }: Props) {
-  if (auth && auth.ok === false) {
-    const title = "Offert – åtkomst nekad";
-    const msg =
-      auth.reason === "missing" ? "Länken saknar säkerhetstoken."
-      : auth.reason === "expired" ? "Länken har löpt ut."
-      : auth.reason === "forbidden" ? "Den här länken matchar inte offerten."
-      : "Ogiltig eller manipulerad länk.";
+const Page: NextPage<Props> = ({ offer, auth, viewOverride }) => {
+  const statusRaw = (viewOverride || offer?.status || "").toLowerCase();
 
-    return (
-      <>
-        <Head><title>{title}</title><meta name="robots" content="noindex,nofollow" /></Head>
-        <main className="min-h-screen bg-[#f5f4f0] flex items-center justify-center p-6">
-          <div className="max-w-md w-full bg-white border rounded-2xl p-6 shadow-sm">
-            <h1 className="text-xl font-semibold text-slate-900">{title}</h1>
-            <p className="mt-2 text-slate-700">{msg}</p>
-            <p className="mt-4 text-sm text-slate-500">Behöver du ny länk? Kontakta <a className="text-[#194C66]" href="mailto:info@helsingbuss.se">info@helsingbuss.se</a>.</p>
+  const renderByStatus = () => {
+    if (!auth.ok) {
+      return (
+        <div className="min-h-[60vh] flex items-center justify-center p-8">
+          <div className="max-w-lg rounded-2xl border bg-white p-6 text-center shadow">
+            <h1 className="text-xl font-semibold text-[#194C66] mb-2">Åtkomst nekad</h1>
+            <p className="text-gray-600">Ogiltig eller saknad token för visning av offert.</p>
           </div>
-        </main>
-      </>
-    );
-  }
+        </div>
+      );
+    }
+    if (!offer) {
+      return (
+        <div className="min-h-[60vh] flex items-center justify-center p-8">
+          <div className="max-w-lg rounded-2xl border bg-white p-6 text-center shadow">
+            <h1 className="text-xl font-semibold text-[#194C66] mb-2">Offert saknas</h1>
+            <p className="text-gray-600">Vi kunde inte hitta någon offert med angivet ID/nummer.</p>
+          </div>
+        </div>
+      );
+    }
 
-  if (!offer) {
-    return (
-      <>
-        <Head><title>Offert saknas</title><meta name="robots" content="noindex,nofollow" /></Head>
-        <main className="min-h-screen bg-[#f5f4f0] flex items-center justify-center p-6">
-          <div className="max-w-md w-full bg-white border rounded-2xl p-6 shadow-sm text-[#194C66]">Kunde inte hitta offerten.</div>
-        </main>
-      </>
-    );
-  }
+    switch (statusRaw) {
+      case "inkommen":
+        return <OfferInkommen offer={offer} />;
+      case "besvarad":
+        return <OfferBesvarad offer={offer} />;
+      case "godkänd":
+      case "godkand":
+        return <OfferGodkand offer={offer} />;
+      case "avböjd":
+      case "avbojd":
+        return <OfferAvbojd offer={offer} />;
+      case "makulerad":
+        return <OfferMakulerad offer={offer} />;
+      case "bokningsbekräftelse":
+      case "bokningsbekraftelse":
+        return <OfferBokningsbekraftelse offer={offer} />;
+      default:
+        // Fallback: visa “inkommen” om okänt statusvärde
+        return <OfferInkommen offer={offer} />;
+    }
+  };
 
-  const status = normalizeViewKey(offer.status);
-  const viewKey = normalizeViewKey(viewOverride || status);
-  const title = offer.offer_number ? `Offert ${offer.offer_number}` : "Offert";
-
-  const map: Record<string, any> = { inkommen: OfferInkommen, besvarad: OfferBesvarad, godkand: OfferGodkand, makulerad: OfferMakulerad };
-  const View = map[viewKey] || OfferInkommen;
-  const commonProps: any = { ...offer, offer };
+  const title = offer?.offer_number
+    ? `Offert ${offer.offer_number} – Helsingbuss`
+    : "Offert – Helsingbuss";
 
   return (
     <>
-      <Head><title>{title}</title><meta name="robots" content="noindex,nofollow" /></Head>
-      <View {...commonProps} />
+      <Head>
+        <title>{title}</title>
+        <meta name="robots" content="noindex" />
+      </Head>
+      <main className="bg-[#f5f4f0] min-h-screen">
+        {renderByStatus()}
+      </main>
     </>
   );
-}
+};
+
+export const getServerSideProps: GetServerSideProps<Props> = async (ctx) => {
+  const slug = String(ctx.params?.id ?? "");
+  const q = ctx.query || {};
+  const token = typeof q.token === "string" ? q.token : typeof q.t === "string" ? q.t : "";
+  const viewOverride = typeof q.view === "string" ? q.view : null;
+
+  if (!slug) {
+    return { props: { offer: null, auth: { ok: false, reason: "missing-id" }, viewOverride } };
+  }
+
+  // ✅ Tokenvalidering – säkert och utan null-problem
+  let payload: OfferTokenPayload | null = null;
+  try {
+    // verifyOfferToken kan vara sync eller async – await funkar i båda fallen
+    payload = await verifyOfferToken(token);
+  } catch {
+    payload = null;
+  }
+
+  if (!payload) {
+    return { props: { offer: null, auth: { ok: false, reason: "forbidden" }, viewOverride } };
+  }
+
+  const matchesNo = !!payload.no && String(payload.no) === slug;
+  const matchesId = !!payload.id && String(payload.id) === slug;
+
+  if (!matchesNo && !matchesId) {
+    return { props: { offer: null, auth: { ok: false, reason: "forbidden" }, viewOverride } };
+  }
+
+  // ✅ Hämta offerten via id ELLER offer_number (utan generics som bråkar)
+  const { data, error } = await supabase
+    .from("offers")
+    .select(
+      [
+        "id",
+        "offer_number",
+        "status",
+        "contact_person",
+        "customer_email",
+        "customer_phone",
+        "departure_place",
+        "destination",
+        "departure_date",
+        "departure_time",
+        "via",   // ✅
+        "stop",  // ✅
+        "passengers",
+        "return_departure",
+        "return_destination",
+        "return_date",
+        "return_time",
+        "notes",
+      ].join(",")
+    )
+    .or(`id.eq.${slug},offer_number.eq.${slug}`)
+    .maybeSingle();
+
+  if (error) {
+    return { props: { offer: null, auth: { ok: false, reason: "db" }, viewOverride } };
+  }
+
+  return {
+    props: {
+      offer: (data ?? null) as OfferRow | null,
+      auth: { ok: true },
+      viewOverride,
+    },
+  };
+};
+
+export default Page;
