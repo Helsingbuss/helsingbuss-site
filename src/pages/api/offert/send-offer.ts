@@ -1,20 +1,22 @@
-﻿// src/pages/api/offert/send-offer.ts
+// src/pages/api/offert/send-offer.ts
 import type { NextApiRequest, NextApiResponse } from "next";
 import supabase from "@/lib/supabaseAdmin";
 import { sendOfferMail } from "@/lib/sendMail";
 
+type ApiOk = { ok: true };
+type ApiErr = { error: string };
+
+const S = (v: any) => (v == null ? null : String(v).trim() || null);
 const U = <T extends string | number | null | undefined>(v: T) =>
   (v == null ? undefined : (v as Exclude<T, null>));
-const S = (v: any) => (v == null ? null : String(v).trim() || null);
 
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+export default async function handler(req: NextApiRequest, res: NextApiResponse<ApiOk | ApiErr>) {
   try {
     if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
-    const id = String(req.query.id ?? req.body?.id ?? "");
-    if (!id) return res.status(400).json({ error: "Saknar offert-id" });
+    const id = String(req.query.id ?? "");
+    if (!id) return res.status(400).json({ error: "Missing offer id" });
 
-    // Hämta offerten
     const { data, error } = await supabase
       .from("offers")
       .select([
@@ -41,22 +43,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       .single();
 
     if (error) return res.status(500).json({ error: error.message });
-    if (!data)  return res.status(404).json({ error: "Offerten hittades inte" });
+    if (!data)  return res.status(404).json({ error: "Offer not found" });
 
     const offer: any = data;
 
-    // Sätt status "besvarad" om inte redan
+    // Ensure status "besvarad"
     const current = String(offer.status ?? "").toLowerCase();
     if (current !== "besvarad") {
-      const { error: uerr } = await supabase
-        .from("offers")
-        .update({ status: "besvarad" })
-        .eq("id", id);
+      const { error: uerr } = await supabase.from("offers").update({ status: "besvarad" }).eq("id", id);
       if (uerr) return res.status(500).json({ error: uerr.message });
       offer.status = "besvarad";
     }
 
-    // Skicka kundmail + adminnotis via din centraliserade mail-funktion
     await sendOfferMail({
       offerId:      String(offer.id),
       offerNumber:  String(offer.offer_number),
@@ -70,8 +68,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       date: U(S(offer.departure_date)),
       time: U(S(offer.departure_time)),
 
-      via:  U(S(offer.via)),   // ✅ nya fält
-      stop: U(S(offer.stop)),  // ✅ nya fält
+      via:  U(S(offer.via)),
+      stop: U(S(offer.stop)),
 
       passengers: typeof offer.passengers === "number" ? offer.passengers : undefined,
 
@@ -81,11 +79,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return_time: U(S(offer.return_time)),
 
       notes: U(S(offer.notes)),
+      // subject optional
     });
 
     return res.status(200).json({ ok: true });
   } catch (e: any) {
     console.error("[offert/send-offer] error:", e?.message || e);
-    return res.status(500).json({ error: e?.message || "Serverfel" });
+    return res.status(500).json({ error: e?.message || "Server error" });
   }
 }

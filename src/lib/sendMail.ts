@@ -1,121 +1,167 @@
 ﻿// src/lib/sendMail.ts
-import { Resend } from "resend";
-import { buildAdminOfferLink, buildOfferPublicLink } from "@/lib/offerToken";
+// Exponerar sendOfferMail + sendCustomerReceipt (named exports) och typen SendOfferParams.
 
+import { Resend } from "resend";
+import { renderOfferEmail, type OfferEmailData } from "./mailTemplates";
+
+// ===== ENV helpers =====
+const env = (k: string, fb?: string) =>
+  process.env[k] && process.env[k]!.trim() !== "" ? process.env[k]! : (fb ?? "");
+
+const RESEND_API_KEY = env("RESEND_API_KEY", "");
+const MAIL_FROM = env("MAIL_FROM", env("EMAIL_FROM", "Helsingbuss <info@helsingbuss.se>"));
+const EMAIL_REPLY_TO = env("EMAIL_REPLY_TO", "");
+const OFFERS_INBOX = env("OFFERS_INBOX", env("ADMIN_ALERT_EMAIL", MAIL_FROM));
+const MAIL_FORCE_TO = env("MAIL_FORCE_TO", "");
+const MAIL_BCC_ALL = env("MAIL_BCC_ALL", "")
+  .split(",")
+  .map(s => s.trim())
+  .filter(Boolean);
+
+const CUSTOMER_BASE_URL = env("NEXT_PUBLIC_CUSTOMER_BASE_URL", env("CUSTOMER_BASE_URL", "https://kund.helsingbuss.se"));
+const LOGIN_BASE_URL    = env("NEXT_PUBLIC_LOGIN_BASE_URL",    env("LOGIN_BASE_URL",    "https://login.helsingbuss.se"));
+
+const safeTo = (to: string | string[]) => (MAIL_FORCE_TO ? [MAIL_FORCE_TO] : Array.isArray(to) ? to : [to]);
+
+// ===== Types =====
 export type SendOfferParams = {
   offerId: string;
   offerNumber: string;
+
   customerEmail?: string;
   customerName?: string;
   customerPhone?: string;
-  from?: string;
-  to?: string;
-  date?: string;
-  time?: string;
+
+  from?: string; to?: string; date?: string; time?: string;
   passengers?: number;
-  via?: string;   // ✅
-  stop?: string;  // ✅
+
+  via?: string;  // ✅ nya fält
+  stop?: string; // ✅ nya fält
+
   return_from?: string;
   return_to?: string;
   return_date?: string;
   return_time?: string;
+
   notes?: string;
+
+  adminUrl?: string;
+  customerUrl?: string;
+  subject?: string;
 };
 
-const RESEND_API_KEY = process.env.RESEND_API_KEY || "";
-const MAIL_FROM = process.env.MAIL_FROM || process.env.EMAIL_FROM || "Helsingbuss <info@helsingbuss.se>";
-const EMAIL_REPLY_TO = process.env.EMAIL_REPLY_TO || "";
-const OFFERS_INBOX = process.env.OFFERS_INBOX || process.env.ADMIN_ALERT_EMAIL || MAIL_FROM;
-const MAIL_FORCE_TO = process.env.MAIL_FORCE_TO || "";
-const MAIL_BCC_ALL = (process.env.MAIL_BCC_ALL || "").split(",").map(s=>s.trim()).filter(Boolean);
+// ===== Link helpers (fallback om API:et inte skickar färdiga länkar) =====
+function adminLinkFallback(offerNumber: string) {
+  const base = LOGIN_BASE_URL.replace(/\/+$/, "");
+  // Du bad att adminknappen ska gå till /start
+  return `${base}/start`;
+}
+function customerLinkFallback(offerNumber: string) {
+  const base = CUSTOMER_BASE_URL.replace(/\/+$/, "");
+  return `${base}/offert/${encodeURIComponent(offerNumber)}`;
+}
 
-const BRAND_COLOR="#194C66", BRAND_BG="#f5f4f0", BRAND_BG_SOFT="#e5eef3";
-const safeTo = (to: string|string[]) => (MAIL_FORCE_TO ? [MAIL_FORCE_TO] : Array.isArray(to) ? to : [to]);
-const esc = (s?: string|number) => (s==null ? "" : String(s).replace(/[&<>"]/g,(c)=>({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;" }[c]!)));
-const kv = (k:string,v?:string|number) => v==null||v==="" ? "" : `<tr><td style="padding:6px 10px;width:40%;color:#374151;font-size:14px;background:#fafafa;border-bottom:1px solid #f0f0f0;">${esc(k)}</td><td style="padding:6px 10px;color:#111827;font-size:14px;border-bottom:1px solid #f0f0f0;">${esc(v)}</td></tr>`;
-const cta = (href:string,label="Öppna") => `<div style="margin:16px 0 4px 0;"><a href="${href}" style="display:inline-block;background:${BRAND_COLOR};color:#fff;text-decoration:none;padding:10px 16px;border-radius:999px;font-weight:600;">${esc(label)}</a></div><div style="font-size:12px;color:#6b7280;margin-top:6px;word-break:break-all;">Eller kopiera länken: <span>${esc(href)}</span></div>`;
-const wrap = (title:string, preheader:string, body:string) => `<!doctype html><html><head><meta charSet="utf-8"/><meta name="viewport" content="width=device-width"/><title>${esc(title)}</title></head><body style="margin:0;padding:0;background:${BRAND_BG};font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#111;">
-<span style="display:none;visibility:hidden;opacity:0;color:transparent;height:0;width:0;overflow:hidden;mso-hide:all;">${esc(preheader)}</span>
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:${BRAND_BG};padding:24px 0;">
-<tr><td align="center">
-  <table role="presentation" width="640" cellpadding="0" cellspacing="0" style="background:#fff;border-radius:16px;box-shadow:0 2px 8px rgba(0,0,0,.05);overflow:hidden;">
-    <tr><td style="background:${BRAND_COLOR};padding:16px 24px;"><div style="color:#fff;font-weight:700;font-size:18px;line-height:24px;">Helsingbuss</div><div style="color:rgba(255,255,255,.9);font-size:12px;line-height:16px;">Komfort, säkerhet och omtanke</div></td></tr>
-    <tr><td style="padding:24px;">${body}</td></tr>
-    <tr><td style="background:${BRAND_BG_SOFT};padding:16px 24px;color:#194c66;font-size:12px;line-height:18px;">Detta e-postmeddelande skickades av Helsingbuss. Frågor? Svara på mailet eller kontakta <a href="mailto:${EMAIL_REPLY_TO || "kundteam@helsingbuss.se"}" style="color:${BRAND_COLOR};text-decoration:underline;">kundteamet</a>.</td></tr>
-  </table>
-  <div style="color:#6b7280;font-size:11px;line-height:16px;margin-top:12px;">© ${new Date().getFullYear()} Helsingbuss</div>
-</td></tr></table></body></html>`;
-
+// ===== Core: sendOfferMail =====
 export async function sendOfferMail(p: SendOfferParams) {
-  if (!RESEND_API_KEY) throw new Error("RESEND_API_KEY saknas");
+  if (!RESEND_API_KEY) {
+    throw new Error("RESEND_API_KEY saknas");
+  }
+
   const resend = new Resend(RESEND_API_KEY);
 
-  const adminLink = buildAdminOfferLink(p.offerId, p.offerNumber);
-  const custLink  = buildOfferPublicLink(p.offerId, p.offerNumber);
+  const adminUrl    = p.adminUrl    || adminLinkFallback(p.offerNumber);
+  const customerUrl = p.customerUrl || customerLinkFallback(p.offerNumber);
 
-  const title = `Ny offertförfrågan – ${p.offerNumber}`;
-  const body = `
-    <h1 style="margin:0 0 10px 0;font-size:20px;line-height:28px;">Ny offertförfrågan</h1>
-    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #eee;border-radius:10px;overflow:hidden;margin:0 0 12px 0;">
-      ${kv("Kontakt", p.customerName)}
-      ${kv("E-post", p.customerEmail)}
-      ${kv("Telefon", p.customerPhone)}
-      ${kv("Från", p.from)} ${kv("Till", p.to)}
-      ${kv("Avresa", [p.date,p.time].filter(Boolean).join(" ")) }
-      ${kv("Passagerare", p.passengers ?? undefined)}
-      ${kv("Via", p.via)}             <!-- ✅ -->
-      ${kv("Stopp", p.stop)}          <!-- ✅ -->
-      ${kv("Retur från", p.return_from)}
-      ${kv("Retur till", p.return_to)}
-      ${kv("Retur", [p.return_date,p.return_time].filter(Boolean).join(" "))}
-      ${kv("Övrigt", p.notes)}
-    </table>
-    ${cta(adminLink, "Öppna i Admin")}
-    ${cta(custLink, "Öppna kundlänken")}
-  `;
+  const data: OfferEmailData = {
+    id: p.offerId,
+    number: p.offerNumber,
 
+    customerEmail: p.customerEmail,
+    customerName:  p.customerName,
+    customerPhone: p.customerPhone,
+
+    from: p.from,
+    to: p.to,
+    date: p.date,
+    time: p.time,
+    passengers: p.passengers,
+
+    via:  p.via,
+    stop: p.stop,
+
+    return_from: p.return_from,
+    return_to:   p.return_to,
+    return_date: p.return_date,
+    return_time: p.return_time,
+
+    notes: p.notes,
+
+    adminUrl,
+    customerUrl,
+    subject: p.subject,
+  };
+
+  const { htmlForAdmin, htmlForCustomer, subjectForAdmin, subjectForCustomer } =
+    renderOfferEmail(data);
+
+  // 1) Admin (OFFERS_INBOX)
   await resend.emails.send({
     from: MAIL_FROM,
     to: safeTo(OFFERS_INBOX || MAIL_FROM),
-    subject: title,
-    html: wrap(title, `Offertförfrågan ${p.offerNumber}`, body),
+    subject: subjectForAdmin,
+    html: htmlForAdmin,
     reply_to: EMAIL_REPLY_TO || undefined,
     bcc: MAIL_BCC_ALL.length ? MAIL_BCC_ALL : undefined,
   });
 
-  // kundkvitto om adress finns
-  if (p.customerEmail && /@/.test(p.customerEmail)) {
-    await sendCustomerReceipt({
-      to: p.customerEmail,
-      offerId: p.offerId,
-      offerNumber: p.offerNumber,
-      name: p.customerName,
+  // 2) Kund (om e-post finns)
+  if (data.customerEmail && data.customerEmail.includes("@")) {
+    await resend.emails.send({
+      from: MAIL_FROM,
+      to: safeTo(data.customerEmail),
+      subject: subjectForCustomer,
+      html: htmlForCustomer,
+      reply_to: EMAIL_REPLY_TO || undefined,
     });
   }
 }
 
-export async function sendCustomerReceipt(opts: {
+// ===== Optional: kvitto till kund vid nyoffert =====
+export type CustomerReceiptParams = {
   to: string;
-  offerId: string;
   offerNumber: string;
-  name?: string;
-}) {
-  if (!RESEND_API_KEY) throw new Error("RESEND_API_KEY saknas");
-  const resend = new Resend(RESEND_API_KEY);
+  customerUrl?: string;
+  subject?: string;
+  message?: string;
+};
 
-  const custLink = buildOfferPublicLink(opts.offerId, opts.offerNumber);
-  const title = `Tack – vi har mottagit din förfrågan (${opts.offerNumber})`;
-  const body = `
-    <p style="margin:0 0 8px 0;">Hej${opts.name ? " " + esc(opts.name) : ""}!</p>
-    <p style="margin:0 0 12px 0;">Vi har tagit emot din offertförfrågan. Du kan följa ärendet via länken nedan.</p>
-    ${cta(custLink, "Visa din offert")}
-  `;
+export async function sendCustomerReceipt(p: CustomerReceiptParams) {
+  if (!RESEND_API_KEY) {
+    throw new Error("RESEND_API_KEY saknas");
+  }
+  const resend = new Resend(RESEND_API_KEY);
+  const customerUrl = p.customerUrl || customerLinkFallback(p.offerNumber);
+  const subject = p.subject || `Vi har mottagit din offertförfrågan – ${p.offerNumber}`;
+
+  const html = `<!doctype html><html><body style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif">
+    <h1 style="font-size:20px;margin:0 0 10px 0;color:#111;">Tack för din förfrågan</h1>
+    <p style="font-size:14px;color:#374151;margin:0 0 14px 0;">${esc(p.message || "Vi återkommer inom kort med svar.")}</p>
+    <p style="margin:0 0 10px 0;"><a href="${customerUrl}">Visa din offert (${p.offerNumber})</a></p>
+  </body></html>`;
 
   await resend.emails.send({
     from: MAIL_FROM,
-    to: safeTo(opts.to),
-    subject: title,
-    html: wrap(title, `Offert ${opts.offerNumber}`, body),
+    to: safeTo(p.to),
+    subject,
+    html,
     reply_to: EMAIL_REPLY_TO || undefined,
   });
 }
+
+// Hjälpfunktion för kvitto-html
+function esc(s: any) {
+  return s == null ? "" : String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]!));
+}
+
+// Behåll kompatibilitet med äldre importer som använde default
+export default sendOfferMail;

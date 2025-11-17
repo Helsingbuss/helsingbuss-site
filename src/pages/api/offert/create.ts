@@ -1,188 +1,107 @@
-﻿// src/pages/api/offert/create.ts
+// src/pages/api/offert/create.ts
 import type { NextApiRequest, NextApiResponse } from "next";
 import supabase from "@/lib/supabaseAdmin";
-import { sendOfferMail } from "@/lib/sendMail";
+import { sendOfferMail, sendCustomerReceipt } from "@/lib/sendMail";
 
-// ---- helpers ----
+type ApiOk = { ok: true; offer: any };
+type ApiErr = { error: string };
+
+const S = (v: any) => (v == null ? null : String(v).trim() || null);
 const U = <T extends string | number | null | undefined>(v: T) =>
   (v == null ? undefined : (v as Exclude<T, null>));
-const S = (v: any) => (v == null ? null : String(v).trim() || null);
 
-type NextNoRow = { next_offer_serial?: string } | string | null;
-
-// Försök hämta nästa offertnummer via DB-funktion
-async function getNextOfferNumber(): Promise<string> {
-  const { data, error } = await supabase.rpc("next_offer_serial");
-  if (error || !data) {
-    throw new Error("Kunde inte generera offertnummer (saknas DB-funktion next_offer_serial).");
-  }
-  const v = data as NextNoRow;
-  if (typeof v === "string") return v;
-  if (v && typeof (v as any).next_offer_serial === "string") return (v as any).next_offer_serial;
-  throw new Error("Ogiltigt svar från next_offer_serial.");
-}
-
-async function insertOffer(row: Record<string, any>) {
-  // Viktigt: ingen generisk typning här → undviker GenericStringError i compile
-  return supabase
-    .from("offers")
-    .insert(row)
-    .select([
-      "id",
-      "offer_number",
-      "contact_person",
-      "customer_email",
-      "customer_phone",
-      "departure_place",
-      "destination",
-      "departure_date",
-      "departure_time",
-      "via",
-      "stop",
-      "passengers",
-      "return_departure",
-      "return_destination",
-      "return_date",
-      "return_time",
-      "notes",
-      "status",
-    ].join(","))
-    .single();
-}
-
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+export default async function handler(req: NextApiRequest, res: NextApiResponse<ApiOk | ApiErr>) {
   try {
     if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
-    const input = (req.body || {}) as Record<string, any>;
+    // Expect the payload coming from your form
+    const body = req.body || {};
+    const row = {
+      status: "inkommen",
 
-    // Normalisera fält (tål olika namn från hemsidan/admin)
-    const contact_person   = S(input.contact_person)   ?? S(input.customer_reference) ?? S(input.reference) ?? S(input.ref);
-    const customer_email   = S(input.customer_email)   ?? S(input.email);
-    const customer_phone   = S(input.customer_phone)   ?? S(input.phone);
-    const onboard_contact  = S(input.onboard_contact)  ?? S(input.onboardContact);
-    const invoice_ref      = S(input.invoice_ref)      ?? S(input.invoiceRef) ?? null;
+      contact_person: S(body.contact_person),
+      customer_email: S(body.customer_email),
+      customer_phone: S(body.customer_phone),
 
-    const departure_place  = S(input.departure_place)  ?? S(input.from);
-    const destination      = S(input.destination)      ?? S(input.to);
-    const departure_date   = S(input.departure_date)   ?? S(input.date);
-    const departure_time   = S(input.departure_time)   ?? S(input.time);
+      customer_reference: S(body.customer_reference) || S(body.contact_person),
+      customer_name: S(body.customer_name) || S(body.contact_person),
+      customer_type: S(body.customer_type) || "privat",
+      invoice_ref: S(body.invoice_ref),
 
-    // ✅ nya fältnamn
-    const via              = S(input.via)  ?? null;
-    const stop             = S(input.stop) ?? null;
+      departure_place: S(body.departure_place),
+      destination: S(body.destination),
+      departure_date: S(body.departure_date),
+      departure_time: S(body.departure_time),
+      via: S(body.stopover_places) || S(body.via),
+      stop: S(body.stop) || null,
 
-    const passengers       = typeof input.passengers === "number"
-      ? input.passengers
-      : Number(input.passengers || 0) || null;
+      return_departure: S(body.return_departure),
+      return_destination: S(body.return_destination),
+      return_date: S(body.return_date),
+      return_time: S(body.return_time),
 
-    const return_departure = S(input.return_departure) ?? S(input.return_from);
-    const return_destination = S(input.return_destination) ?? S(input.return_to);
-    const return_date      = S(input.return_date);
-    const return_time      = S(input.return_time);
+      passengers: typeof body.passengers === "number" ? body.passengers : Number(body.passengers || 0) || null,
+      notes: S(body.notes),
+    };
 
-    let notes: string | null = S(input.notes);
-    if (onboard_contact) {
-      notes = [notes || "", `Kontakt ombord: ${onboard_contact}`].filter(Boolean).join("\n");
+    // Insert
+    const { data, error } = await supabase.from("offers").insert(row).select("*").single();
+    if (error) {
+      // duplicate key offer_number etc. get bubbled up here
+      return res.status(500).json({ error: error.message });
+    }
+    if (!data) return res.status(500).json({ error: "Insert failed" });
+
+    const offer = data;
+
+    // Mail to admin + customer receipt (if email present)
+    try {
+      await sendOfferMail({
+        offerId: String(offer.id),
+        offerNumber: String(offer.offer_number || "HB25???"),
+
+        customerEmail: U(S(offer.customer_email)),
+        customerName: U(S(offer.contact_person)),
+        customerPhone: U(S(offer.customer_phone)),
+
+        from: U(S(offer.departure_place)),
+        to: U(S(offer.destination)),
+        date: U(S(offer.departure_date)),
+        time: U(S(offer.departure_time)),
+
+        via: U(S(offer.via)),
+        stop: U(S(offer.stop)),
+        passengers: typeof offer.passengers === "number" ? offer.passengers : undefined,
+
+        return_from: U(S(offer.return_departure)),
+        return_to: U(S(offer.return_destination)),
+        return_date: U(S(offer.return_date)),
+        return_time: U(S(offer.return_time)),
+
+        notes: U(S(offer.notes)),
+        // subject optional
+      });
+    } catch (e: any) {
+      // Do not fail the API on mail; log only
+      console.error("[offert/create] sendOfferMail failed:", e?.message || e);
     }
 
-    // Minimal validering
-    if (!contact_person) return res.status(400).json({ error: "Kontaktperson (contact_person) saknas" });
-    if (!departure_place) return res.status(400).json({ error: "Från/Avreseplats saknas" });
-    if (!destination)     return res.status(400).json({ error: "Till/Destination saknas" });
-    if (!passengers || passengers < 1) return res.status(400).json({ error: "Antal passagerare måste vara minst 1" });
-
-    // Hämta nummer och inserta – med 3 retrys vid unik-krock
-    let offerNumber = "";
-    let inserted: any = null;
-    let lastErr: any = null;
-
-    for (let attempt = 0; attempt < 3; attempt++) {
-      try {
-        offerNumber = await getNextOfferNumber();
-
-        const { data, error } = await insertOffer({
-          offer_number: offerNumber,
-          status: "inkommen",
-
-          contact_person,
-          customer_email,
-          customer_phone,
-          invoice_ref,
-
-          departure_place,
-          destination,
-          departure_date,
-          departure_time,
-
-          via,   // ✅
-          stop,  // ✅
-          passengers,
-
-          return_departure,
-          return_destination,
-          return_date,
-          return_time,
-
-          notes,
+    try {
+      const to = S(offer.customer_email);
+      if (to && to.includes("@")) {
+        await sendCustomerReceipt({
+          to,
+          offerNumber: String(offer.offer_number || "HB25???"),
+          message: "Vi har mottagit din offertfofragan. Vi aterkommer inom kort.",
         });
-
-        if (error) throw error;
-        inserted = data;
-        lastErr = null;
-        break;
-      } catch (e: any) {
-        lastErr = e;
-        // Vid unik-krock (23505) – försök igen med nytt nummer
-        if (e?.code === "23505") {
-          continue;
-        }
-        throw e;
       }
+    } catch (e: any) {
+      console.error("[offert/create] sendCustomerReceipt failed:", e?.message || e);
     }
 
-    if (!inserted) {
-      if (lastErr) throw lastErr;
-      throw new Error("Insert misslyckades utan felmeddelande");
-    }
-
-    // ---- skicka mail (admin + ev. kund) ----
-    // OBS: gör null→undefined med U() för att matcha snälla typer i sendMail
-    await sendOfferMail({
-      offerId: String((inserted as any).id),
-      offerNumber: String((inserted as any).offer_number),
-
-      customerEmail: U((inserted as any).customer_email),
-      customerName:  U((inserted as any).contact_person),
-      customerPhone: U((inserted as any).customer_phone),
-
-      from: U((inserted as any).departure_place),
-      to:   U((inserted as any).destination),
-      date: U((inserted as any).departure_date),
-      time: U((inserted as any).departure_time),
-
-      via:  U((inserted as any).via),   // ✅
-      stop: U((inserted as any).stop),  // ✅
-
-      passengers: typeof (inserted as any).passengers === "number"
-        ? (inserted as any).passengers
-        : undefined,
-
-      return_from: U((inserted as any).return_departure),
-      return_to:   U((inserted as any).return_destination),
-      return_date: U((inserted as any).return_date),
-      return_time: U((inserted as any).return_time),
-
-      notes: U((inserted as any).notes),
-    });
-
-    return res.status(200).json({ ok: true, offer: { id: (inserted as any).id, offer_number: (inserted as any).offer_number } });
+    return res.status(200).json({ ok: true, offer });
   } catch (e: any) {
-    // Matcha ditt tidigare felmeddelande om rpc saknas
-    if (typeof e?.message === "string" && e.message.includes("next_offer_serial")) {
-      return res.status(500).json({ error: "Kunde inte generera offertnummer (saknas DB-funktion next_offer_serial)." });
-    }
     console.error("[offert/create] error:", e?.message || e);
-    return res.status(500).json({ error: e?.message || "Serverfel" });
+    return res.status(500).json({ error: e?.message || "Server error" });
   }
 }
