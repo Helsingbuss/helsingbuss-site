@@ -3,16 +3,17 @@ import type { NextApiRequest, NextApiResponse } from "next";
 import supabase from "@/lib/supabaseAdmin";
 import { sendOfferMail } from "@/lib/sendMail";
 
+// (frivilligt – pages API kör ändå i Node-miljö)
+export const config = { runtime: "nodejs" };
 
-
-/** ----- Typer som matchar dina kolumner ----- */
+/* ---------- Typer som matchar kolumner i `offers` ---------- */
 type OfferRow = {
   id: string;
   offer_number: string;
 
   contact_person: string | null;
   customer_email: string | null;
-  customer_phone: string | null; // kan finnas i DB men skickas inte som egen prop
+  customer_phone: string | null;
 
   departure_place: string | null;
   destination: string | null;
@@ -31,7 +32,7 @@ type OfferRow = {
   notes?: string | null;
 };
 
-/** ----- Helpers ----- */
+/* -------------------- Helpers -------------------- */
 const S = (v: any) => (v == null ? null : String(v).trim() || null);
 const U = <T extends string | number | null | undefined>(v: T) =>
   (v == null ? undefined : (v as Exclude<T, null>));
@@ -40,10 +41,19 @@ function isOfferRow(d: any): d is OfferRow {
   return d && typeof d === "object" && typeof d.id === "string" && typeof d.offer_number === "string";
 }
 
-/** ----- Handler ----- */
+/* -------------------- Handler -------------------- */
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  // CORS (så att extern hemsida kan kalla denna)
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "POST,OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  if (req.method === "OPTIONS") return res.status(204).end();
+
   try {
-    if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
+    if (req.method !== "POST") {
+      res.setHeader("Allow", "POST,OPTIONS");
+      return res.status(405).json({ error: "Method not allowed" });
+    }
 
     // ID kan komma via body eller query
     const id = String((req.body?.offer_id ?? req.query.id ?? "") || "");
@@ -70,6 +80,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         "return_date",
         "return_time",
         "notes",
+        "status",
       ].join(","))
       .eq("id", id)
       .single();
@@ -77,9 +88,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     if (error) return res.status(500).json({ error: error.message });
     if (!isOfferRow(data)) return res.status(500).json({ error: "Dataparsning misslyckades (OfferRow)" });
 
-    const offer = data;
+    const offer = data as OfferRow;
 
-    // Skicka offertmail (utan customerPhone – ej del av SendOfferParams)
+    // Markera som "besvarad" så den försvinner från Obesvarade (om inte redan)
+    try {
+      await supabase.from("offers")
+        .update({ status: "besvarad" })
+        .eq("id", id);
+    } catch { /* tolerera om uppdatering faller */ }
+
+    // Skicka offert-mail (använder dina mallar i sendMail)
     await sendOfferMail({
       offerId: String(offer.id),
       offerNumber: String(offer.offer_number || "HB25???"),
@@ -101,7 +119,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return_date: U(S(offer.return_date)),
       return_time: U(S(offer.return_time)),
 
-      // Lägg telefon i notes om du vill att kunden ska se den i texten
+      // Vill du att kundens telefon ska synas i texten kan vi injicera den i notes
       notes: U(
         [S(offer.notes) || "", S(offer.customer_phone) ? `Telefon: ${S(offer.customer_phone)}` : ""]
           .filter(Boolean)

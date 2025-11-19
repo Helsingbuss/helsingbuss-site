@@ -29,7 +29,7 @@ export default function Dashboard() {
             <div className="grid gap-6 md:grid-cols-2">
               {/* Helsingbuss Booking – klickbar till login.helsingbuss.se/Start */}
               <a
-                href="https://login.helsingbuss.se/Start"
+                href="https://login.helsingbuss.se/start"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="group"
