@@ -12,49 +12,43 @@ const S = (v: any) => (v == null ? null : String(v).trim() || null);
 const U = <T extends string | number | null | undefined>(v: T) =>
   (v == null ? undefined : (v as Exclude<T, null>));
 
-/** Hämta nästa offertnummer för aktuellt år. Format: HB{YY}{NNNN}, minsta N=0009 */
-async function nextOfferNumber(): Promise<string> {
-  const yy = new Date().toISOString().slice(2, 4); // "25"
-  const prefix = `HB${yy}`;
-  // Hämta högsta existerande i år
-  const { data, error } = await supabase
-    .from("offers")
-    .select("offer_number")
-    .ilike("offer_number", `${prefix}%`)
-    .order("offer_number", { ascending: false })
-    .limit(1);
-
-  let current = 8; // så att nästa blir 9 (HB{yy}0009)
-  if (!error && Array.isArray(data) && data.length > 0) {
-    const on = String(data[0].offer_number || "");
-    const tail = on.slice(prefix.length);         // "0022"
-    const n = parseInt(tail, 10);
-    if (!Number.isNaN(n)) current = Math.max(current, n);
+// Tål JSON, urlencoded och ”raw string JSON”
+function readBody(req: NextApiRequest): Record<string, any> {
+  const ct = String(req.headers["content-type"] || "");
+  const b = (req.body ?? {}) as any;
+  if (typeof b === "string") {
+    try { return JSON.parse(b); } catch { return {}; }
   }
-  const next = current + 1;
-  return `${prefix}${String(next).padStart(4, "0")}`;
+  // Next tolkar redan JSON + urlencoded till objekt
+  return b;
 }
 
 export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse<ApiOk | ApiErr>
 ) {
-  // CORS (externa formulär)
+  // --- CORS / preflight ---
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST,OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
-  if (req.method === "OPTIONS") return res.status(204).end();
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type,X-Webhook-Token");
 
+  if (req.method === "OPTIONS") return res.status(204).end();
   if (req.method !== "POST") {
     res.setHeader("Allow", "POST,OPTIONS");
     return res.status(405).json({ error: "Method not allowed" });
   }
 
   try {
-    const b = req.body || {};
+    const b = readBody(req);
 
-    // Skapa offertrad
-    const row: Record<string, any> = {
+    // (valfritt) shared secret för extern post
+    const expected = process.env.WEBHOOK_TOKEN;
+    if (expected) {
+      const got = String(req.headers["x-webhook-token"] || "");
+      if (got !== expected) return res.status(401).json({ error: "Unauthorized" });
+    }
+
+    const row = {
       status: "inkommen",
 
       contact_person:     S(b.contact_person),
@@ -62,16 +56,18 @@ export default async function handler(
       customer_phone:     S(b.customer_phone),
 
       customer_reference: S(b.customer_reference) || S(b.contact_person),
-      customer_name:      S(b.customer_name)      || S(b.contact_person),
+      customer_name:      S(b.customer_name)      || S(b.namn_efternamn) || S(b.contact_person),
       customer_type:      S(b.customer_type)      || "privat",
-      invoice_ref:        S(b.invoice_ref),
+      invoice_ref:        S(b.invoice_ref)        || S(b.Referens_PO_nummer),
 
       departure_place: S(b.departure_place),
-      destination:     S(b.destination),
+      destination:     S(b.destination) || S(b.final_destination),
       departure_date:  S(b.departure_date),
       departure_time:  S(b.departure_time),
-      via:             S(b.stopover_places) || S(b.via),
-      stop:            S(b.stop),
+
+      // stöder både "via" och ditt ”stopover_places”
+      via:  S(b.via) || S(b.stopover_places),
+      stop: S(b.stop),
 
       return_departure:   S(b.return_departure),
       return_destination: S(b.return_destination),
@@ -79,15 +75,23 @@ export default async function handler(
       return_time:        S(b.return_time),
 
       passengers:
-        typeof b.passengers === "number" ? b.passengers : Number(b.passengers || 0) || null,
+        typeof b.passengers === "number"
+          ? b.passengers
+          : Number(b.passengers || 0) || null,
 
-      notes: S(b.notes),
+      // samla övrigt i notes
+      notes: [
+        S(b.notes),
+        S(b.behöver_buss),
+        S(b.basplats_pa_destination),
+        S(b.notis_pa_plats),
+        S(b.vad_ska_bussen_gora_pa_plats),
+        S(b.local_kor),
+        S(b.standby),
+        S(b.parkering),
+      ].filter(Boolean).join("\n") || null,
     };
 
-    // Tilldela nästa offertnummer (HB25 0009, 0010, …)
-    row.offer_number = await nextOfferNumber();
-
-    // Spara
     const { data, error } = await supabase
       .from("offers")
       .insert(row)
@@ -95,15 +99,15 @@ export default async function handler(
       .single();
 
     if (error) return res.status(500).json({ error: error.message });
-    if (!data)  return res.status(500).json({ error: "Insert failed" });
+    if (!data)   return res.status(500).json({ error: "Insert failed" });
 
     const offer = data;
 
-    // ADMIN-mail + kundkvitto
+    // --- Mail till admin + kvitto till kund ---
     try {
       await sendOfferMail({
         offerId:     String(offer.id),
-        offerNumber: String(offer.offer_number),
+        offerNumber: String(offer.offer_number || "HB25???"),
 
         customerEmail: U(S(offer.customer_email)),
         customerName:  U(S(offer.contact_person)),
@@ -133,7 +137,7 @@ export default async function handler(
       if (to && to.includes("@")) {
         await sendCustomerReceipt({
           to,
-          offerNumber: String(offer.offer_number),
+          offerNumber: String(offer.offer_number || "HB25???"),
         });
       }
     } catch (e:any) {

@@ -2,44 +2,32 @@
 const nextConfig = {
   reactStrictMode: true,
 
-  // INTE output:'export' – API-routes kräver server
-  // output: undefined,
-
-  experimental: {
-    // Lämna av om du kör "pages/" (vilket du gör)
-    // appDir: true,
-  },
+  // ✅ INTE output:'export' här – annars dör alla API-routes
+  // output: 'export', // ← ska INTE finnas
 
   images: {
     remotePatterns: [
-      // Demo/placeholder
+      // demo/placeholder
       { protocol: 'https', hostname: 'images.unsplash.com' },
 
-      // Dina domäner
+      // dina domäner
       { protocol: 'https', hostname: 'login.helsingbuss.se' },
       { protocol: 'https', hostname: 'kund.helsingbuss.se' },
 
-      // Supabase Storage – exakt projekt
+      // din Supabase-domän (byt till din faktiska om den skiljer sig)
       { protocol: 'https', hostname: 'meotcdztoehulrirqzxn.supabase.co' },
 
-      // (Fallback) – vissa Next-versioner stödjer wildcard så här.
-      // Om builden klagar: ta bort denna rad och behåll den exakta ovan.
-      { protocol: 'https', hostname: '**.supabase.co' },
-
-      // Google-avatarer
+      // t.ex. Google-avatarer
       { protocol: 'https', hostname: 'lh3.googleusercontent.com' },
     ],
   },
 
   async rewrites() {
     return [
-      // Varning: Din app kör på login.helsingbuss.se
-      // Att rewrita /widget/* -> https://login.helsingbuss.se/widget/* skapar loop.
-      // Om du har ett EXTERNT widget-ursprung (CDN), peka dit här.
-      // Exempel (aktivera när du har ett separat ursprung):
-      // { source: '/widget/:path*', destination: 'https://cdn.helsingbuss.se/widget/:path*' },
+      // serva widget-assets via din app
+      { source: '/widget/:path*', destination: 'https://login.helsingbuss.se/widget/:path*' },
 
-      // Om /offert/* ska servas av kund-projektet (separerad deploy), kan du aktivera denna:
+      // Exempel (lämna av om kund ligger som eget projekt):
       // { source: '/offert/:path*', destination: 'https://kund.helsingbuss.se/offert/:path*' },
     ];
   },
