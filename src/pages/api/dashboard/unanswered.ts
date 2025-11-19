@@ -2,6 +2,8 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import supabase from "@/lib/supabaseAdmin";
 
+export const config = { runtime: "nodejs" };
+
 type Row = {
   id: string;
   offer_number: string | null;
@@ -15,12 +17,7 @@ type Row = {
 
 type Payload = { rows: Row[] };
 
-export const config = { runtime: "nodejs" };
-
-export default async function handler(
-  _req: NextApiRequest,
-  res: NextApiResponse<Payload>
-) {
+export default async function handler(_req: NextApiRequest, res: NextApiResponse<Payload>) {
   try {
     const { data, error } = await supabase
       .from("offers")
@@ -28,27 +25,24 @@ export default async function handler(
       .order("created_at", { ascending: false })
       .limit(50);
 
-    if (error || !Array.isArray(data)) return res.status(200).json({ rows: [] });
+    if (error || !Array.isArray(data)) {
+      return res.status(200).json({ rows: [] });
+    }
+
+    // Statusar som räknas som obesvarade
+    const UNANSWERED = new Set([
+      "", "ny", "väntar", "pending", "obesvarad", "unanswered", "inkommen", "granska"
+    ]);
 
     const rows: Row[] = data
-      .filter((o: any) => {
-        const s = String(o.status ?? "").toLowerCase();
-        return (
-          s === "" ||
-          s === "ny" ||
-          s === "väntar" ||
-          s === "pending" ||
-          s === "obesvarad" ||
-          s === "unanswered"
-        );
-      })
+      .filter((o: any) => UNANSWERED.has(String(o.status ?? "").toLowerCase()))
       .map((o: any) => ({
         id: String(o.id),
         offer_number: o.offer_number ? String(o.offer_number) : null,
         from: o.departure_place ? String(o.departure_place) : null,
         to: o.destination ? String(o.destination) : null,
-        pax: typeof o.passengers === "number" ? o.passengers : o.pax ?? null,
-        type: o.trip_kind ? String(o.trip_kind) : o.type ? String(o.type) : "okänd",
+        pax: typeof o.passengers === "number" ? o.passengers : (o.pax ?? null),
+        type: o.trip_kind ? String(o.trip_kind) : (o.type ? String(o.type) : "okänd"),
         departure_date: o.departure_date ? String(o.departure_date) : null,
         departure_time: o.departure_time ? String(o.departure_time) : null,
       }));

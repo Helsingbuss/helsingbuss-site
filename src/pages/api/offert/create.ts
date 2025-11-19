@@ -12,11 +12,37 @@ const S = (v: any) => (v == null ? null : String(v).trim() || null);
 const U = <T extends string | number | null | undefined>(v: T) =>
   (v == null ? undefined : (v as Exclude<T, null>));
 
+/** Plocka fram nästa offertsiffra (HB + 5 siffror). Miniminivå 25009. */
+async function nextOfferNumber(): Promise<string> {
+  // Ta senaste som faktiskt har ett nummer
+  const { data } = await supabase
+    .from("offers")
+    .select("offer_number")
+    .not("offer_number", "is", null)
+    .order("created_at", { ascending: false })
+    .limit(1);
+
+  const latest = Array.isArray(data) && data[0]?.offer_number
+    ? String(data[0].offer_number)
+    : null;
+
+  const parseNum = (s: string | null) => {
+    if (!s) return null;
+    const m = s.match(/HB\s*([0-9]+)/i);
+    return m ? parseInt(m[1], 10) : null;
+  };
+
+  const base = 25009;                       // <-- ditt golv
+  const last = parseNum(latest);
+  const next = Math.max((last ?? base - 1) + 1, base);
+  return `HB${String(next).padStart(5, "0")}`;
+}
+
 export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse<ApiOk | ApiErr>
 ) {
-  // Släpp igenom preflight (viktigt bakom vissa proxys)
+  // Preflight
   if (req.method === "OPTIONS") {
     res.setHeader("Allow", "POST,OPTIONS");
     return res.status(204).end();
@@ -29,7 +55,12 @@ export default async function handler(
     }
 
     const b = req.body || {};
+
+    // Generera offer_number först
+    const offer_number = await nextOfferNumber();
+
     const row = {
+      offer_number,
       status: "inkommen",
 
       contact_person:     S(b.contact_person),
@@ -48,14 +79,15 @@ export default async function handler(
       via:             S(b.stopover_places) || S(b.via),
       stop:            S(b.stop),
 
-      return_departure:  S(b.return_departure),
-      return_destination:S(b.return_destination),
-      return_date:       S(b.return_date),
-      return_time:       S(b.return_time),
+      return_departure:   S(b.return_departure),
+      return_destination: S(b.return_destination),
+      return_date:        S(b.return_date),
+      return_time:        S(b.return_time),
 
-      passengers: typeof b.passengers === "number"
-        ? b.passengers
-        : Number(b.passengers || 0) || null,
+      passengers:
+        typeof b.passengers === "number"
+          ? b.passengers
+          : Number(b.passengers || 0) || null,
 
       notes: S(b.notes),
     };
@@ -71,7 +103,7 @@ export default async function handler(
 
     const offer = data;
 
-    // Admin-mail + kundkvitto (mallarna ligger i dina helpers).
+    // --- Mail till admin + kvitto till kund (mallar styr utseende/texter) ---
     try {
       await sendOfferMail({
         offerId:     String(offer.id),
@@ -95,8 +127,10 @@ export default async function handler(
         return_time: U(S(offer.return_time)),
 
         notes: U(S(offer.notes)),
+        // rubriker/knappar styrs i dina mallar (admin: Portal-start,
+        // kund: kund.helsingbuss.se/offert/:id)
       });
-    } catch (e:any) {
+    } catch (e: any) {
       console.error("[offert/create] sendOfferMail failed:", e?.message || e);
     }
 
@@ -108,12 +142,12 @@ export default async function handler(
           offerNumber: String(offer.offer_number || "HB25???"),
         });
       }
-    } catch (e:any) {
+    } catch (e: any) {
       console.error("[offert/create] sendCustomerReceipt failed:", e?.message || e);
     }
 
     return res.status(200).json({ ok: true, offer });
-  } catch (e:any) {
+  } catch (e: any) {
     console.error("[offert/create] error:", e?.message || e);
     return res.status(500).json({ error: e?.message || "Server error" });
   }

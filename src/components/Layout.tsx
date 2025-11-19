@@ -1,17 +1,14 @@
 // src/components/Layout.tsx
-import { ReactNode, useState } from "react";
-import Image from "next/image";
+import React, { ReactNode } from "react";
 import Link from "next/link";
+import Header from "./Header";
 import {
-  ClipboardDocumentListIcon,
-  CalendarDaysIcon,
-  BanknotesIcon,
+  HomeIcon,
+  UserCircleIcon,
+  BuildingOfficeIcon,
   UsersIcon,
-  ChartBarIcon,
   TicketIcon,
-} from "@heroicons/react/24/solid";
-import { supabase } from "../lib/supabaseClient";
-import { useRouter } from "next/router";
+} from "@heroicons/react/24/outline";
 
 interface LayoutProps {
   children: ReactNode;
@@ -19,126 +16,54 @@ interface LayoutProps {
 }
 
 export default function Layout({ children, active }: LayoutProps) {
-  const router = useRouter();
-  const [dropdownOpen, setDropdownOpen] = useState(false);
-
-  const handleLogout = async () => {
-  await supabase.auth.signOut();
-  router.push("/"); // Skickar till login (index.tsx)
-};
-
   return (
     <div className="min-h-screen bg-[#F5F4F0] flex flex-col">
-      {/* Header */}
-      <header className="bg-[#194C66] text-white px-6 py-3 flex justify-between items-center shadow fixed top-0 left-0 right-0 z-50">
-        {/* Logo */}
-        <Image src="/vit_logo.png" alt="Helsingbuss" width={160} height={45} />
+      {/* Gemensam topp-rad */}
+      <Header />
 
-        {/* Right side */}
-        <div className="relative">
-          <button
-            onClick={() => setDropdownOpen(!dropdownOpen)}
-            className="flex items-center gap-2 focus:outline-none"
-          >
-            {/* HjÃ¤lp-ikon */}
-            <div className="flex items-center justify-center w-7 h-7 rounded-full border border-white">
-              <span className="text-lg font-semibold">?</span>
-            </div>
-            <div className="flex flex-col items-start">
-              <span className="font-medium">Andreas EkelÃ¶f</span>
-              <span className="text-sm text-gray-200">Helsingbuss</span>
-            </div>
-            <span className="ml-1">âŒ„</span>
-          </button>
-
-          {/* Dropdown */}
-          {dropdownOpen && (
-            <div className="absolute right-0 mt-2 w-48 bg-white text-black rounded shadow-lg z-50">
-              <button
-                onClick={handleLogout}
-                className="block w-full text-left px-4 py-2 hover:bg-gray-100"
-              >
-                Logga ut
-              </button>
-              <button
-                onClick={() => alert("Byta sprÃ¥k kommer snart!")}
-                className="block w-full text-left px-4 py-2 hover:bg-gray-100"
-              >
-                Byt sprÃ¥k
-              </button>
-              <button
-                onClick={() => alert("HjÃ¤lp kommer snart!")}
-                className="block w-full text-left px-4 py-2 hover:bg-gray-100"
-              >
-                HjÃ¤lp
-              </button>
-            </div>
-          )}
-        </div>
-      </header>
-
-      <div className="flex flex-1 pt-[57px]">
+      <div className="flex flex-1 pt-[60px]">
         {/* Sidebar (klistrad meny) */}
-        <aside className="fixed top-[57px] left-0 w-[303px] h-[calc(100vh-57px)] bg-white shadow-md p-4 space-y-2 overflow-y-auto">
-          <Link
-            href="/dashboard"
-            className={`flex items-center gap-3 p-3 rounded-lg transition ${
-              active === "dashboard"
-                ? "bg-[#194C66] text-white shadow"
-                : "hover:bg-[#194C66] hover:text-white"
-            }`}
-          >
-            <ClipboardDocumentListIcon className="h-5 w-5" />
-            Hem
-          </Link>
+        <aside className="fixed top-[60px] left-0 w-[303px] h-[calc(100vh-60px)] bg-white border-r border-slate-200 px-4 py-6 overflow-y-auto">
+          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-4">
+            Navigering
+          </p>
 
-          <Link
-            href="/profile"
-            className={`flex items-center gap-3 p-3 rounded-lg transition ${
-              active === "profile"
-                ? "bg-[#194C66] text-white shadow"
-                : "hover:bg-[#194C66] hover:text-white"
-            }`}
-          >
-            <UsersIcon className="h-5 w-5" />
-            Min anvÃ¤ndarprofil
-          </Link>
+          <nav className="space-y-1">
+            <SidebarLink
+              href="/dashboard"
+              label="Hem"
+              active={active === "dashboard"}
+              icon={<HomeIcon className="h-5 w-5" />}
+            />
 
-          <Link
-            href="/company"
-            className={`flex items-center gap-3 p-3 rounded-lg transition ${
-              active === "company"
-                ? "bg-[#194C66] text-white shadow"
-                : "hover:bg-[#194C66] hover:text-white"
-            }`}
-          >
-            <BanknotesIcon className="h-5 w-5" />
-            FÃ¶retagsinstÃ¤llningar
-          </Link>
+            <SidebarLink
+              href="/profile"
+              label="Min användarprofil"
+              active={active === "profile"}
+              icon={<UserCircleIcon className="h-5 w-5" />}
+            />
 
-          <Link
-            href="/users"
-            className={`flex items-center gap-3 p-3 rounded-lg transition ${
-              active === "users"
-                ? "bg-[#194C66] text-white shadow"
-                : "hover:bg-[#194C66] hover:text-white"
-            }`}
-          >
-            <ChartBarIcon className="h-5 w-5" />
-            Hantera anvÃ¤ndare
-          </Link>
+            <SidebarLink
+              href="/company"
+              label="Företagsinställningar"
+              active={active === "company"}
+              icon={<BuildingOfficeIcon className="h-5 w-5" />}
+            />
 
-          <Link
-            href="/tickets"
-            className={`flex items-center gap-3 p-3 rounded-lg transition ${
-              active === "tickets"
-                ? "bg-[#194C66] text-white shadow"
-                : "hover:bg-[#194C66] hover:text-white"
-            }`}
-          >
-            <TicketIcon className="h-5 w-5" />
-            Paketresor
-          </Link>
+            <SidebarLink
+              href="/users"
+              label="Hantera användare"
+              active={active === "users"}
+              icon={<UsersIcon className="h-5 w-5" />}
+            />
+
+            <SidebarLink
+              href="/tickets"
+              label="Paketresor"
+              active={active === "tickets"}
+              icon={<TicketIcon className="h-5 w-5" />}
+            />
+          </nav>
         </aside>
 
         {/* Main content */}
@@ -148,3 +73,35 @@ export default function Layout({ children, active }: LayoutProps) {
   );
 }
 
+type SidebarLinkProps = {
+  href: string;
+  label: string;
+  active: boolean;
+  icon: ReactNode;
+};
+
+function SidebarLink({ href, label, active, icon }: SidebarLinkProps) {
+  return (
+    <Link
+      href={href}
+      className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition
+      ${
+        active
+          ? "bg-[#1D2937] text-white shadow-sm"
+          : "text-slate-700 hover:bg-slate-50 hover:text-slate-900"
+      }`}
+    >
+      <span
+        className={`inline-flex h-8 w-8 items-center justify-center rounded-full border
+        ${
+          active
+            ? "border-white/40 bg-white/10 text-white"
+            : "border-slate-200 bg-slate-50 text-slate-600"
+        }`}
+      >
+        {icon}
+      </span>
+      <span>{label}</span>
+    </Link>
+  );
+}
