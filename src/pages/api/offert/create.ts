@@ -3,8 +3,30 @@ import type { NextApiRequest, NextApiResponse } from "next";
 import supabase from "@/lib/supabaseAdmin";
 import { sendOfferMail, sendCustomerReceipt } from "@/lib/sendMail";
 
-export const config = { runtime: "nodejs" };
+// ====== CORS ======
+const ALLOWED_ORIGINS = new Set<string>([
+  "https://helsingbuss.se",
+  "https://www.helsingbuss.se",
+  "https://kund.helsingbuss.se",
+  "https://login.helsingbuss.se",
+  "https://hbshuttle.se",
+  "https://www.hbshuttle.se",
+  "https://2airport.se",
+  "https://www.2airport.se",
+  // lägg till fler domäner vid behov
+]);
 
+function setCors(req: NextApiRequest, res: NextApiResponse) {
+  const origin = String(req.headers.origin || "");
+  if (origin && ALLOWED_ORIGINS.has(origin)) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+  }
+  res.setHeader("Vary", "Origin");
+  res.setHeader("Access-Control-Allow-Methods", "POST,OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+}
+
+// ====== Typer & helpers ======
 type ApiOk  = { ok: true; offer: any };
 type ApiErr = { error: string };
 
@@ -12,39 +34,35 @@ const S = (v: any) => (v == null ? null : String(v).trim() || null);
 const U = <T extends string | number | null | undefined>(v: T) =>
   (v == null ? undefined : (v as Exclude<T, null>));
 
-/** Plocka fram nästa offertsiffra (HB + 5 siffror). Miniminivå 25009. */
+// Generera nästa offertnummer (HB25009, HB25010, …)
 async function nextOfferNumber(): Promise<string> {
-  // Ta senaste som faktiskt har ett nummer
-  const { data } = await supabase
+  const START = 25009;
+
+  const { data, error } = await supabase
     .from("offers")
     .select("offer_number")
-    .not("offer_number", "is", null)
-    .order("created_at", { ascending: false })
+    .ilike("offer_number", "HB25%")
+    .order("offer_number", { ascending: false })
     .limit(1);
 
-  const latest = Array.isArray(data) && data[0]?.offer_number
-    ? String(data[0].offer_number)
-    : null;
+  if (error || !data || data.length === 0) return `HB${START}`;
 
-  const parseNum = (s: string | null) => {
-    if (!s) return null;
-    const m = s.match(/HB\s*([0-9]+)/i);
-    return m ? parseInt(m[1], 10) : null;
-  };
-
-  const base = 25009;                       // <-- ditt golv
-  const last = parseNum(latest);
-  const next = Math.max((last ?? base - 1) + 1, base);
-  return `HB${String(next).padStart(5, "0")}`;
+  // Plocka siffrorna efter "HB"
+  const last = String(data[0].offer_number || "").replace(/^HB/i, "");
+  const lastNum = parseInt(last, 10);
+  const next = Number.isFinite(lastNum) ? Math.max(START, lastNum + 1) : START;
+  // Ex: "HB25021" (ingen extra padding behövs i ditt format)
+  return `HB${next}`;
 }
 
 export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse<ApiOk | ApiErr>
 ) {
+  setCors(req, res);
+
   // Preflight
   if (req.method === "OPTIONS") {
-    res.setHeader("Allow", "POST,OPTIONS");
     return res.status(204).end();
   }
 
@@ -54,13 +72,11 @@ export default async function handler(
       return res.status(405).json({ error: "Method not allowed" });
     }
 
-    const b = req.body || {};
+    // --- Normalisera inkommande body (JSON eller urlencoded) ---
+    const b: any = req.body || {};
 
-    // Generera offer_number först
-    const offer_number = await nextOfferNumber();
-
-    const row = {
-      offer_number,
+    // Sätt upp raden som ska in i 'offers'
+    const row: Record<string, any> = {
       status: "inkommen",
 
       contact_person:     S(b.contact_person),
@@ -92,6 +108,14 @@ export default async function handler(
       notes: S(b.notes),
     };
 
+    // Säkerställ offer_number
+    if (!b.offer_number) {
+      row.offer_number = await nextOfferNumber();
+    } else {
+      row.offer_number = String(b.offer_number);
+    }
+
+    // --- INSERT ---
     const { data, error } = await supabase
       .from("offers")
       .insert(row)
@@ -103,7 +127,7 @@ export default async function handler(
 
     const offer = data;
 
-    // --- Mail till admin + kvitto till kund (mallar styr utseende/texter) ---
+    // --- MAIL: Admin + Kundkvitto (mallar använder dina helpers) ---
     try {
       await sendOfferMail({
         offerId:     String(offer.id),
@@ -127,8 +151,6 @@ export default async function handler(
         return_time: U(S(offer.return_time)),
 
         notes: U(S(offer.notes)),
-        // rubriker/knappar styrs i dina mallar (admin: Portal-start,
-        // kund: kund.helsingbuss.se/offert/:id)
       });
     } catch (e: any) {
       console.error("[offert/create] sendOfferMail failed:", e?.message || e);
