@@ -1,126 +1,256 @@
+// src/pages/api/offert/create.ts
 import type { NextApiRequest, NextApiResponse } from "next";
-import admin from "@/lib/supabaseAdmin";
-import { nextOfferNumber } from "@/lib/offerNumber";
-import { sendOfferMail, sendCustomerReceipt } from "@/lib/sendMail";
+import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { sendOfferMail, sendCustomerReceipt } from "@/lib/sendOfferMail";
 
-export const config = { runtime: "nodejs" };
+/** Tillåt anrop från dina domäner (hemsida + portal) */
+const ALLOWED_ORIGINS = [
+  "https://helsingbuss.se",
+  "https://www.helsingbuss.se",
+  "https://login.helsingbuss.se",
+];
 
-type ApiOk  = { ok: true; offer: any };
-type ApiErr = { error: string };
+function setCors(res: NextApiResponse, origin?: string | null) {
+  const o = origin || "";
+  const allowed =
+    ALLOWED_ORIGINS.find((a) => o.startsWith(a)) || ALLOWED_ORIGINS[0];
 
-const S = (v: any) => (v == null ? null : String(v).trim() || null);
-const U = <T extends string | number | null | undefined>(v: T) =>
-  (v == null ? undefined : (v as Exclude<T, null>));
-
-// tillåt Fluent Forms preflight
-function setCors(res: NextApiResponse) {
-  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Origin", allowed);
   res.setHeader("Access-Control-Allow-Methods", "POST,OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type, X-Webhook-Token");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+}
+
+/** Plocka första icke-tomma värdet från flera nycklar */
+function pick(body: any, ...keys: string[]): string | undefined {
+  for (const k of keys) {
+    const v = body?.[k];
+    if (v === undefined || v === null) continue;
+    const s = String(v).trim();
+    if (s) return s;
+  }
+  return undefined;
+}
+
+/** Generera nästa offertnummer HB25XXX */
+async function getNextOfferNumber() {
+  const year = new Date().getFullYear().toString().slice(-2); // t.ex. "25"
+  const prefix = `HB${year}`;
+
+  const { data, error } = await supabaseAdmin
+    .from("offers")
+    .select("offer_number")
+    .like("offer_number", `${prefix}%`)
+    .order("offer_number", { ascending: false })
+    .limit(1);
+
+  if (error) {
+    console.error("getNextOfferNumber error:", error.message || error);
+    const rand = Math.floor(Math.random() * 900) + 100;
+    return `${prefix}${rand}`;
+  }
+
+  let next = 1;
+  if (data && data.length && data[0]?.offer_number) {
+    const last = String(data[0].offer_number);
+    const m = last.match(/^HB\d{2}(\d+)$/);
+    if (m) next = parseInt(m[1], 10) + 1;
+  }
+
+  const seq = String(next).padStart(3, "0");
+  return `${prefix}${seq}`;
 }
 
 export default async function handler(
   req: NextApiRequest,
-  res: NextApiResponse<ApiOk | ApiErr>
+  res: NextApiResponse
 ) {
-  setCors(res);
-  if (req.method === "OPTIONS") return res.status(204).end();
-  if (req.method !== "POST")  return res.status(405).json({ error: "Method not allowed" });
+  setCors(res, req.headers.origin || null);
+
+  if (req.method === "OPTIONS") return res.status(200).end();
+  if (req.method !== "POST") {
+    return res.status(405).json({ error: "Method not allowed" });
+  }
 
   try {
-    // (valfritt) enkel token för WP-webhook
-    const mustHave = process.env.WEBHOOK_TOKEN;
-    if (mustHave && req.headers["x-webhook-token"] !== mustHave) {
-      return res.status(401).json({ error: "Unauthorized" });
+    const rawBody: any =
+      typeof req.body === "string" ? JSON.parse(req.body) : req.body || {};
+
+    /** ===== HÄMTA FÄLT FRÅN FORMULÄR ===== */
+
+    const customerEmail =
+      pick(rawBody, "customer_email", "email", "kund_email") || "";
+    if (!customerEmail) {
+      return res
+        .status(400)
+        .json({ error: "customer_email / email saknas i payload." });
     }
 
-    const b = (req.body ?? {}) as Record<string, any>;
+    const contactPerson =
+      pick(
+        rawBody,
+        "contact_person",
+        "contact_name",
+        "Namn_efternamn",
+        "namn_efternamn"
+      ) || null;
 
-    // mappa Fluent Forms-fälten -> DB-kolumner
-    const row: any = {
-      status: "inkommen",
+    const customerPhone =
+      pick(rawBody, "customer_phone", "telefon", "phone") || null;
 
-      contact_person:     S(b.contact_person),
-      customer_email:     S(b.customer_email),
-      customer_phone:     S(b.customer_phone),
+    const company =
+      pick(rawBody, "foretag_forening", "företag_förening", "company") ||
+      null;
 
-      customer_reference: S(b.customer_reference) || S(b.contact_person),
-      customer_name:      S(b.customer_name)      || S(b.Namn_efternamn) || S(b.contact_person),
-      customer_type:      S(b.customer_type)      || "privat",
-      invoice_ref:        S(b.Referens_PO_nummer) || S(b.invoice_ref),
+    const orgNumber =
+      pick(rawBody, "org_number", "orgnr", "org_nummer") || null;
 
-      departure_place: S(b.departure_place),
-      destination:     S(b.destination),
-      departure_date:  S(b.departure_date),
-      departure_time:  S(b.departure_time),
-      via:             S(b.via) || S(b.stopover_places),
-      stop:            S(b.stop),
+    const fromPlace =
+      pick(rawBody, "departure_place", "from", "avresa") || null;
+    const toPlace =
+      pick(rawBody, "destination", "to", "destinationen") || null;
 
-      // retur-fält (stöder båda namnen)
-      return_departure:   S(b.return_departure)   || S(b.return_from),
-      return_destination: S(b.return_destination) || S(b.final_destination) || S(b.return_to),
-      return_date:        S(b.return_date),
-      return_time:        S(b.return_time),
+    const via = pick(rawBody, "via") || null;
+    const stop = pick(rawBody, "stop") || null;
 
-      passengers: typeof b.passengers === "number"
-        ? b.passengers
-        : Number(b.passengers || 0) || null,
+    const departureDate =
+      pick(rawBody, "departure_date", "date", "datum") || null;
+    const departureTime =
+      pick(rawBody, "departure_time", "time", "tid") || null;
 
-      // lägg diverse extra i notes
-      notes: [ S(b.notes), S(b.behöver_buss), S(b.basplats_pa_destination) ]
-        .filter(Boolean).join("\n") || null
+    const enkelTurRetur =
+      pick(rawBody, "enkel_tur_retur", "typ_av_resa") || null;
+
+    const returnDeparture =
+      pick(rawBody, "return_departure", "retur_fran") || null;
+    const finalDestination =
+      pick(rawBody, "final_destination", "slutdestination") || null;
+    const returnDate = pick(rawBody, "return_date") || null;
+    const returnTime = pick(rawBody, "return_time") || null;
+
+    const behoverBuss = pick(rawBody, "behover_buss") || null;
+    const notisPaPlats = pick(rawBody, "notis_pa_plats") || null;
+    const basplatsPaDestination =
+      pick(rawBody, "basplats_pa_destination") || null;
+
+    const endTime = pick(rawBody, "end_time") || null;
+    const localKor = pick(rawBody, "local_kor") || null;
+    const standby = pick(rawBody, "standby") || null;
+    const parkering = pick(rawBody, "parkering") || null;
+
+    const referensPo =
+      pick(rawBody, "Referens_PO_nummer", "referens_po_nummer") || null;
+
+    const passengersRaw =
+      pick(rawBody, "passengers", "pax", "antal_resenarer") || undefined;
+    const passengers =
+      passengersRaw != null && !Number.isNaN(Number(passengersRaw))
+        ? Number(passengersRaw)
+        : null;
+
+    const notes =
+      pick(rawBody, "notes", "noteringar", "message", "meddelande") || null;
+
+    /** ===== skapa offertnummer ===== */
+    const offerNumber = await getNextOfferNumber();
+
+    /** ===== INSERT: ENDAST KOLUMNER SOM FINNS I TABELLEN ===== */
+    const insertPayload: any = {
+      offer_number: offerNumber,
+      // status: sätts inte här – DB default / NULL används
+
+      // kund
+      contact_person: contactPerson,
+      Namn_efternamn: contactPerson, // om kolumnen finns
+      customer_email: customerEmail,
+      customer_phone: customerPhone,
+      foretag_forening: company,
+      org_number: orgNumber,
+      Referens_PO_nummer: referensPo,
+
+      // resa
+      departure_place: fromPlace,
+      destination: toPlace,
+      via,
+      stop,
+      departure_date: departureDate,
+      departure_time: departureTime,
+      enkel_tur_retur: enkelTurRetur,
+      return_departure: returnDeparture,
+      final_destination: finalDestination,
+      return_date: returnDate,
+      return_time: returnTime,
+      behover_buss: behoverBuss,
+      notis_pa_plats: notisPaPlats,
+      basplats_pa_destination: basplatsPaDestination,
+      end_time: endTime,
+      local_kor: localKor,
+      standby,
+      parkering,
+      passengers,
+      notes,
     };
 
-    // generera offertnummer
-    row.offer_number = await nextOfferNumber(admin);
+    const { data, error } = await supabaseAdmin
+      .from("offers")
+      .insert(insertPayload)
+      .select(
+        "id, offer_number, departure_place, destination, departure_date, departure_time, passengers"
+      )
+      .single();
 
-    // Insert
-    const { data, error } = await admin.from("offers").insert(row).select("*").single();
-    if (error || !data) return res.status(500).json({ error: error?.message || "Insert failed" });
+    if (error) {
+      console.error("/api/offert/create insert error:", error);
+      return res.status(500).json({
+        error: "Kunde inte skapa offert i databasen.",
+        supabaseError: error.message || String(error),
+      });
+    }
 
-    const offer = data;
+    const created = data as any;
+    const finalOfferNumber: string = created.offer_number || offerNumber;
 
-    // Mail till admin + kvitto till kund
+    /** ===== mail till admin ===== */
     try {
       await sendOfferMail({
-        offerId: String(offer.id),
-        offerNumber: String(offer.offer_number),
-
-        customerEmail: U(S(offer.customer_email)),
-        customerName:  U(S(offer.contact_person)),
-
-        from: U(S(offer.departure_place)),
-        to:   U(S(offer.destination)),
-        date: U(S(offer.departure_date)),
-        time: U(S(offer.departure_time)),
-
-        via:  U(S(offer.via)),
-        stop: U(S(offer.stop)),
-        passengers: typeof offer.passengers === "number" ? offer.passengers : undefined,
-
-        return_from: U(S(offer.return_departure)),
-        return_to:   U(S(offer.return_destination)),
-        return_date: U(S(offer.return_date)),
-        return_time: U(S(offer.return_time)),
-
-        notes: U(S(offer.notes)),
+        offerId: String(created.id),
+        offerNumber: finalOfferNumber,
+        customerEmail,
+        customerName: contactPerson || company || undefined,
+        from: fromPlace || undefined,
+        to: toPlace || undefined,
+        date: departureDate || undefined,
+        time: departureTime || undefined,
+        passengers: passengers ?? undefined,
       });
-    } catch (e:any) {
-      console.error("[offert/create] sendOfferMail:", e?.message || e);
+    } catch (err) {
+      console.error("sendOfferMail error:", (err as any)?.message || err);
     }
 
+    /** ===== kvittens till kund ===== */
     try {
-      const to = S(offer.customer_email);
-      if (to && to.includes("@")) {
-        await sendCustomerReceipt({ to, offerNumber: String(offer.offer_number) });
-      }
-    } catch (e:any) {
-      console.error("[offert/create] sendCustomerReceipt:", e?.message || e);
+      await sendCustomerReceipt({
+        to: customerEmail,
+        offerNumber: finalOfferNumber,
+        from: fromPlace || undefined,
+        toPlace: toPlace || undefined,
+        date: departureDate || undefined,
+        time: departureTime || undefined,
+        passengers: passengers ?? undefined,
+      });
+    } catch (err) {
+      console.error(
+        "sendCustomerReceipt error:",
+        (err as any)?.message || err
+      );
     }
 
-    return res.status(200).json({ ok: true, offer });
-  } catch (e:any) {
-    console.error("[offert/create] error:", e?.message || e);
-    return res.status(500).json({ error: e?.message || "Server error" });
+    return res.status(200).json({
+      ok: true,
+      id: created.id,
+      offerNumber: finalOfferNumber,
+    });
+  } catch (e: any) {
+    console.error("/api/offert/create fatal error:", e?.message || e);
+    return res.status(500).json({ error: "Internt fel i offert-API:t." });
   }
 }

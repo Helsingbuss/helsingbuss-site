@@ -1,3 +1,4 @@
+//src/lib/sendBookingMail.ts
 import { Resend } from "resend";
 import sg from "@sendgrid/mail";
 import nodemailer from "nodemailer";

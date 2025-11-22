@@ -1,5 +1,5 @@
 // src/pages/admin/orders/index.tsx
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/router";
 import AdminMenu from "@/components/AdminMenu";
 import Header from "@/components/Header";
@@ -50,9 +50,43 @@ function clsStatusPill(s?: string | null) {
   if (v === "ack" || v === "confirmed" || v === "bekraftad" || v === "bekräftad")
     return "bg-emerald-100 text-emerald-800";
   if (v === "done" || v === "klar") return "bg-green-100 text-green-800";
-  if (v === "cancelled" || v === "canceled" || v === "avbokad" || v === "inställd" || v === "installt")
+  if (
+    v === "cancelled" ||
+    v === "canceled" ||
+    v === "avbokad" ||
+    v === "inställd" ||
+    v === "installt"
+  )
     return "bg-red-100 text-red-800";
   return "bg-gray-100 text-gray-700";
+}
+
+function labelStatus(s?: string | null) {
+  const v = (s || "").toLowerCase();
+  if (!v) return "Utkast";
+
+  switch (v) {
+    case "draft":
+      return "Utkast";
+    case "sent":
+      return "Skickad";
+    case "ack":
+    case "confirmed":
+    case "bekraftad":
+    case "bekräftad":
+      return "Bekräftad";
+    case "done":
+    case "klar":
+      return "Klar";
+    case "cancelled":
+    case "canceled":
+    case "avbokad":
+    case "inställd":
+    case "installt":
+      return "Avbokad";
+    default:
+      return s || "—";
+  }
 }
 
 export default function OrdersList() {
@@ -65,14 +99,21 @@ export default function OrdersList() {
   );
 
   const [rows, setRows] = useState<Row[]>([]);
-  const [status, setStatus] = useState<string>((router.query.status as string) || "");
-  const [search, setSearch] = useState<string>((router.query.search as string) || "");
+  const [status, setStatus] = useState<string>(
+    (router.query.status as string) || ""
+  );
+  const [search, setSearch] = useState<string>(
+    (router.query.search as string) || ""
+  );
   const [page, setPage] = useState<number>(() => {
     const p = Number(router.query.page);
     return Number.isFinite(p) && p > 0 ? p : 1;
   });
   const [pageSize, setPageSize] = useState<number>(() => {
-    const ps = router.query.pageSize === "all" ? 1000 : Number(router.query.pageSize);
+    const ps =
+      router.query.pageSize === "all"
+        ? 1000
+        : Number(router.query.pageSize);
     return Number.isFinite(ps) && ps > 0 ? ps : 10;
   });
   const [total, setTotal] = useState(0);
@@ -98,10 +139,18 @@ export default function OrdersList() {
     );
   }, [scope, status, search, page, pageSize, router]);
 
-  async function fetchWithFallback(urlPrimary: string, urlFallback: string, signal?: AbortSignal) {
+  async function fetchWithFallback(
+    urlPrimary: string,
+    urlFallback: string,
+    signal?: AbortSignal
+  ) {
     let r = await fetch(urlPrimary, { signal });
     if (!r.ok) {
-      try { r = await fetch(urlFallback, { signal }); } catch { /* ignore */ }
+      try {
+        r = await fetch(urlFallback, { signal });
+      } catch {
+        /* ignore */
+      }
     }
     return r;
   }
@@ -123,7 +172,7 @@ export default function OrdersList() {
       if (status) qs.set("status", status);
       if (search) qs.set("search", search);
 
-      // Primärt nya endpointen, fallback till gamla namnet om den saknas
+      // Viktigt: korrekt querystring med "?"
       const urlA = `/api/orders/list?${qs.toString()}`;
       const urlB = `/api/driver-orders/list?${qs.toString()}`;
 
@@ -150,18 +199,20 @@ export default function OrdersList() {
 
   // debounced search -> laddar om när användaren pausar skrivandet
   useEffect(() => {
-    if (searchDebounceRef.current) window.clearTimeout(searchDebounceRef.current);
+    if (searchDebounceRef.current)
+      window.clearTimeout(searchDebounceRef.current);
     searchDebounceRef.current = window.setTimeout(() => {
       setPage(1);
       load();
     }, 300);
     return () => {
-      if (searchDebounceRef.current) window.clearTimeout(searchDebounceRef.current);
+      if (searchDebounceRef.current)
+        window.clearTimeout(searchDebounceRef.current);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [search]);
 
-  const totalPages = useMemo(() => Math.max(1, Math.ceil(total / pageSize)), [total, pageSize]);
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
   const [resendingId, setResendingId] = useState<string | null>(null);
   async function resend(id: string) {
@@ -169,7 +220,9 @@ export default function OrdersList() {
     if (!ok) return;
     setResendingId(id);
     try {
-      const r = await fetch(`/api/driver-orders/${id}/resend`, { method: "POST" });
+      const r = await fetch(`/api/driver-orders/${id}/resend`, {
+        method: "POST",
+      });
       if (!r.ok) alert("Kunde inte skicka om.");
       else alert("Utskicket gjordes.");
     } catch {
@@ -183,12 +236,14 @@ export default function OrdersList() {
     if (!out_date) return "";
     const d = new Date(out_date + "T" + tidyTime(out_time));
     const diffH = (d.getTime() - Date.now()) / 36e5;
-    if (diffH <= 48) return "text-red-600";      // Besvara direkt
-    if (diffH <= 120) return "text-orange-500";  // Börjar närma sig
-    return "text-green-600";                     // Gott om tid
+    if (diffH <= 48) return "text-red-600"; // Besvara direkt
+    if (diffH <= 120) return "text-orange-500"; // Börjar närma sig
+    return "text-green-600"; // Gott om tid
   };
 
-  const skeletonRows = Array.from({ length: Math.min(pageSize || 10, 10) }).map((_, i) => (
+  const skeletonRows = Array.from({
+    length: Math.min(pageSize || 10, 10),
+  }).map((_, i) => (
     <tr key={`sk-${i}`} className="border-t animate-pulse">
       {Array.from({ length: 7 }).map((__, j) => (
         <td key={j} className="py-2 pr-3">
@@ -212,7 +267,9 @@ export default function OrdersList() {
         <Header />
         <main className="p-6 space-y-6">
           <div className="flex items-center justify-between">
-            <h1 className="text-xl font-semibold text-[#194C66]">Alla körordrar</h1>
+            <h1 className="text-xl font-semibold text-[#194C66]">
+              Alla körordrar
+            </h1>
             <a
               href="/admin/orders/new"
               className="px-4 py-2 rounded-[25px] bg-[#194C66] text-white text-sm"
@@ -223,13 +280,22 @@ export default function OrdersList() {
 
           {/* Snabbfilter: Alla / Kommande */}
           <div className="bg-white rounded-xl shadow p-3 flex flex-wrap items-center gap-3">
-            <div className="inline-flex rounded-xl bg-[#f8fafc] p-1" role="tablist" aria-label="Snabbfilter">
-              {(["all","upcoming"] as const).map(s => (
+            <div
+              className="inline-flex rounded-xl bg-[#f8fafc] p-1"
+              role="tablist"
+              aria-label="Snabbfilter"
+            >
+              {(["all", "upcoming"] as const).map((s) => (
                 <button
                   key={s}
-                  onClick={() => { setPage(1); setScope(s); }}
+                  onClick={() => {
+                    setPage(1);
+                    setScope(s);
+                  }}
                   className={`px-3 py-1 rounded-lg text-sm ${
-                    scope === s ? "bg-[#194C66] text-white" : "text-[#194C66]"
+                    scope === s
+                      ? "bg-[#194C66] text-white"
+                      : "text-[#194C66]"
                   }`}
                   role="tab"
                   aria-selected={scope === s}
@@ -244,14 +310,22 @@ export default function OrdersList() {
               className="border rounded px-3 py-2"
               placeholder="Sök (nummer, chaufför, ort)…"
               value={search}
-              onChange={e => setSearch(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter") { setPage(1); load(); } }}
+              onChange={(e) => setSearch(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  setPage(1);
+                  load();
+                }
+              }}
               aria-label="Sök i körordrar"
             />
             <select
               className="border rounded px-3 py-2"
               value={status}
-              onChange={e => { setStatus(e.target.value); setPage(1); }}
+              onChange={(e) => {
+                setStatus(e.target.value);
+                setPage(1);
+              }}
               aria-label="Filtrera på status"
             >
               <option value="">Alla status</option>
@@ -263,7 +337,10 @@ export default function OrdersList() {
             <select
               className="border rounded px-3 py-2"
               value={pageSize}
-              onChange={e => { setPageSize(parseInt(e.target.value, 10) || 10); setPage(1); }}
+              onChange={(e) => {
+                setPageSize(parseInt(e.target.value, 10) || 10);
+                setPage(1);
+              }}
               aria-label="Antal poster per sida"
             >
               <option value={10}>10</option>
@@ -276,18 +353,25 @@ export default function OrdersList() {
           {/* Prio-legend */}
           <div className="text-xs text-[#194C66]/70">
             <span className="inline-flex items-center gap-1 mr-3">
-              <span className="inline-block h-2.5 w-2.5 rounded-full bg-green-500" /> Grön = &gt; 120 h
+              <span className="inline-block h-2.5 w-2.5 rounded-full bg-green-500" />{" "}
+              Grön = &gt; 120 h
             </span>
             <span className="inline-flex items-center gap-1 mr-3">
-              <span className="inline-block h-2.5 w-2.5 rounded-full bg-amber-500" /> Orange = ≤ 120 h
+              <span className="inline-block h-2.5 w-2.5 rounded-full bg-amber-500" />{" "}
+              Orange = ≤ 120 h
             </span>
             <span className="inline-flex items-center gap-1">
-              <span className="inline-block h-2.5 w-2.5 rounded-full bg-red-500" /> Röd = ≤ 48 h
+              <span className="inline-block h-2.5 w-2.5 rounded-full bg-red-500" />{" "}
+              Röd = ≤ 48 h
             </span>
           </div>
 
           {error && (
-            <div className="rounded-lg bg-red-50 border border-red-200 text-red-700 p-3 text-sm" role="alert" aria-live="assertive">
+            <div
+              className="rounded-lg bg-red-50 border border-red-200 text-red-700 p-3 text-sm"
+              role="alert"
+              aria-live="assertive"
+            >
               {error}
             </div>
           )}
@@ -309,50 +393,76 @@ export default function OrdersList() {
                 <tbody className="text-[#194C66]">
                   {loading && skeletonRows}
                   {!loading && rows.length === 0 && (
-                    <tr><td colSpan={7} className="py-4">Inga körordrar</td></tr>
-                  )}
-                  {!loading && rows.map(r => (
-                    <tr key={r.id} className="border-t">
-                      <td className="py-2 pr-3">
-                        <div className="font-semibold">{r.order_number ?? "—"}</div>
-                        <div className={`text-xs ${prioColor(r.out_date, r.out_time)}`}>
-                          {fmtDate(r.out_date)} {fmtTime(r.out_time)}
-                        </div>
-                      </td>
-                      <td className="py-2 pr-3">
-                        <div>{r.out_from ?? "—"} → {r.out_to ?? "—"}</div>
-                      </td>
-                      <td className="py-2 pr-3">
-                        <div>{r.driver_name ?? "—"}</div>
-                        <div className="text-xs text-[#194C66]/70">{r.driver_email ?? ""}</div>
-                      </td>
-                      <td className="py-2 pr-3">{r.vehicle_reg ?? "—"}</td>
-                      <td className="py-2 pr-3">{r.passengers ?? "—"}</td>
-                      <td className="py-2 pr-3">
-                        <span className={`px-2 py-1 rounded-full text-xs ${clsStatusPill(r.status)}`}>
-                          {r.status ?? "—"}
-                        </span>
-                      </td>
-                      <td className="py-2 pr-3 space-x-2">
-                        <a
-                          className="underline"
-                          href={`/driver-order/${r.id}`}
-                          target="_blank"
-                          rel="noreferrer"
-                        >
-                          Öppna
-                        </a>
-                        <button
-                          className="underline disabled:opacity-50"
-                          onClick={() => resend(r.id)}
-                          disabled={resendingId === r.id}
-                          aria-label={`Skicka om körorder ${r.order_number ?? ""} till chaufför`}
-                        >
-                          {resendingId === r.id ? "Skickar…" : "Skicka om"}
-                        </button>
+                    <tr>
+                      <td colSpan={7} className="py-4">
+                        Inga körordrar
                       </td>
                     </tr>
-                  ))}
+                  )}
+                  {!loading &&
+                    rows.map((r) => (
+                      <tr key={r.id} className="border-t">
+                        <td className="py-2 pr-3">
+                          <div className="font-semibold">
+                            {r.order_number ?? "—"}
+                          </div>
+                          <div
+                            className={`text-xs ${prioColor(
+                              r.out_date,
+                              r.out_time
+                            )}`}
+                          >
+                            {fmtDate(r.out_date)} {fmtTime(r.out_time)}
+                          </div>
+                        </td>
+                        <td className="py-2 pr-3">
+                          <div>
+                            {r.out_from ?? "—"} → {r.out_to ?? "—"}
+                          </div>
+                        </td>
+                        <td className="py-2 pr-3">
+                          <div>{r.driver_name ?? "—"}</div>
+                          <div className="text-xs text-[#194C66]/70">
+                            {r.driver_email ?? ""}
+                          </div>
+                        </td>
+                        <td className="py-2 pr-3">
+                          {r.vehicle_reg ?? "—"}
+                        </td>
+                        <td className="py-2 pr-3">
+                          {r.passengers ?? "—"}
+                        </td>
+                        <td className="py-2 pr-3">
+                          <span
+                            className={`px-2 py-1 rounded-full text-xs ${clsStatusPill(
+                              r.status
+                            )}`}
+                          >
+                            {labelStatus(r.status)}
+                          </span>
+                        </td>
+                        <td className="py-2 pr-3 space-x-2">
+                          <a
+                            className="underline"
+                            href={`/driver-order/${r.id}`}
+                            target="_blank"
+                            rel="noreferrer"
+                          >
+                            Öppna
+                          </a>
+                          <button
+                            className="underline disabled:opacity-50"
+                            onClick={() => resend(r.id)}
+                            disabled={resendingId === r.id}
+                            aria-label={`Skicka om körorder ${
+                              r.order_number ?? ""
+                            } till chaufför`}
+                          >
+                            {resendingId === r.id ? "Skickar…" : "Skicka om"}
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
                 </tbody>
               </table>
             </div>
@@ -361,16 +471,18 @@ export default function OrdersList() {
               <div className="mt-4 flex items-center gap-2">
                 <button
                   disabled={page <= 1}
-                  onClick={() => setPage(p => Math.max(1, p - 1))}
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
                   className="px-3 py-1 border rounded disabled:opacity-50"
                   aria-label="Föregående sida"
                 >
                   Föregående
                 </button>
-                <div className="text-sm">Sida {page} / {totalPages}</div>
+                <div className="text-sm">
+                  Sida {page} / {totalPages}
+                </div>
                 <button
                   disabled={page >= totalPages}
-                  onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
                   className="px-3 py-1 border rounded disabled:opacity-50"
                   aria-label="Nästa sida"
                 >
