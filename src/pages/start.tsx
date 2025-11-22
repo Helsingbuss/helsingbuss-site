@@ -6,7 +6,9 @@ import OffersBarChart, {
   type Series as ChartSeries,
   type StatsTotals,
 } from "@/components/dashboard/OffersBarChart";
-import UnansweredTable from "@/components/dashboard/UnansweredTable";
+import UnansweredTable, {
+  type UnansweredRow,
+} from "@/components/dashboard/UnansweredTable";
 import GreetingNews from "@/components/dashboard/GreetingNews";
 import EconomyCard from "@/components/dashboard/EconomyCard";
 import { AdjustmentsHorizontalIcon } from "@heroicons/react/24/outline";
@@ -23,17 +25,6 @@ type StatsData = {
     booking_done: number;
   };
   apiTotals?: StatsTotals; // totals från API:t (per år)
-};
-
-type UnansweredRow = {
-  id: string;
-  offer_number: string | null;
-  from: string | null;
-  to: string | null;
-  pax: number | null;
-  type: string;
-  departure_date: string | null;
-  departure_time: string | null;
 };
 
 type Granularity = "week" | "month" | "ytd";
@@ -109,7 +100,10 @@ export default function Start() {
 
       const totalsCounts = {
         offer_answered: (s.offer_answered || []).reduce((a, b) => a + b, 0),
-        offer_unanswered: (s.offer_unanswered || []).reduce((a, b) => a + b, 0),
+        offer_unanswered: (s.offer_unanswered || []).reduce(
+          (a, b) => a + b,
+          0
+        ),
         booking_in: (s.booking_in || []).reduce((a, b) => a + b, 0),
         booking_done: (s.booking_done || []).reduce((a, b) => a + b, 0),
       };
@@ -131,14 +125,17 @@ export default function Start() {
   async function loadUnanswered() {
     try {
       setLoadingUnanswered(true);
-      const res = await fetch("/api/dashboard/unanswered").catch(() => null);
-      if (res && res.ok) {
-        const json = await res.json();
-        setUnanswered(json?.rows ?? []);
-      } else {
-        setUnanswered([]);
-      }
-    } catch {
+
+      // 🔹 HÄR BYTER VI TILL /api/dashboard/offers
+      const res = await fetch("/api/dashboard/offers");
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+      const json = await res.json();
+      const rows = (json?.unanswered ?? []) as UnansweredRow[];
+
+      setUnanswered(rows);
+    } catch (e) {
+      console.error("loadUnanswered error:", e);
       setUnanswered([]);
     } finally {
       setLoadingUnanswered(false);

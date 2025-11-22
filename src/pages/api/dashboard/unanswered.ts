@@ -49,50 +49,31 @@ export default async function handler(
       return res.status(200).json({ rows: [] });
     }
 
-    const rows: Row[] = data
-      // ta bara med de som inte är besvarade/godkända/avböjda/makulerade
-      .filter((o: any) => {
-        const s = String(o.status ?? "").toLowerCase();
-        return ![
-          "besvarad",
-          "answered",
-          "godkänd",
-          "godkand",
-          "approved",
-          "avböjd",
-          "avbojd",
-          "cancelled",
-          "makulerad",
-        ].includes(s);
-      })
-      .map((o: any) => ({
-        id: String(o.id),
-        offer_number: o.offer_number ? String(o.offer_number) : null,
-        from: o.departure_place ? String(o.departure_place) : null,
-        to: o.destination ? String(o.destination) : null,
-        pax:
-          typeof o.passengers === "number"
-            ? o.passengers
-            : typeof o.pax === "number"
-            ? o.pax
-            : null,
-        // enkel_tur_retur är prio, annars fallbacks ifall du har gamla fält kvar
-        type: o.enkel_tur_retur
-          ? String(o.enkel_tur_retur)
-          : o.trip_kind
-          ? String(o.trip_kind)
-          : o.type
-          ? String(o.type)
+    // ⚠️ OBS: inget status-filter här – vi skickar bara vidare de senaste 50
+    const rows: Row[] = data.map((o: any) => ({
+      id: String(o.id),
+      offer_number: o.offer_number ? String(o.offer_number) : null,
+      from: o.departure_place ? String(o.departure_place) : null,
+      to: o.destination ? String(o.destination) : null,
+      pax:
+        typeof o.passengers === "number"
+          ? o.passengers
+          : typeof o.pax === "number"
+          ? o.pax
           : null,
-        departure_date: o.departure_date
-          ? String(o.departure_date)
-          : null,
-        departure_time: o.departure_time
-          ? String(o.departure_time)
-          : null,
-        status: o.status ? String(o.status) : null,
-      }));
+      type: o.enkel_tur_retur
+        ? String(o.enkel_tur_retur)
+        : o.trip_kind
+        ? String(o.trip_kind)
+        : o.type
+        ? String(o.type)
+        : null,
+      departure_date: o.departure_date ? String(o.departure_date) : null,
+      departure_time: o.departure_time ? String(o.departure_time) : null,
+      status: o.status ? String(o.status) : null,
+    }));
 
+    console.log("unanswered: rows returned =", rows.length);
     return res.status(200).json({ rows });
   } catch (err) {
     console.error("unanswered: unexpected error", err);

@@ -1,0 +1,45 @@
+import type { NextApiRequest, NextApiResponse } from "next";
+import * as admin from "@/lib/supabaseAdmin";
+import { Resend } from "resend";
+
+const supabase = (admin as any).supabaseAdmin || (admin as any).supabase || (admin as any).default;
+
+const BASE = (process.env.NEXT_PUBLIC_BASE_URL || "").replace(/\/$/, "") || "http://localhost:3000";
+const ADMIN_TO = process.env.MAIL_ADMIN || "offert@helsingbuss.se";
+const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
+
+export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
+
+  try {
+    const { id } = req.query as { id: string };
+    const { message } = req.body as { message?: string };
+
+    const { data: offer, error } = await supabase.from("offers").select("*").eq("id", id).single();
+    if (error || !offer) return res.status(404).json({ error: "Offer not found" });
+
+    // valfri logg/flagga
+    await supabase.from("offers").update({
+      change_request_at: new Date().toISOString(),
+      change_note: message || null,
+    }).eq("id", id);
+
+    if (resend) {
+      await resend.emails.send({
+        from: process.env.MAIL_FROM || "Helsingbuss <info@helsingbuss.se>",
+        to: ADMIN_TO,
+        subject: `✏️ Ändringsförfrågan på offert ${offer.offer_number || offer.id}`,
+        html: `
+          <p>Kunden har begärt ändringar på en offert.</p>
+          <p><strong>Offert:</strong> ${offer.offer_number || offer.id}</p>
+          ${message ? `<p><strong>Meddelande:</strong> ${message}</p>` : ""}
+          <p><a href="${BASE}/admin/offers/${offer.id}">Öppna i Admin</a></p>
+        `,
+      });
+    }
+
+    return res.status(200).json({ ok: true });
+  } catch (e: any) {
+    return res.status(500).json({ error: e?.message || "Server error" });
+  }
+}

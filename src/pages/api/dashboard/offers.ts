@@ -1,6 +1,5 @@
 // src/pages/api/dashboard/offers.ts
 
-
 import type { NextApiRequest, NextApiResponse } from "next";
 import { requireAdmin } from "@/lib/supabaseAdmin";
 
@@ -16,6 +15,7 @@ type Row = {
   passengers: number | null;
   status: string | null;
   offer_date?: string | null;
+  created_at?: string | null;
 
   // för typbestämning
   return_departure?: string | null;
@@ -30,12 +30,16 @@ function fmtDate(d?: string | null) {
   return d; // antar YYYY-MM-DD i DB
 }
 
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+export default async function handler(
+  req: NextApiRequest,
+  res: NextApiResponse
+) {
   try {
     if (req.method !== "GET") {
       return res.status(405).json({ error: "Method not allowed" });
     }
 
+    // Senaste 30 dagarna – men nu på offer_date ELLER created_at
     const since = new Date();
     since.setDate(since.getDate() - 30);
     const sinceISO = since.toISOString().slice(0, 10);
@@ -53,6 +57,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           "passengers",
           "status",
           "offer_date",
+          "created_at",
           "return_departure",
           "return_destination",
           "return_date",
@@ -60,7 +65,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           "round_trip",
         ].join(",")
       )
-      .gte("offer_date", sinceISO)
+      // 🔧 Viktigt: inkludera rader där *antingen* offer_date *eller* created_at
+      // ligger inom perioden. Nya hemside-offerter saknar ofta offer_date men har created_at.
+      .or(
+        `offer_date.gte.${sinceISO},created_at.gte.${sinceISO}`
+      )
       .order("offer_date", { ascending: true });
 
     if (error) throw error;
@@ -71,12 +80,20 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const unanswered: (Row & { type?: string })[] = [];
 
     for (const rr of rows) {
-      const day = (rr.offer_date ?? "").slice(0, 10) || "okänd";
+      // välj dag utifrån offer_date, annars created_at, annars departure_date
+      const day =
+        (rr.offer_date ?? rr.created_at ?? rr.departure_date ?? "").slice(
+          0,
+          10
+        ) || "okänd";
+
       if (!byDay[day]) byDay[day] = { inkommen: 0, besvarad: 0 };
       byDay[day].inkommen += 1;
-      if ((rr.status ?? "").toLowerCase() === "besvarad") byDay[day].besvarad += 1;
+      if ((rr.status ?? "").toLowerCase() === "besvarad") {
+        byDay[day].besvarad += 1;
+      }
 
-      // obesvarade
+      // “Obesvarade” = allt som INTE har status besvarad
       if ((rr.status ?? "").toLowerCase() !== "besvarad") {
         const hasReturn =
           Boolean(
@@ -103,6 +120,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         inkommen: inkommen.reduce((a, b) => a + b, 0),
         besvarad: besvarad.reduce((a, b) => a + b, 0),
       },
+      // detta matas in i <UnansweredTable />
       unanswered: unanswered.map((r) => ({
         id: r.id,
         offer_number: r.offer_number,
@@ -112,6 +130,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         type: r.type ?? "—",
         departure_date: fmtDate(r.departure_date),
         departure_time: r.departure_time,
+        status: r.status ?? null,
       })),
     });
   } catch (e: any) {
