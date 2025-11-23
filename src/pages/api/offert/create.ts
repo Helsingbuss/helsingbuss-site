@@ -1,24 +1,8 @@
 // src/pages/api/offert/create.ts
 import type { NextApiRequest, NextApiResponse } from "next";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { withCors } from "@/lib/cors";
 import { sendOfferMail, sendCustomerReceipt } from "@/lib/sendOfferMail";
-
-/** Tillåt anrop från dina domäner (hemsida + portal) */
-const ALLOWED_ORIGINS = [
-  "https://helsingbuss.se",
-  "https://www.helsingbuss.se",
-  "https://login.helsingbuss.se",
-];
-
-function setCors(res: NextApiResponse, origin?: string | null) {
-  const o = origin || "";
-  const allowed =
-    ALLOWED_ORIGINS.find((a) => o.startsWith(a)) || ALLOWED_ORIGINS[0];
-
-  res.setHeader("Access-Control-Allow-Origin", allowed);
-  res.setHeader("Access-Control-Allow-Methods", "POST,OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
-}
 
 /** Plocka första icke-tomma värdet från flera nycklar */
 function pick(body: any, ...keys: string[]): string | undefined {
@@ -60,13 +44,7 @@ async function getNextOfferNumber() {
   return `${prefix}${seq}`;
 }
 
-export default async function handler(
-  req: NextApiRequest,
-  res: NextApiResponse
-) {
-  setCors(res, req.headers.origin || null);
-
-  if (req.method === "OPTIONS") return res.status(200).end();
+async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Method not allowed" });
   }
@@ -156,7 +134,7 @@ export default async function handler(
     /** ===== INSERT: ENDAST KOLUMNER SOM FINNS I TABELLEN ===== */
     const insertPayload: any = {
       offer_number: offerNumber,
-      // status: sätts inte här – DB default / NULL används
+      // status: lämnas till DB default (så offers_status_check inte klagar)
 
       // kund
       contact_person: contactPerson,
@@ -254,3 +232,6 @@ export default async function handler(
     return res.status(500).json({ error: "Internt fel i offert-API:t." });
   }
 }
+
+// VIKTIGT: dekorera med CORS-wrapper
+export default withCors(handler);

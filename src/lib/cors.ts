@@ -5,7 +5,7 @@ function parseAllowed(): string[] {
   const raw = process.env.ALLOWED_ORIGINS || "";
   return raw
     .split(",")
-    .map(s => s.trim())
+    .map((s) => s.trim())
     .filter(Boolean);
 }
 
@@ -21,6 +21,10 @@ function originFromReq(req: NextApiRequest): string {
   }
 }
 
+/**
+ * Sätter CORS-headrar och kollar om origin är tillåten.
+ * Returnerar false om requesten redan är hanterad (OPTIONS / blockad).
+ */
 export function allowCors(req: NextApiRequest, res: NextApiResponse): boolean {
   const allowed = parseAllowed();
   const origin = originFromReq(req);
@@ -56,10 +60,15 @@ export function allowCors(req: NextApiRequest, res: NextApiResponse): boolean {
   return true;
 }
 
-// Wrapper ifall du vill dekorera en handler
-export function withCors<T extends (req: NextApiRequest, res: NextApiResponse) => any>(
-  handler: T
-) {
+/**
+ * Wrapper för att dekorera en API-handler med CORS.
+ * Använd:
+ *   async function handler(req,res) { ... }
+ *   export default withCors(handler);
+ */
+export function withCors<
+  T extends (req: NextApiRequest, res: NextApiResponse) => any
+>(handler: T) {
   return async (req: NextApiRequest, res: NextApiResponse) => {
     if (!allowCors(req, res)) return;
     return handler(req, res);
