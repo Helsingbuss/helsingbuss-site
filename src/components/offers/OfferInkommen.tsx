@@ -11,7 +11,7 @@ type OfferInkommenProps = { offer: any };
 const TOPBAR_PX = 64;
 const LINE_HEIGHT = 1.5;
 
-// Visar sträng för allt utom null/undefined/"".
+// Visar sträng för allt utom null/undefined/""
 function v(x: any, fallback = "—") {
   if (x === null || x === undefined) return fallback;
   const s = String(x);
@@ -42,8 +42,8 @@ function fmtTime(v?: any, dash = "—") {
 
 function fmtDateSv(iso?: any, dash = "—") {
   const s = typeof iso === "string" ? iso : String(iso ?? "");
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return dash;
-  const dt = new Date(`${s}T00:00:00`);
+  if (!/^\d{4}-\d{2}-\d{2}/.test(s)) return dash;
+  const dt = new Date(s.length === 10 ? `${s}T00:00:00` : s);
   if (isNaN(dt.getTime())) return dash;
   try {
     return new Intl.DateTimeFormat("sv-SE", { dateStyle: "medium" }).format(dt);
@@ -94,7 +94,10 @@ export default function OfferInkommen({ offer }: OfferInkommenProps) {
         title: withinSweden ? "Bussresa inom Sverige" : "Bussresa utomlands",
         date: fmtDateSv(offer?.return_date),
         time: fmtTime(offer?.return_time),
-        from: v(offer?.destination) !== "—" ? v(offer?.destination) : v(offer?.final_destination, "—"),
+        from:
+          v(offer?.destination) !== "—"
+            ? v(offer?.destination)
+            : v(offer?.final_destination, "—"),
         to: toRet,
         pax: v(offer?.passengers),
         extra: v(offer?.notes, "Ingen information."),
@@ -102,6 +105,38 @@ export default function OfferInkommen({ offer }: OfferInkommenProps) {
     : null;
 
   const trips = secondLeg ? [firstLeg, secondLeg] : [firstLeg];
+
+  // -------- Kunduppgifter (höger ruta) --------
+
+  // Offertdatum = offer_date eller created_at
+  const offerDate =
+    offer?.offer_date || offer?.created_at
+      ? fmtDateSv(offer.offer_date || offer.created_at, "—")
+      : "—";
+
+  // Er referens = beställaren (kontaktperson / företag)
+  const erReferens =
+    offer?.contact_person ||
+    offer?.foretag_forening ||
+    offer?.customer_reference ||
+    null;
+
+  // Vår referens = intern referens (sätts när någon hos er svarar på offerten)
+  const varReferens =
+    offer?.internal_reference || offer?.var_referens || null;
+
+  // Telefon / e-post – ta kundfält först, fallback till äldre fält
+  const phone =
+    offer?.customer_phone ||
+    offer?.contact_phone ||
+    offer?.telefon ||
+    null;
+
+  const email =
+    offer?.customer_email ||
+    offer?.contact_email ||
+    offer?.email ||
+    null;
 
   return (
     <div className="bg-[#f5f4f0] overflow-hidden">
@@ -118,12 +153,12 @@ export default function OfferInkommen({ offer }: OfferInkommenProps) {
       {/* Arbetsyta */}
       <div style={{ height: `calc(100vh - ${TOPBAR_PX}px)` }}>
         <div className="grid h-full grid-cols-1 lg:grid-cols-[280px_minmax(0,1fr)_550px] gap-0">
-          {/* Vänster – oförändrad */}
+          {/* Vänster */}
           <div className="h-full">
             <OfferLeftSidebar />
           </div>
 
-          {/* Mitten – samma spacing som höger */}
+          {/* Mitten */}
           <main className="h-full pl-4 lg:pl-6 pr-2 lg:pr-3 py-4 lg:py-6">
             <div className="h-full bg-white rounded-xl shadow flex flex-col">
               <div className="px-6 pt-6">
@@ -220,7 +255,7 @@ export default function OfferInkommen({ offer }: OfferInkommenProps) {
             </div>
           </main>
 
-          {/* Höger – oförändrad */}
+          {/* Höger – kunduppgifter */}
           <aside className="h-full p-4 lg:p-6">
             <div className="h-full bg-white rounded-xl shadow flex flex-col">
               <div className="px-6 pt-6">
@@ -229,13 +264,25 @@ export default function OfferInkommen({ offer }: OfferInkommenProps) {
                 </div>
 
                 <dl className="mt-4 grid grid-cols-[auto,1fr] gap-x-6 gap-y-1 text-[14px] text-[#0f172a] leading-tight">
-                  <DT>Offertdatum:</DT><DD>{fmtDateSv(offer?.offer_date, "—")}</DD>
-                  <DT>Er referens:</DT><DD>{v(offer?.customer_reference, "—")}</DD>
-                  <DT>Vår referens:</DT><DD>{v(offer?.internal_reference, "—")}</DD>
-                  <DT>Namn:</DT><DD>{v(offer?.contact_person, "—")}</DD>
-                  <DT>Adress:</DT><DD>{v(offer?.customer_address, "—")}</DD>
-                  <DT>Telefon:</DT><DD>{v(offer?.contact_phone, "—")}</DD>
-                  <DT>E-post:</DT><DD>{v(offer?.contact_email, "—")}</DD>
+                  <DT>Offertdatum:</DT>
+                  <DD>{offerDate}</DD>
+
+                  <DT>Er referens:</DT>
+                  <DD>{v(erReferens)}</DD>
+
+                  <DT>Vår referens:</DT>
+                  <DD>{v(varReferens)}</DD>
+
+                  <DT>Namn:</DT>
+                  <DD>{v(offer?.contact_person, "—")}</DD>
+
+                  {/* Adress borttagen */}
+
+                  <DT>Telefon:</DT>
+                  <DD>{v(phone)}</DD>
+
+                  <DT>E-post:</DT>
+                  <DD>{v(email)}</DD>
                 </dl>
               </div>
 
@@ -250,7 +297,9 @@ export default function OfferInkommen({ offer }: OfferInkommenProps) {
 
 function DT({ children }: { children: React.ReactNode }) {
   return (
-    <dt className="font-semibold text-[#0f172a]/70 whitespace-nowrap">{children}</dt>
+    <dt className="font-semibold text-[#0f172a]/70 whitespace-nowrap">
+      {children}
+    </dt>
   );
 }
 function DD({ children }: { children: React.ReactNode }) {

@@ -1,3 +1,4 @@
+//src/components/offers/RightInfoCard.tsx
 type Row = { label: string; value?: string | null };
 
 export default function RightInfoCard({
