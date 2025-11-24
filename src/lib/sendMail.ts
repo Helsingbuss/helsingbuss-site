@@ -1,4 +1,5 @@
 // src/lib/sendMail.ts
+
 import { Resend } from "resend";
 
 /** ========= Konfiguration ========= */
@@ -10,17 +11,10 @@ const FROM_INFO =
 const ADMIN_INBOX =
   process.env.OFFER_INBOX_TO || "offert@helsingbuss.se";
 
-// Adminportal (login)
+// Admin-portalen
 const LOGIN_URL =
   (process.env.NEXT_PUBLIC_LOGIN_BASE_URL ||
     "https://login.helsingbuss.se") + "/start";
-
-// Kundportal (offertvisning för kunden)
-const CUSTOMER_BASE_URL = (
-  process.env.NEXT_PUBLIC_CUSTOMER_BASE_URL ||
-  process.env.CUSTOMER_BASE_URL ||
-  "https://kund.helsingbuss.se"
-).replace(/\/+$/, "");
 
 const resend = new Resend(RESEND_API_KEY);
 
@@ -53,6 +47,9 @@ export type CustomerReceiptParams = {
   /** Mottagarens e-post (kunden) */
   to: string;
   offerNumber: string;
+
+  /** Länk för kunden till offertsidan (med token) */
+  link?: string;
 
   /** Resöversikt som visas i mailet */
   from?: string;
@@ -100,18 +97,14 @@ function layout(bodyHtml: string) {
 
 /** Kundens kvittens */
 function renderCustomerReceiptHTML(p: CustomerReceiptParams) {
-  // Bygg länk till kundportalen: t.ex. https://kund.helsingbuss.se/offert/HB25012
-  const offerUrl = `${CUSTOMER_BASE_URL}/offert/${encodeURIComponent(
-    p.offerNumber
-  )}`;
+  // Om ingen länk skickas in faller vi tillbaka på admin-login (gamla beteendet)
+  const link = p.link || LOGIN_URL;
 
   const btn = `
   <table role="presentation" cellspacing="0" cellpadding="0" style="margin-top:20px">
     <tr>
       <td style="background:#194C66;color:#fff;padding:12px 18px;border-radius:8px">
-        <a href="${offerUrl}" style="color:#fff;text-decoration:none;font-weight:600;display:inline-block">
-          Visa din offert
-        </a>
+        <a href="${link}" style="color:#fff;text-decoration:none;font-weight:600;display:inline-block">Visa din offert</a>
       </td>
     </tr>
   </table>`;
@@ -140,9 +133,7 @@ function renderAdminNewOfferHTML(p: SendOfferParams) {
   <table role="presentation" cellspacing="0" cellpadding="0" style="margin-top:20px">
     <tr>
       <td style="background:#194C66;color:#fff;padding:12px 18px;border-radius:8px">
-        <a href="${LOGIN_URL}" style="color:#fff;text-decoration:none;font-weight:600;display:inline-block">
-          Öppna i portalen
-        </a>
+        <a href="${LOGIN_URL}" style="color:#fff;text-decoration:none;font-weight:600;display:inline-block">Öppna i portalen</a>
       </td>
     </tr>
   </table>`;

@@ -2,10 +2,8 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { withCors } from "@/lib/cors";
-import {
-  sendOfferMail,
-  sendCustomerReceipt,
-} from "@/lib/sendOfferMail";
+import { sendOfferMail, sendCustomerReceipt } from "@/lib/sendMail";
+import { signOfferToken } from "@/lib/offerToken";
 
 /** Hjälpfunktion: plocka första icke-tomma värdet från flera keys */
 function pick(body: any, ...keys: string[]): string | undefined {
@@ -16,6 +14,15 @@ function pick(body: any, ...keys: string[]): string | undefined {
     if (s) return s;
   }
   return undefined;
+}
+
+/** Hjälpfunktion: "Ja"/"Nej" => boolean | null */
+function parseBool(v: any): boolean | null {
+  if (v === undefined || v === null) return null;
+  const s = String(v).trim().toLowerCase();
+  if (["ja", "yes", "true", "1"].includes(s)) return true;
+  if (["nej", "no", "false", "0"].includes(s)) return false;
+  return null;
 }
 
 /** Generera nästa offertnummer HB25XXX */
@@ -113,20 +120,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     const returnDate = pick(rawBody, "return_date") || null;
     const returnTime = pick(rawBody, "return_time") || null;
 
-    // --- FIX: behover_buss "Ja"/"Nej" -> boolean ---
-    const behoverBussRaw = pick(rawBody, "behover_buss") || null;
-    let behoverBuss: boolean | null = null;
-    if (behoverBussRaw) {
-      const v = behoverBussRaw.toString().trim().toLowerCase();
-      if (["ja", "yes", "true", "1", "on"].includes(v)) {
-        behoverBuss = true;
-      } else if (["nej", "no", "false", "0", "off"].includes(v)) {
-        behoverBuss = false;
-      } else {
-        behoverBuss = null; // oväntat värde, spara hellre null än att krascha
-      }
-    }
-    // -----------------------------------------------
+    const behoverBussRaw = pick(rawBody, "behover_buss");
+    const behoverBuss = parseBool(behoverBussRaw);
 
     const notisPaPlats = pick(rawBody, "notis_pa_plats") || null;
     const basplatsPaDestination =
@@ -178,6 +173,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       final_destination: finalDestination,
       return_date: returnDate,
       return_time: returnTime,
+      behover_buss: behoverBuss,
       notis_pa_plats: notisPaPlats,
       basplats_pa_destination: basplatsPaDestination,
       end_time: endTime,
@@ -187,11 +183,6 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       passengers,
       notes,
     };
-
-    // sätt bara behover_buss om vi har lyckats tolka det till boolean/null
-    if (behoverBuss !== null) {
-      insertPayload.behover_buss = behoverBuss;
-    }
 
     const { data, error } = await supabaseAdmin
       .from("offers")
@@ -211,11 +202,25 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
     const created = data as any;
     const finalOfferNumber: string = created.offer_number || offerNumber;
+    const offerId = String(created.id);
+
+    /** ===== Bygg kundlänk med token ===== */
+    const token = signOfferToken({ id: offerId, offerNumber: finalOfferNumber });
+
+    const baseCustomerUrl =
+      process.env.NEXT_PUBLIC_CUSTOMER_BASE_URL ||
+      process.env.CUSTOMER_BASE_URL ||
+      "https://kund.helsingbuss.se";
+
+    const cleanBase = baseCustomerUrl.replace(/\/+$/, "");
+    const customerLink = `${cleanBase}/offert/${encodeURIComponent(
+      offerId
+    )}?token=${encodeURIComponent(token)}`;
 
     /** ===== mail till admin ===== */
     try {
       await sendOfferMail({
-        offerId: String(created.id),
+        offerId,
         offerNumber: finalOfferNumber,
         customerEmail,
         customerName: contactPerson || company || undefined,
@@ -239,6 +244,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         date: departureDate || undefined,
         time: departureTime || undefined,
         passengers: passengers ?? undefined,
+        link: customerLink,
       });
     } catch (err) {
       console.error(
@@ -249,7 +255,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
     return res.status(200).json({
       ok: true,
-      id: created.id,
+      id: offerId,
       offerNumber: finalOfferNumber,
     });
   } catch (e: any) {
