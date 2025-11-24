@@ -28,7 +28,7 @@ export default function OfferCalculator({
   const [includeServiceFee, setIncludeServiceFee] = useState<boolean>(true);
   const [serviceFeeMode, setServiceFeeMode] = useState<"once" | "perLeg">(
     "once"
-  ); // En gång eller per ben
+  );
 
   // Moms + intern notering
   const [vatRate, setVatRate] = useState<number>(0.06);
@@ -49,16 +49,10 @@ export default function OfferCalculator({
     hWknd: 0,
   });
 
-  const [sending, setSending] = useState(false);
-
   useEffect(() => {
-    // Bara för debug om man vill
+    // bra vid felsökning
     // eslint-disable-next-line no-console
-    console.log("[OfferCalculator] props", {
-      offerId,
-      offerNumber,
-      customerEmail,
-    });
+    console.log("[OfferCalculator] props", { offerId, offerNumber, customerEmail });
   }, [offerId, offerNumber, customerEmail]);
 
   // Kostnad per ben
@@ -73,6 +67,7 @@ export default function OfferCalculator({
     return base + fee;
   };
 
+  // Beräkningar
   const exLeg1 = useMemo(
     () => legCost(leg1),
     [leg1, kmPrice, hourDay, hourEve, hourWknd, includeServiceFee, serviceFeeMode, serviceFee]
@@ -157,109 +152,98 @@ export default function OfferCalculator({
 
   async function sendProposal() {
     if (!canSend) {
-      alert("offerId, offerNumber och customerEmail krävs för att skicka.");
+      alert("offerId, offerNumber och customerEmail krävs");
       return;
     }
-    if (sending) return;
 
-    try {
-      setSending(true);
+    const input = {
+      pricing: {
+        kmPrice,
+        hourDay,
+        hourEve,
+        hourWknd,
+        serviceFee,
+        includeServiceFee,
+        serviceFeeMode,
+        vatRate,
+      },
+      leg1,
+      leg2: includeReturn ? leg2 : null,
+      note,
+    };
 
-      const input = {
-        pricing: {
-          kmPrice,
-          hourDay,
-          hourEve,
-          hourWknd,
-          serviceFee,
-          includeServiceFee,
-          serviceFeeMode,
-          vatRate,
-        },
-        leg1,
-        leg2: includeReturn ? leg2 : null,
-        note,
-      };
-
-      const legs = [
-        {
-          subtotExVat: exLeg1,
-          vat: Math.round(exLeg1 * vatRate * 100) / 100,
-          total: exLeg1 + Math.round(exLeg1 * vatRate * 100) / 100,
-        },
-      ] as { subtotExVat: number; vat: number; total: number }[];
-
-      if (includeReturn) {
-        const v2 = Math.round(exLeg2 * vatRate * 100) / 100;
-        legs.push({ subtotExVat: exLeg2, vat: v2, total: exLeg2 + v2 });
-      }
-
-      const breakdown = {
-        grandExVat: exVat,
-        grandVat: vat,
-        grandTotal: total,
-        serviceFeeExVat: includeServiceFee ? serviceFee : 0,
-        legs,
-      };
-
-      // 1) Uppdatera offerten med kalkylen + markera skickad
+    const legs = [
       {
-        const res = await fetch(`/api/offers/${offerId}/quote`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ mode: "send", input, breakdown }),
-        });
-        if (!res.ok) {
-          const j = await res.json().catch(() => ({}));
-          throw new Error(
-            j?.error || `Kunde inte uppdatera offert: ${res.status}`
-          );
-        }
-      }
+        subtotExVat: exLeg1,
+        vat: Math.round(exLeg1 * vatRate * 100) / 100,
+        total: exLeg1 + Math.round(exLeg1 * vatRate * 100) / 100,
+      },
+    ] as { subtotExVat: number; vat: number; total: number }[];
 
-      // 2) Skicka mail till kund
-      {
-        const res = await fetch(`/api/offers/send-proposal`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            offerId,
-            offerNumber,
-            customerEmail,
-            totals: { exVat, vat, total },
-            pricing: {
-              kmPrice,
-              hourDay,
-              hourEve,
-              hourWknd,
-              serviceFee,
-              includeServiceFee,
-              serviceFeeMode,
-              vatRate,
-            },
-            input: { leg1, leg2: includeReturn ? leg2 : null, note },
-          }),
-        });
-        if (!res.ok) {
-          const j = await res.json().catch(() => ({}));
-          throw new Error(
-            j?.error || `Kunde inte skicka mail: ${res.status}`
-          );
-        }
-      }
-
-      alert("Prisförslag skickat ✅");
-    } catch (err: any) {
-      alert(err?.message || "Tekniskt fel vid utskick av prisförslag.");
-    } finally {
-      setSending(false);
+    if (includeReturn) {
+      const v2 = Math.round(exLeg2 * vatRate * 100) / 100;
+      legs.push({ subtotExVat: exLeg2, vat: v2, total: exLeg2 + v2 });
     }
+
+    const breakdown = {
+      grandExVat: exVat,
+      grandVat: vat,
+      grandTotal: total,
+      serviceFeeExVat: includeServiceFee ? serviceFee : 0,
+      legs,
+    };
+
+    // 1) Uppdatera offerten
+    {
+      const res = await fetch(`/api/offers/${offerId}/quote`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode: "send", input, breakdown }),
+      });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        alert(`Kunde inte uppdatera offert: ${j?.error || res.status}`);
+        return;
+      }
+    }
+
+    // 2) Skicka mail till kund
+    {
+      const res = await fetch(`/api/offers/send-proposal`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          offerId,
+          offerNumber,
+          customerEmail,
+          totals: { exVat, vat, total },
+          pricing: {
+            kmPrice,
+            hourDay,
+            hourEve,
+            hourWknd,
+            serviceFee,
+            includeServiceFee,
+            serviceFeeMode,
+            vatRate,
+          },
+          input: { leg1, leg2: includeReturn ? leg2 : null, note },
+        }),
+      });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        alert(`Kunde inte skicka mail: ${j?.error || res.status}`);
+        return;
+      }
+    }
+
+    alert("Prisförslag skickat ✅");
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
       {/* Översta raden: prisinställningar */}
-      <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-5">
         <LabeledNumber
           label="Kilometerpris (kr/km)"
           value={kmPrice}
@@ -300,7 +284,7 @@ export default function OfferCalculator({
         <label className="inline-flex items-center gap-2">
           Lägg på:
           <select
-            className="border rounded px-2 py-1"
+            className="rounded border px-2 py-1"
             value={serviceFeeMode}
             onChange={(e) =>
               setServiceFeeMode(e.target.value as "once" | "perLeg")
@@ -312,19 +296,19 @@ export default function OfferCalculator({
           </select>
         </label>
 
-        <div className="ml-0 md:ml-4">
+        <div className="ml-4 flex items-center gap-2">
           Moms:
           <select
-            className="ml-2 border rounded px-2 py-1"
+            className="rounded border px-2 py-1"
             value={vatRate}
             onChange={(e) => setVatRate(parseFloat(e.target.value))}
           >
-            <option value={0.06}>6 % (Sverige)</option>
-            <option value={0.0}>0 % (Utomlands)</option>
+            <option value={0.06}>6% (Sverige)</option>
+            <option value={0.0}>0% (Utomlands)</option>
           </select>
         </div>
 
-        <label className="inline-flex items-center gap-2 md:ml-6">
+        <label className="ml-6 inline-flex items-center gap-2">
           <input
             type="checkbox"
             checked={includeReturn}
@@ -332,10 +316,11 @@ export default function OfferCalculator({
           />
           Inkludera retur i prisförslag
         </label>
+
         <button
           type="button"
           onClick={copyLeg1ToLeg2}
-          className="px-3 py-1 rounded border text-sm bg-white hover:bg-slate-50"
+          className="rounded border px-3 py-1 text-sm"
           title="Kopiera tider/km från utresan till returen"
         >
           Kopiera utresa → retur
@@ -343,7 +328,7 @@ export default function OfferCalculator({
       </div>
 
       {/* Inmatning per ben */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div className="grid gap-4 md:grid-cols-2">
         <LegCard
           title="Utresa"
           value={leg1}
@@ -371,19 +356,19 @@ export default function OfferCalculator({
       )}
 
       <div>
-        <label className="block text-sm text-[#194C66]/80 mb-1">
+        <label className="mb-1 block text-sm text-[#194C66]/80">
           Intern anteckning (valfritt)
         </label>
         <textarea
           value={note}
           onChange={(e) => setNote(e.target.value)}
-          className="w-full border rounded px-2 py-2 text-sm"
+          className="w-full rounded border px-2 py-2 text-sm"
           placeholder='T.ex. "Önskar toalett ombord" eller annan notering för prisförslaget'
         />
       </div>
 
       {/* Summering */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="grid gap-4 md:grid-cols-3">
         <KPI label="Pris exkl. moms" value={exVat} />
         <KPI label="Moms" value={vat} />
         <KPI label="Totalsumma" value={total} />
@@ -393,26 +378,22 @@ export default function OfferCalculator({
       <div className="mt-3 flex flex-wrap gap-3">
         <button
           onClick={saveDraft}
-          className="px-4 py-2 rounded-[25px] bg-[#E5EEF3] text-[#194C66] text-sm font-medium hover:bg-[#d9e5ef]"
+          className="rounded-full bg-[#E5EEF3] px-4 py-2 text-sm font-medium text-[#194C66]"
         >
           Spara utkast
         </button>
 
         <button
           onClick={sendProposal}
-          disabled={!canSend || sending}
-          className={`px-4 py-2 rounded-[25px] text-sm font-medium ${
-            !canSend || sending
-              ? "bg-gray-300 text-gray-600 cursor-not-allowed"
-              : "bg-[#194C66] text-white hover:bg-[#163b4d]"
-          }`}
-          title={
+          disabled={!canSend}
+          className={`rounded-full px-4 py-2 text-sm font-medium ${
             canSend
-              ? ""
-              : "Offert-ID, nummer och e-post måste finnas för att kunna skicka"
-          }
+              ? "bg-[#194C66] text-white"
+              : "cursor-not-allowed bg-gray-300 text-gray-600"
+          }`}
+          title={canSend ? "" : "Offert-ID, nummer och e-post måste finnas"}
         >
-          {sending ? "Skickar…" : "Skicka prisförslag"}
+          Skicka prisförslag
         </button>
       </div>
     </div>
@@ -429,14 +410,14 @@ function LabeledNumber({
   onChange: (v: number) => void;
 }) {
   return (
-    <label className="text-xs md:text-sm text-[#194C66]/80">
-      <span className="block mb-1">{label}</span>
+    <label className="text-sm text-[#194C66]/80">
+      <span className="mb-1 block">{label}</span>
       <input
         type="number"
         step="1"
         value={Number.isFinite(value) ? value : 0}
         onChange={(e) => onChange(Number(e.target.value) || 0)}
-        className="w-full border rounded px-2 py-1 text-sm"
+        className="w-full rounded border px-2 py-1"
       />
     </label>
   );
@@ -444,7 +425,7 @@ function LabeledNumber({
 
 function KPI({ label, value }: { label: string; value: number }) {
   return (
-    <div className="bg-[#f9fafb] rounded-lg p-3 border border-slate-200/70">
+    <div className="rounded-lg bg-[#f9fafb] p-3">
       <div className="text-xs text-[#194C66]/70">{label}</div>
       <div className="text-lg font-semibold text-[#194C66]">
         {sek(value)}
@@ -467,11 +448,11 @@ function LegCard({
   vat: number;
 }) {
   return (
-    <div className="border rounded-lg p-3 bg-white">
-      <div className="text-[#194C66] font-semibold mb-2 text-sm">
+    <div className="rounded-lg border border-slate-200 p-4">
+      <div className="mb-2 text-base font-semibold text-[#194C66]">
         {title}
       </div>
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+      <div className="grid gap-3 md:grid-cols-4">
         <LabeledNumber
           label="Kilometer"
           value={value.km}
