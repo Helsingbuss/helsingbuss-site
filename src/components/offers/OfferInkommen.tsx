@@ -1,11 +1,11 @@
 // src/components/offers/OfferInkommen.tsx
-import type { ReactNode } from "react";
 import Image from "next/image";
 import OfferTopBar from "@/components/offers/OfferTopBar";
 import TripLegGrid from "@/components/offers/TripLegGrid";
 import TripLegCard from "@/components/offers/TripLegCard";
 import OfferFooterTerms from "@/components/offers/OfferFooterTerms";
 import OfferLeftSidebar from "@/components/offers/OfferLeftSidebar";
+import RightInfoCard from "@/components/offers/RightInfoCard";
 
 type OfferInkommenProps = { offer: any };
 
@@ -42,7 +42,13 @@ function fmtTime(v?: any, dash = "—") {
 }
 
 function fmtDateSv(iso?: any, dash = "—") {
-  const s = typeof iso === "string" ? iso : String(iso ?? "");
+  if (!iso) return dash;
+  const s =
+    typeof iso === "string"
+      ? iso.length >= 10
+        ? iso.slice(0, 10)
+        : iso
+      : String(iso ?? "");
   if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return dash;
   const dt = new Date(`${s}T00:00:00`);
   if (isNaN(dt.getTime())) return dash;
@@ -107,40 +113,42 @@ export default function OfferInkommen({ offer }: OfferInkommenProps) {
 
   const trips = secondLeg ? [firstLeg, secondLeg] : [firstLeg];
 
-  // ---- Kunduppgifter / högerkolumn ----
-  // Offertdatum = offer_date, annars fallback till created_at
-  const offerDateIso =
-    (offer?.offer_date as string | null | undefined) ||
-    (offer?.created_at as string | null | undefined) ||
-    null;
+  // === Kunduppgifter (höger kort) ===
+  const offerDateRaw =
+    offer?.offer_date ??
+    (typeof offer?.created_at === "string"
+      ? offer.created_at.slice(0, 10)
+      : undefined);
 
-  // Er referens = beställaren / kontaktperson
-  const customerRef =
-    (offer?.customer_reference as string | null | undefined) ||
-    (offer?.contact_person as string | null | undefined) ||
-    null;
+  const customerName =
+    (offer?.contact_person as string | undefined) ??
+    (offer?.customer_name as string | undefined) ??
+    undefined;
 
-  // Vår referens = intern handläggare (senare kan vi sätta utifrån inloggad användare)
+  const customerPhone =
+    (offer?.customer_phone as string | undefined) ??
+    (offer?.contact_phone as string | undefined) ??
+    undefined;
+
+  const customerEmail =
+    (offer?.customer_email as string | undefined) ??
+    (offer?.contact_email as string | undefined) ??
+    undefined;
+
   const ourRef =
-    (offer?.internal_reference as string | null | undefined) ||
-    (offer?.handled_by_name as string | null | undefined) ||
-    null;
+    (offer?.internal_reference as string | undefined) ?? "Helsingbuss";
 
-  // Telefon / e-post från de fält vi faktiskt använder
-  const phone =
-    (offer?.contact_phone as string | null | undefined) ||
-    (offer?.customer_phone as string | null | undefined) ||
-    null;
-
-  const email =
-    (offer?.contact_email as string | null | undefined) ||
-    (offer?.customer_email as string | null | undefined) ||
-    null;
-
-  const displayName =
-    (offer?.contact_person as string | null | undefined) ||
-    (offer?.foretag_forening as string | null | undefined) ||
-    null;
+  const customerRows = [
+    {
+      label: "Offertdatum:",
+      value: offerDateRaw ? fmtDateSv(offerDateRaw) : "—",
+    },
+    { label: "Er referens:", value: customerName ?? null },
+    { label: "Vår referens:", value: ourRef },
+    { label: "Namn:", value: customerName ?? null },
+    { label: "Telefon:", value: customerPhone ?? null },
+    { label: "E-post:", value: customerEmail ?? null },
+  ];
 
   return (
     <div className="bg-[#f5f4f0] overflow-hidden">
@@ -149,7 +157,7 @@ export default function OfferInkommen({ offer }: OfferInkommenProps) {
         <OfferTopBar
           offerNumber={offerNo}
           customerNumber={customerNo}
-          customerName={offer?.contact_person ?? "Kund"}
+          customerName={customerName ?? "Kund"}
           status={status}
         />
       </div>
@@ -189,9 +197,8 @@ export default function OfferInkommen({ offer }: OfferInkommenProps) {
                     går nu igenom detaljerna. Nedan kan ni dubbelkolla
                     uppgifterna ni skickade in. Utifrån dessa återkommer vi med
                     en skräddarsydd offert med tydliga tider, bussmodell och
-                    pris. Behöver ni ändra antal resenärer, hållplatser,
-                    bagage, barnstol/tillgänglighet eller service ombord? Maila
-                    oss på{" "}
+                    pris. Behöver ni ändra antal resenärer, hållplatser, bagage,
+                    barnstol/tillgänglighet eller service ombord? Maila oss på{" "}
                     <a
                       className="underline"
                       href="mailto:kundteam@helsingbuss.se"
@@ -271,34 +278,7 @@ export default function OfferInkommen({ offer }: OfferInkommenProps) {
           {/* Höger – kunduppgifter */}
           <aside className="h-full p-4 lg:p-6">
             <div className="h-full bg-white rounded-xl shadow flex flex-col">
-              <div className="px-6 pt-6">
-                <div className="inline-flex items-center rounded-full bg-[#eef5f9] px-3 py-1 text-sm text-[#194C66] font-medium">
-                  Kunduppgifter
-                </div>
-
-                <dl className="mt-4 grid grid-cols-[auto,1fr] gap-x-6 gap-y-1 text-[14px] text-[#0f172a] leading-tight">
-                  <DT>Offertdatum:</DT>
-                  <DD>{fmtDateSv(offerDateIso, "—")}</DD>
-
-                  <DT>Er referens:</DT>
-                  <DD>{v(customerRef, "—")}</DD>
-
-                  <DT>Vår referens:</DT>
-                  <DD>{v(ourRef, "Helsingbuss")}</DD>
-
-                  <DT>Namn:</DT>
-                  <DD>{v(displayName, "—")}</DD>
-
-                  {/* Adress borttagen enligt önskemål */}
-
-                  <DT>Telefon:</DT>
-                  <DD>{v(phone, "—")}</DD>
-
-                  <DT>E-post:</DT>
-                  <DD>{v(email, "—")}</DD>
-                </dl>
-              </div>
-
+              <RightInfoCard title="Kunduppgifter" rows={customerRows} />
               <div className="mt-auto pb-6" />
             </div>
           </aside>
@@ -306,16 +286,4 @@ export default function OfferInkommen({ offer }: OfferInkommenProps) {
       </div>
     </div>
   );
-}
-
-function DT({ children }: { children: ReactNode }) {
-  return (
-    <dt className="font-semibold text-[#0f172a]/70 whitespace-nowrap">
-      {children}
-    </dt>
-  );
-}
-
-function DD({ children }: { children: ReactNode }) {
-  return <dd className="text-[#0f172a] break-words">{children}</dd>;
 }
