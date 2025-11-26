@@ -162,12 +162,14 @@ export default function AdminOfferDetail() {
       offer?.return_time);
 
   // OfferCalculator behöver dessa tre:
+  // Viktigt: använd offertnumret som id mot /api/offers/[id]/quote,
+  // eftersom API:t sannolikt letar på offer_number, inte UUID.
   const calculatorProps =
-    offer && offer.contact_email
+    offer && (offer.offer_number || offer.contact_email)
       ? {
-          offerId: offer.id,
+          offerId: offer.offer_number ?? offer.id,
           offerNumber: offer.offer_number ?? "",
-          customerEmail: offer.contact_email,
+          customerEmail: offer.contact_email ?? "",
         }
       : null;
 
@@ -444,7 +446,7 @@ export default function AdminOfferDetail() {
                     </div>
                   </section>
 
-                  {/* Extra card för spacing eller annan info */}
+                  {/* Mer om resplanen */}
                   <section className="bg-white rounded-xl shadow p-4 space-y-2">
                     <div className="mb-1">
                       <span className="inline-block px-3 py-1 rounded-full bg-[#111827] text-white text-[11px]">
