@@ -1,10 +1,14 @@
+// src/pages/api/offers/[id]/accept.ts
 import type { NextApiRequest, NextApiResponse } from "next";
 import * as admin from "@/lib/supabaseAdmin";
 import { sendOfferMail } from "@/lib/sendMail";
 
 const supabase =
-  (admin as any).supabaseAdmin || (admin as any).supabase || (admin as any).default;
+  (admin as any).supabaseAdmin ||
+  (admin as any).supabase ||
+  (admin as any).default;
 
+// Försök med flera statusvärden om du har en check-constraint
 async function acceptWithFallback(offerId: string) {
   const variants = [
     { status: "godkänd", stampField: "accepted_at" as const },
@@ -13,16 +17,27 @@ async function acceptWithFallback(offerId: string) {
     { status: "bokad", stampField: "accepted_at" as const },
     { status: "booked", stampField: "accepted_at" as const },
   ];
+
   const tried: string[] = [];
+
   for (const v of variants) {
     const payload: any = { status: v.status };
     payload[v.stampField] = new Date().toISOString();
-    const { error } = await supabase.from("offers").update(payload).eq("id", offerId);
+
+    const { error } = await supabase
+      .from("offers")
+      .update(payload)
+      .eq("id", offerId);
+
     if (!error) return v.status;
+
     const msg = String(error.message || "");
     tried.push(v.status);
+
+    // Om felet inte beror på status-check, kasta direkt
     if (!/status|check/i.test(msg)) throw new Error(error.message);
   }
+
   throw new Error(
     `Inget av statusvärdena tillåts av offers_status_check. Testade: ${tried.join(
       ", "
@@ -30,19 +45,38 @@ async function acceptWithFallback(offerId: string) {
   );
 }
 
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
+export default async function handler(
+  req: NextApiRequest,
+  res: NextApiResponse
+) {
+  if (req.method !== "POST") {
+    return res.status(405).json({ error: "Method not allowed" });
+  }
 
   try {
     const { id } = req.query as { id: string };
     const { customerEmail } = req.body as { customerEmail?: string };
 
-    const { data: offer, error } = await supabase.from("offers").select("*").eq("id", id).single();
-    if (error || !offer) return res.status(404).json({ error: "Offer not found" });
+    const idOrNumber = String(id);
 
-    const finalStatus = await acceptWithFallback(offer.id);
+    // Hämta offert på id ELLER offer_number
+    const { data: offer, error } = await supabase
+      .from("offers")
+      .select("*")
+      .or(`id.eq.${idOrNumber},offer_number.eq.${idOrNumber}`)
+      .maybeSingle();
 
-    // Bestäm vem som ska få mail
+    if (error) {
+      console.error("/api/offers/[id]/accept fetch error:", error);
+      return res.status(500).json({ error: error.message });
+    }
+    if (!offer) {
+      return res.status(404).json({ error: "Offer not found" });
+    }
+
+    const finalStatus = await acceptWithFallback(String(offer.id));
+
+    // Välj vem som ska få kund-mail
     const to =
       (customerEmail as string | undefined) ||
       (offer.contact_email as string | undefined) ||
@@ -50,25 +84,25 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       undefined;
 
     if (to) {
-      // Försök normalisera några fält till SendOfferParams
       const passengers =
-        typeof offer.passengers === "number"
-          ? offer.passengers
-          : typeof offer.pax === "number"
-          ? offer.pax
-          : null;
+        typeof offer.passengers === "number" ? offer.passengers : null;
 
       await sendOfferMail({
         offerId: String(offer.id),
         offerNumber: offer.offer_number ?? String(offer.id),
         customerEmail: to,
-        customerName: offer.contact_person ?? offer.customer_name ?? undefined,
-        from: offer.departure_place ?? undefined,
-        to: offer.destination ?? undefined,
-        date: offer.departure_date ?? undefined,
-        time: offer.departure_time ?? undefined,
+        customerName:
+          (offer.contact_person as string | undefined) ||
+          (offer.customer_name as string | undefined) ||
+          undefined,
+        from: (offer.departure_place as string | undefined) ?? undefined,
+        to: (offer.destination as string | undefined) ?? undefined,
+        date: (offer.departure_date as string | undefined) ?? undefined,
+        time: (offer.departure_time as string | undefined) ?? undefined,
         passengers,
-        subject: `Er offert ${offer.offer_number ?? ""} är nu ${finalStatus}`,
+        subject: `Er offert ${
+          offer.offer_number ?? ""
+        } är nu ${finalStatus.toLowerCase()}`,
       });
     }
 
