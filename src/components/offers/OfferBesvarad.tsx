@@ -84,6 +84,16 @@ export default function OfferBesvarad({ offer }: any) {
     sum: offer?.total_amount ?? breakdown?.grandTotal ?? null,
   };
 
+  // Offertkostnad som kunden ska se:
+  // - Om vi har legs → summera alla ben (enkel + ev. retur)
+  // - Annars → fall tillbaka på totals.sum
+  const offerCost = (() => {
+    if (breakdown?.legs && breakdown.legs.length > 0) {
+      return breakdown.legs.reduce((acc, leg) => acc + (leg.total ?? 0), 0);
+    }
+    return totals.sum;
+  })();
+
   // --- actions-state & handlers
   const [busy, setBusy] = useState<"accept" | "decline" | "change" | null>(null);
 
@@ -392,15 +402,21 @@ export default function OfferBesvarad({ offer }: any) {
                     </div>
 
                     {/* Rows */}
-                    <Row roundTrip={roundTrip} label="Summa exkl. moms"
+                    <Row
+                      roundTrip={roundTrip}
+                      label="Summa exkl. moms"
                       enkel={money(breakdown?.legs?.[0]?.subtotExVat ?? totals.ex)}
                       retur={roundTrip ? money(breakdown?.legs?.[1]?.subtotExVat) : undefined}
                     />
-                    <Row roundTrip={roundTrip} label="Moms"
+                    <Row
+                      roundTrip={roundTrip}
+                      label="Moms"
                       enkel={money(breakdown?.legs?.[0]?.vat ?? totals.vat)}
                       retur={roundTrip ? money(breakdown?.legs?.[1]?.vat) : undefined}
                     />
-                    <Row roundTrip={roundTrip} label="Totalsumma"
+                    <Row
+                      roundTrip={roundTrip}
+                      label="Totalsumma"
                       enkel={money(breakdown?.legs?.[0]?.total ?? totals.sum)}
                       retur={roundTrip ? money(breakdown?.legs?.[1]?.total) : undefined}
                     />
@@ -408,7 +424,7 @@ export default function OfferBesvarad({ offer }: any) {
                     {/* Offertkostnad för uppdraget (total) */}
                     <div className="mt-3 grid grid-cols-[1fr_auto] items-baseline">
                       <div className="text-[#0f172a]/70 text-sm">Offertkostnad för detta uppdrag</div>
-                      <div className="font-medium">{money(totals.sum)}</div>
+                      <div className="font-medium">{money(offerCost)}</div>
                     </div>
                   </div>
 
