@@ -3,7 +3,9 @@ import { useState, useMemo, useEffect } from "react";
 import { useRouter } from "next/router";
 import AdminMenu from "@/components/AdminMenu";
 import Header from "@/components/Header";
-import DeparturesEditor, { DepartureRow } from "@/components/trips/DeparturesEditor";
+import DeparturesEditor, {
+  DepartureRow,
+} from "@/components/trips/DeparturesEditor";
 
 type TripKind = "flerdagar" | "dagsresa" | "shopping";
 
@@ -11,17 +13,18 @@ type Form = {
   title: string;
   subtitle: string;
   trip_kind: TripKind;
-  badge: string;          // SPARAS som "Text|#bg|#fg" (om färger finns)
+  badge: string; // SPARAS som "Text|#bg|#fg" (om färger finns)
   ribbon: string;
   city: string;
   country: string;
-  price_from: string;     // skrivs om till number/null vid submit
-  hero_image: string;     // public url
+  price_from: string; // skrivs om till number/null vid submit
+  hero_image: string; // public url
   published: boolean;
   external_url?: string;
-  year?: number;          // 2025–2027
-  summary?: string;       // kort om resan
-  departures_coming_soon?: boolean; // NYTT: “Avgångar kommer inom kort”
+  year?: number; // 2025–2027
+  summary?: string; // kort om resan
+  departures_coming_soon?: boolean;
+  slug?: string; // NYTT: slug-kolumnen i DB
 };
 
 type LineStop = { name: string; time?: string };
@@ -40,6 +43,7 @@ function extractDates(rows: DepartureRow[]): Date[] {
   const out: Date[] = [];
   for (const r of rows as any[]) {
     const raw =
+      (r as any)?.dep_date ||
       (r as any)?.date ||
       (r as any)?.datum ||
       (r as any)?.day ||
@@ -110,11 +114,24 @@ function parseBadgeSpec(raw?: string | null) {
     .filter(Boolean);
   if (!parts.length) return null;
   const text = parts[0];
-  let bg: string | undefined, fg: string | undefined;
+  let bg: string | undefined;
+  let fg: string | undefined;
   if (parts[1] && /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(parts[1])) bg = parts[1];
   if (parts[2] && /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(parts[2])) fg = parts[2];
   const auto = badgeAutoColors(text);
   return { text, bg: bg || auto.bg, fg: fg || auto.fg };
+}
+
+// Slug-generator (enkelt, räcker bra)
+function toSlug(input: string): string {
+  return (
+    input
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "") || "resa"
+  );
 }
 
 // --------------- Lines editor ---------------
@@ -221,7 +238,9 @@ function LinesEditor({
             </div>
 
             {ln.stops.length === 0 && (
-              <div className="text-sm text-gray-500">Inga hållplatser ännu.</div>
+              <div className="text-sm text-gray-500">
+                Inga hållplatser ännu.
+              </div>
             )}
 
             <div className="mt-2 space-y-2">
@@ -234,13 +253,17 @@ function LinesEditor({
                     className="border rounded-xl px-3 py-2 w-full focus:outline-none focus:ring-2 focus:ring-[#194C66]/30"
                     placeholder="Hållplats (ex. Helsingborg Knutpunkten)"
                     value={st.name}
-                    onChange={(e) => updStop(idx, sIdx, { name: e.target.value })}
+                    onChange={(e) =>
+                      updStop(idx, sIdx, { name: e.target.value })
+                    }
                   />
                   <input
                     className="border rounded-xl px-3 py-2 w-full focus:outline-none focus:ring-2 focus:ring-[#194C66]/30"
                     placeholder="Tid (ex. 06:30)"
                     value={st.time || ""}
-                    onChange={(e) => updStop(idx, sIdx, { time: e.target.value })}
+                    onChange={(e) =>
+                      updStop(idx, sIdx, { time: e.target.value })
+                    }
                   />
                   <button
                     type="button"
@@ -264,6 +287,8 @@ function LinesEditor({
 export default function NewTripPage() {
   const router = useRouter();
 
+  const [editingId, setEditingId] = useState<string | null>(null);
+
   const [f, setF] = useState<Form>({
     title: "",
     subtitle: "",
@@ -279,6 +304,7 @@ export default function NewTripPage() {
     year: new Date().getFullYear(),
     summary: "",
     departures_coming_soon: false,
+    slug: "",
   });
 
   // UI-fält för badge (byggs ihop till f.badge vid spar)
@@ -288,7 +314,7 @@ export default function NewTripPage() {
 
   const [departures, setDepartures] = useState<DepartureRow[]>([]);
   const [lines, setLines] = useState<Line[]>([]);
-  const [busy, setBusy] = useState<null | "upload" | "save">(null);
+  const [busy, setBusy] = useState<null | "upload" | "save" | "delete">(null);
   const [err, setErr] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
 
@@ -304,18 +330,22 @@ export default function NewTripPage() {
     }
   }
 
-  // Prefill om ?id= finns (inkl. badge → UI-fält + departures_coming_soon)
+  // Prefill om ?id= finns (inkl. slug + badge → UI-fält)
   useEffect(() => {
-    const url = new URL(window.location.href);
-    const id = url.searchParams.get("id");
-    if (!id) return;
+    if (!router.isReady) return;
+    const qid = router.query.id;
+    if (!qid || Array.isArray(qid)) return;
+
+    const id = String(qid);
+    setEditingId(id);
 
     (async () => {
       try {
         setBusy("save");
         const r = await fetch(`/api/public/trips/${id}`);
         const j = await r.json();
-        if (!r.ok || j.error) throw new Error(j.error || "Kunde inte läsa resa.");
+        if (!r.ok || j.error)
+          throw new Error(j.error || "Kunde inte läsa resa.");
 
         const t = j.trip || j;
 
@@ -326,13 +356,17 @@ export default function NewTripPage() {
         upd("ribbon", t.ribbon || "");
         upd("city", t.city || "");
         upd("country", t.country || "");
-        upd("price_from", t.price_from != null ? String(t.price_from) : "");
+        upd(
+          "price_from",
+          t.price_from != null ? String(t.price_from) : ""
+        );
         upd("hero_image", t.hero_image || "");
         upd("published", !!t.published);
         upd("external_url", t.external_url || "");
         upd("year", t.year || new Date().getFullYear());
         upd("summary", t.summary || "");
         upd("departures_coming_soon", !!t.departures_coming_soon);
+        upd("slug", t.slug || "");
 
         // badge → UI
         const spec = parseBadgeSpec(t.badge);
@@ -346,11 +380,20 @@ export default function NewTripPage() {
           setBadgeFg("");
         }
 
-        // Departures (stöder både depart_date och date)
-        const deps: any[] = (t.departures || []).map((d: any) => ({
-          date: String(d.depart_date || d.date || "").slice(0, 10),
+        // Departures (stöder dep_date m.m.)
+        const deps: DepartureRow[] = (t.departures || []).map((d: any) => ({
+          dep_date: String(
+            d.dep_date ||
+              d.depDate ||
+              d.date ||
+              d.depart_date ||
+              ""
+          ).slice(0, 10),
+          dep_time: d.dep_time || d.time || d.depTime || "",
+          line_name: d.line_name || d.lineName || d.line || "",
+          stops: Array.isArray(d.stops) ? d.stops : [],
         }));
-        setDepartures(deps.filter((d) => d.date));
+        setDepartures(deps.filter((d) => d.dep_date));
 
         // Lines om finns i trip
         if (Array.isArray(t.lines)) setLines(t.lines);
@@ -360,8 +403,7 @@ export default function NewTripPage() {
         setBusy(null);
       }
     })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [router.isReady, router.query.id]);
 
   async function onUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const input = e.currentTarget;
@@ -383,7 +425,8 @@ export default function NewTripPage() {
         throw new Error(j?.error || "Upload failed");
       const url: string | undefined =
         j?.file?.url || j?.url || j?.publicUrl || j?.location;
-      if (!url) throw new Error("Upload lyckades men ingen URL returnerades.");
+      if (!url)
+        throw new Error("Upload lyckades men ingen URL returnerades.");
       upd("hero_image", url);
       setMsg("Bild uppladdad.");
     } catch (e: any) {
@@ -399,6 +442,10 @@ export default function NewTripPage() {
     setMsg(null);
     setBusy("save");
     try {
+      const baseTitle = f.title.trim();
+      if (!baseTitle) throw new Error("Ange titel.");
+      if (!f.hero_image) throw new Error("Ladda upp eller ange en bild.");
+
       // Bygg badge som "Text|#bg|#fg" om färger finns
       const badge = badgeText.trim()
         ? [
@@ -414,8 +461,13 @@ export default function NewTripPage() {
             .join("|")
         : f.badge?.trim() || "";
 
+      // Slug: använd befintlig om den finns, annars generera
+      const slug =
+        (f.slug && f.slug.trim()) || toSlug(baseTitle);
+
       const payload = {
-        title: f.title.trim(),
+        id: editingId || undefined,
+        title: baseTitle,
         subtitle: f.subtitle.trim() || null,
         trip_kind: f.trip_kind,
         badge: badge || null,
@@ -431,11 +483,8 @@ export default function NewTripPage() {
         departures,
         lines,
         departures_coming_soon: !!f.departures_coming_soon,
+        slug,
       };
-
-      if (!payload.title) throw new Error("Ange titel.");
-      if (!payload.hero_image)
-        throw new Error("Ladda upp eller ange en bild.");
 
       const r = await fetch("/api/trips/create", {
         method: "POST",
@@ -450,6 +499,33 @@ export default function NewTripPage() {
       setTimeout(() => router.push("/admin/trips"), 800);
     } catch (e: any) {
       setErr(e?.message || "Tekniskt fel.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function onDelete() {
+    if (!editingId) return;
+    const ok = window.confirm(
+      "Vill du ta bort den här resan? Detta går inte att ångra."
+    );
+    if (!ok) return;
+
+    setErr(null);
+    setMsg(null);
+    setBusy("delete");
+    try {
+      const r = await fetch("/api/trips/delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: editingId }),
+      });
+      const j = safeJson<any>(await r.text());
+      if (!r.ok || (j && j.ok === false))
+        throw new Error(j?.error || "Kunde inte ta bort.");
+      router.push("/admin/trips");
+    } catch (e: any) {
+      setErr(e?.message || "Tekniskt fel vid borttagning.");
     } finally {
       setBusy(null);
     }
@@ -480,7 +556,9 @@ export default function NewTripPage() {
       .map((l) => l.title || "Utan namn")
       .join(", ");
     const rest = lines.length - 2;
-    return rest > 0 ? `Flera linjer: ${first} + ${rest} till` : `Linjer: ${first}`;
+    return rest > 0
+      ? `Flera linjer: ${first} + ${rest} till`
+      : `Linjer: ${first}`;
   }, [lines]);
 
   // Förhandsvisningens badge (från UI-fält – fall back till f.badge)
@@ -561,7 +639,9 @@ export default function NewTripPage() {
           </div>
           <div className="text-sm text-[#0f172a]/70">{f.subtitle}</div>
           {f.summary && (
-            <div className="mt-2 text-sm text-[#0f172a]/80">{f.summary}</div>
+            <div className="mt-2 text-sm text-[#0f172a]/80">
+              {f.summary}
+            </div>
           )}
 
           <div className="mt-3 flex items-center justify-between">
@@ -635,7 +715,10 @@ export default function NewTripPage() {
                       className="border rounded-xl px-3 py-2.5 w-full focus:outline-none focus:ring-2 focus:ring-[#194C66]/30"
                       value={f.trip_kind}
                       onChange={(e) =>
-                        upd("trip_kind", e.target.value as Form["trip_kind"])
+                        upd(
+                          "trip_kind",
+                          e.target.value as Form["trip_kind"]
+                        )
                       }
                     >
                       <option value="flerdagar">Flerdagar</option>
@@ -648,7 +731,9 @@ export default function NewTripPage() {
                     <select
                       className="border rounded-xl px-3 py-2.5 w-full focus:outline-none focus:ring-2 focus:ring-[#194C66]/30"
                       value={f.year ?? new Date().getFullYear()}
-                      onChange={(e) => upd("year", Number(e.target.value) as any)}
+                      onChange={(e) =>
+                        upd("year", Number(e.target.value) as any)
+                      }
                     >
                       {[2025, 2026, 2027].map((y) => (
                         <option value={y} key={y}>
@@ -717,7 +802,10 @@ export default function NewTripPage() {
                       inputMode="numeric"
                       value={f.price_from}
                       onChange={(e) =>
-                        upd("price_from", e.target.value.replace(/[^\d]/g, ""))
+                        upd(
+                          "price_from",
+                          e.target.value.replace(/[^\d]/g, "")
+                        )
                       }
                     />
                   </div>
@@ -794,11 +882,14 @@ export default function NewTripPage() {
                   </label>
                 </div>
 
-                <DeparturesEditor value={departures} onChange={setDepartures} />
+                <DeparturesEditor
+                  value={departures}
+                  onChange={setDepartures}
+                />
               </Card>
 
               <Card title="Publicering">
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-3 w-full">
                   <label className="inline-flex items-center gap-2 text-sm">
                     <input
                       type="checkbox"
@@ -807,12 +898,28 @@ export default function NewTripPage() {
                     />
                     <span>Publicerad (visa på webb)</span>
                   </label>
+
+                  {editingId && (
+                    <button
+                      type="button"
+                      onClick={onDelete}
+                      disabled={busy !== null}
+                      className="px-4 py-2 rounded-[25px] border border-red-200 text-red-700 text-sm hover:bg-red-50"
+                    >
+                      Ta bort resa
+                    </button>
+                  )}
+
                   <button
                     onClick={onSave}
                     disabled={busy !== null}
                     className="ml-auto px-5 py-2 rounded-[25px] bg-[#194C66] text-white disabled:opacity-60"
                   >
-                    {busy === "save" ? "Sparar…" : "Spara resa"}
+                    {busy === "save"
+                      ? "Sparar…"
+                      : busy === "delete"
+                      ? "Tar bort…"
+                      : "Spara resa"}
                   </button>
                 </div>
               </Card>

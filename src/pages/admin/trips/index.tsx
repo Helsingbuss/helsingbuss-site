@@ -29,7 +29,8 @@ export default function TripsIndexPage() {
         setErr(null);
         const r = await fetch("/api/trips/list");
         const j = await r.json();
-        if (!r.ok || j.ok === false) throw new Error(j?.error || "Kunde inte hämta.");
+        if (!r.ok || j.ok === false)
+          throw new Error(j?.error || "Kunde inte hämta.");
         setRows(j.trips || []);
       } catch (e: any) {
         setErr(e?.message || "Tekniskt fel.");
@@ -51,7 +52,8 @@ export default function TripsIndexPage() {
             <div>
               <h1 className="text-xl font-semibold text-[#194C66]">Resor</h1>
               <p className="text-sm text-slate-600">
-                Hantera alla paketresor, shoppingturer och kryssningar i Helsingbuss-portalen.
+                Hantera alla paketresor, shoppingturer och kryssningar i
+                Helsingbuss-portalen.
               </p>
             </div>
             <Link
@@ -117,7 +119,8 @@ export default function TripsIndexPage() {
                         colSpan={8}
                       >
                         Inga resor ännu. Klicka på{" "}
-                        <span className="font-medium">Ny resa</span> för att lägga till den första.
+                        <span className="font-medium">Ny resa</span> för att
+                        lägga till den första.
                       </td>
                     </tr>
                   ) : (
@@ -164,7 +167,9 @@ export default function TripsIndexPage() {
 
                         {/* Land */}
                         <td className="px-4 py-3 align-top text-slate-700">
-                          {r.country || <span className="text-slate-400">-</span>}
+                          {r.country || (
+                            <span className="text-slate-400">-</span>
+                          )}
                         </td>
 
                         {/* År */}
@@ -176,7 +181,9 @@ export default function TripsIndexPage() {
                         <td className="px-4 py-3 align-top text-slate-700">
                           {r.next_date ? (
                             <span className="inline-flex rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700 border border-emerald-100">
-                              {new Date(r.next_date).toLocaleDateString("sv-SE", {
+                              {new Date(
+                                r.next_date
+                              ).toLocaleDateString("sv-SE", {
                                 year: "numeric",
                                 month: "short",
                                 day: "2-digit",
@@ -215,7 +222,10 @@ export default function TripsIndexPage() {
                         {/* Åtgärd */}
                         <td className="px-4 py-3 align-top text-right">
                           <Link
-                            href={`/admin/trips/new?id=${r.id}`} // ← tillbaka till din befintliga sida
+                            href={{
+                              pathname: "/admin/trips/new",
+                              query: { id: r.id },
+                            }}
                             className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 hover:border-slate-300"
                             title="Redigera"
                           >
