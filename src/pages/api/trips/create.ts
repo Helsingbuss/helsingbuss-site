@@ -21,7 +21,7 @@ type DepartureRow = {
 };
 
 type Body = {
-  id?: string; // om du i framtiden vill uppdatera istället för att skapa ny
+  id?: string; // om satt: uppdatera befintlig resa
   title: string;
   subtitle?: string | null;
   trip_kind?: "flerdagar" | "dagsresa" | "shopping" | string | null;
@@ -38,7 +38,8 @@ type Body = {
   categories?: string[] | null;
   tags?: string[] | null;
   departures?: DepartureRow[];
-  departures_coming_soon?: boolean | null; // NYTT: avgångar kommer inom kort
+  departures_coming_soon?: boolean | null; // avgångar kommer inom kort
+  slug?: string | null; // 👈 NYTT – kan komma från frontend
 };
 
 function setCORS(res: NextApiResponse) {
@@ -122,8 +123,11 @@ export default async function handler(
     external_url: b.external_url ?? null,
     year: b.year ?? null,
     summary: typeof b.summary === "string" ? b.summary : b.summary ?? null,
-    departures_coming_soon: !!b.departures_coming_soon, // 👈 NYTT – SPARAS I DB
-    slug: slugify(b.title || ""),
+    departures_coming_soon: !!b.departures_coming_soon,
+    // 👇 använd slug från frontend om den finns, annars generera från titel
+    slug:
+      (b.slug && String(b.slug).trim()) ||
+      slugify(b.title || ""),
   };
 
   if (tagsArray) {
@@ -134,18 +138,30 @@ export default async function handler(
   let tripId: string | null = b.id || null;
 
   try {
-    // Just nu: alltid INSERT (skapar ny resa)
-    // Om du senare vill ha "update" kan vi bygga vidare på b.id
-    const { data, error } = await supabase
-      .from("trips")
-      .insert(base)
-      .select("id")
-      .single();
+    if (b.id) {
+      // 🔁 UPPDATERA BEFINTLIG RESA
+      const { data, error } = await supabase
+        .from("trips")
+        .update(base)
+        .eq("id", b.id)
+        .select("id")
+        .single();
 
-    if (error) throw error;
-    tripId = data?.id || null;
+      if (error) throw error;
+      tripId = data?.id || b.id;
+    } else {
+      // ➕ SKAPA NY RESA
+      const { data, error } = await supabase
+        .from("trips")
+        .insert(base)
+        .select("id")
+        .single();
+
+      if (error) throw error;
+      tripId = data?.id || null;
+    }
   } catch (e: any) {
-    console.error("create trip failed:", e);
+    console.error("create/update trip failed:", e);
     return res.status(500).json({
       ok: false,
       error: e?.message || "Kunde inte spara resa.",
@@ -155,12 +171,12 @@ export default async function handler(
   if (!tripId) {
     return res
       .status(500)
-      .json({ ok: false, error: "Kunde inte skapa resa (saknar id)." });
+      .json({ ok: false, error: "Kunde inte spara resa (saknar id)." });
   }
 
   // Uppdatera avgångar: rensa gamla + spara nya
   try {
-    // radera ev. gamla avgångar (om samma endpoint återanvänds i framtiden)
+    // radera gamla avgångar för denna resa
     await supabase.from("trip_departures").delete().eq("trip_id", tripId);
 
     if (dates.length) {
@@ -170,14 +186,14 @@ export default async function handler(
         .insert(rows);
       if (depErr) {
         console.warn(
-          "create: could not insert departures:",
+          "create/update: could not insert departures:",
           depErr.message || depErr
         );
       }
     }
   } catch (e: any) {
     console.warn(
-      "create: departures update failed:",
+      "create/update: departures update failed:",
       e?.message || e
     );
     // men vi låter resan vara sparad ändå
