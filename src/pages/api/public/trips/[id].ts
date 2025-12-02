@@ -52,7 +52,7 @@ export default async function handler(
           "summary",
           "slug",
           "departures_coming_soon",
-          "lines", // 👈 viktig
+          "lines", // linjer & hållplatser
         ].join(",")
       )
       .eq("id", id)
@@ -64,14 +64,17 @@ export default async function handler(
 
     const { data: deps, error: depsErr } = await supabase
       .from("trip_departures")
-      .select("date")
+      .select("date, dep_time, line_name, stops")
       .eq("trip_id", trip.id)
       .order("date", { ascending: true });
 
     if (depsErr) throw depsErr;
 
     const departures = (deps || []).map((d: any) => ({
-      date: d.date,
+      dep_date: d.date,
+      dep_time: d.dep_time || "",
+      line_name: d.line_name || "",
+      stops: Array.isArray(d.stops) ? d.stops : [],
     }));
 
     return res.status(200).json({

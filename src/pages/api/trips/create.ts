@@ -51,7 +51,7 @@ type Body = {
   departures?: DepartureRow[];
   departures_coming_soon?: boolean | null;
   slug?: string | null;
-  lines?: LinePayload[] | null; // 👈 linjer & hållplatser
+  lines?: LinePayload[] | null; // linjer & hållplatser
 };
 
 function setCORS(res: NextApiResponse) {
@@ -60,35 +60,11 @@ function setCORS(res: NextApiResponse) {
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
 }
 
-function parseDepartureDates(rows: any[] | undefined): string[] {
-  if (!rows || !Array.isArray(rows)) return [];
-  const out: string[] = [];
-
-  for (const r of rows) {
-    const raw =
-      r?.date ||
-      r?.datum ||
-      r?.day ||
-      r?.when ||
-      r?.dep_date ||
-      r?.depart_date ||
-      r?.departure_date ||
-      null;
-
-    if (!raw) continue;
-
-    const s = String(raw).slice(0, 10); // YYYY-MM-DD
-    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) out.push(s);
-  }
-
-  return Array.from(new Set(out)).sort((a, b) => (a < b ? -1 : 1));
-}
-
 function slugify(title: string): string {
   const base = (title || "")
     .toLowerCase()
     .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[\u0300-\u036f]/g, "") // ta bort accent-tecken
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
 
@@ -107,6 +83,7 @@ export default async function handler(
 
   const b = (req.body || {}) as Body;
 
+  // Grundvalidering
   if (!b?.title || !b?.hero_image) {
     return res
       .status(400)
@@ -161,19 +138,19 @@ export default async function handler(
     base["tags"] = tagsArray.filter(Boolean);
   }
 
-  // 👇 SPARA LINES I trips.lines (jsonb)
+  // spara lines i trips.lines (jsonb)
   if (linesClean) {
     base["lines"] = linesClean;
   } else {
     base["lines"] = null;
   }
 
-  const dates = parseDepartureDates(b.departures);
   let tripId: string | null = b.id || null;
 
+  // --- Skapa eller uppdatera resa ---
   try {
     if (b.id) {
-      // 🔁 UPPDATERA BEFINTLIG RESA
+      // uppdatera befintlig resa
       const { data, error } = await supabase
         .from("trips")
         .update(base)
@@ -184,7 +161,7 @@ export default async function handler(
       if (error) throw error;
       tripId = data?.id || b.id;
     } else {
-      // ➕ SKAPA NY RESA
+      // skapa ny resa
       const { data, error } = await supabase
         .from("trips")
         .insert(base)
@@ -208,20 +185,53 @@ export default async function handler(
       .json({ ok: false, error: "Kunde inte spara resa (saknar id)." });
   }
 
-  // --- Uppdatera avgångar ---
+  // --- Uppdatera avgångar (turlista) ---
+  let departuresSaved = 0;
+
   try {
+    // ta bort gamla avgångar för denna resa
     await supabase.from("trip_departures").delete().eq("trip_id", tripId);
 
-    if (dates.length) {
-      const rows = dates.map((d) => ({ trip_id: tripId, date: d }));
+    const depRows: any[] = [];
+
+    if (Array.isArray(b.departures)) {
+      for (const r of b.departures) {
+        const rawDate =
+          r?.date ||
+          r?.datum ||
+          r?.day ||
+          r?.when ||
+          r?.dep_date ||
+          r?.depart_date ||
+          r?.departure_date ||
+          null;
+
+        if (!rawDate) continue;
+
+        const s = String(rawDate).slice(0, 10); // YYYY-MM-DD
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) continue;
+
+        depRows.push({
+          trip_id: tripId,
+          date: s,
+          dep_time: r?.dep_time || null,
+          line_name: r?.line_name || null,
+          stops: Array.isArray(r?.stops) ? r.stops : null,
+        });
+      }
+    }
+
+    if (depRows.length) {
       const { error: depErr } = await supabase
         .from("trip_departures")
-        .insert(rows);
+        .insert(depRows);
       if (depErr) {
         console.warn(
           "create/update: could not insert departures:",
           depErr.message || depErr
         );
+      } else {
+        departuresSaved = depRows.length;
       }
     }
   } catch (e: any) {
@@ -229,11 +239,12 @@ export default async function handler(
       "create/update: departures update failed:",
       e?.message || e
     );
+    // men vi låter resan vara sparad ändå
   }
 
   return res.status(200).json({
     ok: true,
     id: tripId,
-    departures_saved: dates.length,
+    departures_saved: departuresSaved,
   });
 }
