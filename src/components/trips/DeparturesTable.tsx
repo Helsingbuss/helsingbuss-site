@@ -8,15 +8,15 @@ type DepartureRow = {
   id: string;
   trip_id: string;
   trip_title: string;
-  date: string | null; // YYYY-MM-DD
-  weekday: string; // "tor", "fre" ...
-  dep_time: string | null; // "06:30"
+  date: string | null;      // YYYY-MM-DD
+  weekday: string;          // "lör", "sön" osv
+  dep_time: string | null;  // "06:30"
   line_name: string | null;
   price_from: number | null;
   seats_left: number | null;
   status: DepartureStatus;
 
-  // extra fält för hållplatser (om/när API:t skickar det)
+  // valfritt – om API:t skickar text med hållplatser
   stops_text?: string | null;
   stops?: string[] | null;
 };
@@ -64,18 +64,16 @@ export function DeparturesTable({ slug }: { slug: string }) {
     })();
   }, [slug]);
 
-  // Datum (2026-02-07 Lör)
-  function formatDepartureDate(row: DepartureRow) {
+  function formatDate(row: DepartureRow) {
     if (!row.date) return "–";
-    const day = row.date;
+    const day = row.date; // 2026-02-07
     const wd = row.weekday
       ? row.weekday.charAt(0).toUpperCase() + row.weekday.slice(1)
       : "";
     return [day, wd].filter(Boolean).join(" ");
   }
 
-  // Tid (06:30)
-  function formatDepartureTime(row: DepartureRow) {
+  function formatTime(row: DepartureRow) {
     if (!row.dep_time) return "";
     return row.dep_time.slice(0, 5);
   }
@@ -86,7 +84,7 @@ export function DeparturesTable({ slug }: { slug: string }) {
       style: "currency",
       currency: "SEK",
       maximumFractionDigits: 0,
-    }).format(price); // "295 kr"
+    }).format(price); // t.ex. "195 kr"
   }
 
   function seatsLabel(row: DepartureRow) {
@@ -115,7 +113,7 @@ export function DeparturesTable({ slug }: { slug: string }) {
     router.push(`/kassa?departure_id=${encodeURIComponent(row.id)}`);
   }
 
-  // Linje-filter (Linje 1, Linje 2, …)
+  // unika linjenamn för filterknapparna
   const lineNames = Array.from(
     new Set(rows.map((r) => r.line_name).filter((x): x is string => !!x))
   ).sort();
@@ -134,16 +132,14 @@ export function DeparturesTable({ slug }: { slug: string }) {
     ].join(" ");
 
   return (
-    <div className="mt-6">
-      {/* Rubrik */}
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <h2 className="text-lg font-semibold text-[#0f172a]">
-          Kommande avgångar
-        </h2>
-      </div>
+    <div className="mt-4">
+      {/* Rubrik – själva widgeten, ingen vit card-bakgrund här */}
+      <h2 className="mb-2 text-base font-semibold text-[#0f172a] uppercase tracking-wide">
+        Kommande avgångar
+      </h2>
 
       {err && (
-        <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+        <div className="mb-3 rounded-xl border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700">
           {err}
         </div>
       )}
@@ -156,8 +152,8 @@ export function DeparturesTable({ slug }: { slug: string }) {
         </div>
       ) : (
         <>
-          {/* Filterknappar: Visa alla + Linje 1, Linje 2, ... */}
-          <div className="mb-4 flex flex-wrap items-center gap-2">
+          {/* knappar: Visa alla + Linje 1, Linje 2, ... */}
+          <div className="mb-3 flex flex-wrap items-center gap-2">
             <button
               type="button"
               className={buttonClass("ALL")}
@@ -177,9 +173,9 @@ export function DeparturesTable({ slug }: { slug: string }) {
             ))}
           </div>
 
-          {/* Själva tabellen – ingen stor kort-bakgrund runt */}
+          {/* Tabell – ingen card-bakgrund, bara border-linjer */}
           <div className="overflow-x-auto">
-            <table className="min-w-full text-sm">
+            <table className="min-w-full text-sm border-collapse">
               <thead>
                 <tr className="border-b border-slate-200 text-xs font-semibold uppercase tracking-wide text-slate-600">
                   <th className="px-2 py-2 text-left">Avresa</th>
@@ -187,13 +183,13 @@ export function DeparturesTable({ slug }: { slug: string }) {
                   <th className="px-2 py-2 text-left">Resmål</th>
                   <th className="px-2 py-2 text-right">Pris från</th>
                   <th className="px-2 py-2 text-right">Platser kvar</th>
-                  <th className="px-2 py-2 text-right">&nbsp;</th>
+                  <th className="px-2 py-2 text-right"></th>
                 </tr>
               </thead>
               <tbody>
                 {filteredRows.map((row) => {
-                  const dateLabel = formatDepartureDate(row);
-                  const timeLabel = formatDepartureTime(row);
+                  const dateLabel = formatDate(row);
+                  const timeLabel = formatTime(row);
                   const sLabel = seatsLabel(row);
                   const sText = stopsText(row);
                   const isFull = row.status === "full";
@@ -204,12 +200,12 @@ export function DeparturesTable({ slug }: { slug: string }) {
                       key={row.id}
                       className="border-b border-slate-100 bg-white hover:bg-slate-50/70 transition-colors"
                     >
-                      {/* Avresa + info-ikon */}
+                      {/* Avresa + infoikon */}
                       <td className="px-2 py-3 align-middle text-slate-900">
                         <div className="flex items-center gap-2">
                           {sText && (
                             <span
-                              className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-slate-300 text-[11px] text-[#194C66]"
+                              className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-[#005eb8] text-[11px] font-semibold text-white"
                               title={sText}
                             >
                               i
@@ -228,9 +224,7 @@ export function DeparturesTable({ slug }: { slug: string }) {
 
                       {/* Linje */}
                       <td className="px-2 py-3 align-middle text-slate-800">
-                        {row.line_name || (
-                          <span className="text-slate-400">–</span>
-                        )}
+                        {row.line_name || <span className="text-slate-400">–</span>}
                       </td>
 
                       {/* Resmål */}
@@ -243,7 +237,7 @@ export function DeparturesTable({ slug }: { slug: string }) {
                         )}
                       </td>
 
-                      {/* Pris från */}
+                      {/* Pris */}
                       <td className="px-2 py-3 align-middle text-right text-slate-900">
                         {row.price_from != null ? (
                           <span className="font-medium">
@@ -261,7 +255,7 @@ export function DeparturesTable({ slug }: { slug: string }) {
                         </span>
                       </td>
 
-                      {/* Boka / Fullsatt / Väntelista */}
+                      {/* Boka / Väntelista / Fullsatt */}
                       <td className="px-2 py-3 align-middle text-right">
                         {isFull ? (
                           <button
