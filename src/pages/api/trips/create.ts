@@ -11,16 +11,18 @@ type DepartureRow = {
   dep_date?: string;
   dep_time?: string;
   line_name?: string;
-  stops?: string[];
+  stops?: any;
+  // fallback-fält om något gammalt UI skickar andra namn
   date?: string;
   datum?: string;
   day?: string;
   when?: string;
+  depart_date?: string;
   departure_date?: string;
 };
 
 type Body = {
-  id?: string;
+  id?: string; // om satt ska vi UPPDATERA, annars skapa ny
   title: string;
   subtitle?: string | null;
   trip_kind?: "flerdagar" | "dagsresa" | "shopping" | string | null;
@@ -36,9 +38,13 @@ type Body = {
   summary?: string | null;
   categories?: string[] | null;
   tags?: string[] | null;
-  departures?: DepartureRow[];
-  departures_coming_soon?: boolean | null;
+
+  // 👇 Dessa två måste vi spara för att Redigera ska funka
+  departures?: DepartureRow[] | null;
   lines?: any[] | null;
+
+  departures_coming_soon?: boolean | null;
+  slug?: string | null;
 };
 
 function setCORS(res: NextApiResponse) {
@@ -63,7 +69,6 @@ function parseDepartureDates(rows: any[] | undefined): string[] {
       null;
 
     if (!raw) continue;
-
     const s = String(raw).slice(0, 10); // YYYY-MM-DD
     if (/^\d{4}-\d{2}-\d{2}$/.test(s)) out.push(s);
   }
@@ -78,7 +83,6 @@ function slugify(title: string): string {
     .replace(/[\u0300-\u036f]/g, "")
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
-
   return base || "resa";
 }
 
@@ -89,11 +93,14 @@ export default async function handler(
   setCORS(res);
   if (req.method === "OPTIONS") return res.status(200).end();
   if (req.method !== "POST") {
-    return res.status(405).json({ ok: false, error: "Method not allowed" });
+    return res
+      .status(405)
+      .json({ ok: false, error: "Method not allowed" });
   }
 
   const b = (req.body || {}) as Body;
 
+  // Enkel validering
   if (!b?.title || !b?.hero_image) {
     return res
       .status(400)
@@ -119,9 +126,14 @@ export default async function handler(
     published: !!b.published,
     external_url: b.external_url ?? null,
     year: b.year ?? null,
-    summary: typeof b.summary === "string" ? b.summary : b.summary ?? null,
+    summary:
+      typeof b.summary === "string" ? b.summary : b.summary ?? null,
     departures_coming_soon: !!b.departures_coming_soon,
-    slug: slugify(b.title || ""),
+    slug:
+      (b.slug && b.slug.trim()) ||
+      slugify(b.title || ""),
+    // 👇 Spara JSON direkt i trips
+    departures: b.departures ?? null,
     lines: b.lines ?? null,
   };
 
@@ -129,12 +141,12 @@ export default async function handler(
     base["tags"] = tagsArray.filter(Boolean);
   }
 
-  const dates = parseDepartureDates(b.departures);
+  const dates = parseDepartureDates(b.departures || undefined);
   let tripId: string | null = b.id || null;
 
   try {
     if (tripId) {
-      // 🔁 Uppdatera befintlig resa
+      // 👇 UPPDATERA befintlig resa
       const { data, error } = await supabase
         .from("trips")
         .update(base)
@@ -145,7 +157,7 @@ export default async function handler(
       if (error) throw error;
       tripId = data?.id || tripId;
     } else {
-      // ➕ Skapa ny resa
+      // 👇 Skapa ny resa
       const { data, error } = await supabase
         .from("trips")
         .insert(base)
@@ -166,10 +178,10 @@ export default async function handler(
   if (!tripId) {
     return res
       .status(500)
-      .json({ ok: false, error: "Kunde inte spara resa (saknar id)." });
+      .json({ ok: false, error: "Kunde inte skapa/uppdatera resa (saknar id)." });
   }
 
-  // Uppdatera avgångar
+  // Uppdatera avgångar i tabellen trip_departures
   try {
     await supabase.from("trip_departures").delete().eq("trip_id", tripId);
 
@@ -186,7 +198,10 @@ export default async function handler(
       }
     }
   } catch (e: any) {
-    console.warn("create: departures update failed:", e?.message || e);
+    console.warn(
+      "create: departures update failed:",
+      e?.message || e
+    );
   }
 
   return res.status(200).json({
