@@ -2,17 +2,62 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import * as admin from "@/lib/supabaseAdmin";
 
-const supabase =
+const supabase: any =
   (admin as any).supabaseAdmin ||
   (admin as any).supabase ||
   (admin as any).default;
+
+function setCORS(res: NextApiResponse) {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+}
+
+function findNextDateFromDepartures(rows: any[] | null | undefined): string | null {
+  if (!rows || !Array.isArray(rows)) return null;
+
+  const todayMs = new Date(new Date().toDateString()).getTime();
+  const timestamps: number[] = [];
+
+  for (const r of rows) {
+    const raw =
+      r?.dep_date ||
+      r?.date ||
+      r?.datum ||
+      r?.day ||
+      r?.when ||
+      r?.depart_date ||
+      r?.departure_date ||
+      null;
+
+    if (!raw) continue;
+
+    const iso = String(raw).slice(0, 10); // YYYY-MM-DD
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) continue;
+
+    const ms = new Date(iso).getTime();
+    if (!isNaN(ms) && ms >= todayMs) timestamps.push(ms);
+  }
+
+  if (!timestamps.length) return null;
+  timestamps.sort((a, b) => a - b);
+  return new Date(timestamps[0]).toISOString().slice(0, 10);
+}
 
 export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse
 ) {
+  setCORS(res);
+  if (req.method === "OPTIONS") return res.status(200).end();
+  if (req.method !== "GET") {
+    return res
+      .status(405)
+      .json({ ok: false, error: "Method not allowed" });
+  }
+
   try {
-    const { data, error } = await supabase
+    const { data: trips, error: tripsErr } = await supabase
       .from("trips")
       .select(
         [
@@ -20,63 +65,36 @@ export default async function handler(
           "title",
           "subtitle",
           "trip_kind",
-          "badge",
           "country",
           "year",
           "price_from",
           "published",
           "hero_image",
+          "departures_raw",
         ].join(",")
       )
-      // om created_at inte finns ignorerar vi felet i loggen
-      .order("created_at", { ascending: false } as any);
+      .order("created_at", { ascending: false });
 
-    if (error) throw error;
+    if (tripsErr) throw tripsErr;
 
-    // Hämta “nästa avgång” per resa (från trip_departures)
-    const ids = (data || []).map((t: any) => t.id);
-    let next: Record<string, string | null> = {};
-
-    if (ids.length) {
-      const { data: dep, error: depErr } = await supabase
-        .from("trip_departures")
-        .select("trip_id, depart_date, date")
-        .in("trip_id", ids);
-
-      if (!depErr && dep) {
-        const byTrip: Record<string, Date[]> = {};
-
-        dep.forEach((r: any) => {
-          const raw = r.depart_date || r.date;
-          if (!raw) return;
-
-          const d = new Date(raw);
-          if (isNaN(d.getTime())) return;
-
-          if (!byTrip[r.trip_id]) byTrip[r.trip_id] = [];
-          byTrip[r.trip_id].push(d);
-        });
-
-        const today = new Date(new Date().toDateString());
-
-        Object.keys(byTrip).forEach((k) => {
-          const dates = byTrip[k]
-            .filter((d) => d >= today)
-            .sort((a, b) => a.getTime() - b.getTime());
-
-          next[k] = dates[0] ? dates[0].toISOString().slice(0, 10) : null;
-        });
-      }
-    }
-
-    const rows = (data || []).map((t: any) => ({
-      ...t,
-      next_date: next[t.id] ?? null,
+    const out = (trips || []).map((t: any) => ({
+      id: t.id,
+      title: t.title || "",
+      subtitle: t.subtitle || "",
+      trip_kind: t.trip_kind || null,
+      country: t.country || null,
+      year: t.year ?? null,
+      price_from: t.price_from ?? null,
+      published: !!t.published,
+      hero_image: t.hero_image || null,
+      next_date: findNextDateFromDepartures(t.departures_raw),
     }));
 
-    res.status(200).json({ ok: true, trips: rows });
+    return res.status(200).json({ ok: true, trips: out });
   } catch (e: any) {
-    console.error("/api/trips/list", e?.message || e);
-    res.status(500).json({ ok: false, error: "Server error" });
+    console.error("/api/trips/list error:", e?.message || e);
+    return res
+      .status(500)
+      .json({ ok: false, error: "Server error" });
   }
 }

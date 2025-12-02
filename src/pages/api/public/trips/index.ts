@@ -14,6 +14,37 @@ function setCORS(res: NextApiResponse) {
   res.setHeader("Cache-Control", "s-maxage=60, stale-while-revalidate=300");
 }
 
+function findNextDateFromDepartures(rows: any[] | null | undefined): string | null {
+  if (!rows || !Array.isArray(rows)) return null;
+
+  const todayMs = new Date(new Date().toDateString()).getTime();
+  const timestamps: number[] = [];
+
+  for (const r of rows) {
+    const raw =
+      r?.dep_date ||
+      r?.date ||
+      r?.datum ||
+      r?.day ||
+      r?.when ||
+      r?.depart_date ||
+      r?.departure_date ||
+      null;
+
+    if (!raw) continue;
+
+    const iso = String(raw).slice(0, 10); // YYYY-MM-DD
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) continue;
+
+    const ms = new Date(iso).getTime();
+    if (!isNaN(ms) && ms >= todayMs) timestamps.push(ms);
+  }
+
+  if (!timestamps.length) return null;
+  timestamps.sort((a, b) => a - b);
+  return new Date(timestamps[0]).toISOString().slice(0, 10);
+}
+
 export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse
@@ -49,6 +80,7 @@ export default async function handler(
           "published",
           "slug",
           "departures_coming_soon",
+          "departures_raw",
         ].join(",")
       )
       .eq("published", true)
@@ -57,38 +89,10 @@ export default async function handler(
 
     if (tripsErr) throw tripsErr;
 
-    const todayMs = new Date(new Date().toDateString()).getTime();
     const out: any[] = [];
 
     for (const t of trips || []) {
-      const { data: deps, error: depsErr } = await supabase
-        .from("trip_departures")
-        .select("date, depart_date, dep_date, departure_date")
-        .eq("trip_id", t.id)
-        .limit(200);
-
-      if (depsErr) throw depsErr;
-
-      const dates: Date[] = [];
-      for (const row of deps || []) {
-        const cand = [
-          row.date,
-          row.depart_date,
-          row.dep_date,
-          row.departure_date,
-        ]
-          .filter(Boolean)
-          .map((d: any) => new Date(d as string));
-        for (const d of cand) {
-          if (!isNaN(d.getTime()) && d.getTime() >= todayMs) {
-            dates.push(d);
-          }
-        }
-      }
-      dates.sort((a, b) => a.getTime() - b.getTime());
-      const next_date = dates[0]
-        ? dates[0].toISOString().slice(0, 10)
-        : null;
+      const next_date = findNextDateFromDepartures(t.departures_raw);
 
       out.push({
         id: t.id,
