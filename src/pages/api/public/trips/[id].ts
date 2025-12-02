@@ -11,7 +11,12 @@ function setCORS(res: NextApiResponse) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
-  res.setHeader("Cache-Control", "s-maxage=60, stale-while-revalidate=300");
+}
+
+function isUuid(v: string) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+    v
+  );
 }
 
 export default async function handler(
@@ -26,52 +31,87 @@ export default async function handler(
       .json({ ok: false, error: "Method not allowed" });
   }
 
-  const { id } = req.query;
-  if (!id || Array.isArray(id)) {
-    return res.status(400).json({ ok: false, error: "Missing id/slug" });
+  const rawId = Array.isArray(req.query.id)
+    ? req.query.id[0]
+    : req.query.id;
+
+  if (!rawId) {
+    return res.status(400).json({ ok: false, error: "Saknar id/slug." });
   }
 
-  const key = String(id);
+  const selectCols = [
+    "id",
+    "title",
+    "subtitle",
+    "trip_kind",
+    "badge",
+    "ribbon",
+    "city",
+    "country",
+    "price_from",
+    "hero_image",
+    "year",
+    "external_url",
+    "summary",
+    "published",
+    "slug",
+    "departures_coming_soon",
+    "lines",
+    "departures_raw",
+  ].join(",");
 
   try {
-    // 🔎 hämta resa via id ELLER slug
-    const { data: tripRow, error: tripErr } = await supabase
-      .from("trips")
-      .select("*")
-      .or(`id.eq.${key},slug.eq.${key}`)
-      .maybeSingle();
+    let tripRes;
+    if (isUuid(rawId)) {
+      tripRes = await supabase
+        .from("trips")
+        .select(selectCols)
+        .eq("id", rawId)
+        .single();
+    } else {
+      // fallback: hämta via slug om någon gång behövs offentligt
+      tripRes = await supabase
+        .from("trips")
+        .select(selectCols)
+        .eq("slug", rawId)
+        .single();
+    }
 
-    if (tripErr) throw tripErr;
-    if (!tripRow) {
+    const { data: t, error } = tripRes;
+    if (error) throw error;
+    if (!t) {
       return res
         .status(404)
         .json({ ok: false, error: "Resan hittades inte." });
     }
 
-    // 🔁 hämta avgångar
-    const { data: depRows, error: depErr } = await supabase
-      .from("trip_departures")
-      .select("id, date, dep_time, line_name, stops")
-      .eq("trip_id", tripRow.id)
-      .order("date", { ascending: true });
+    const departures = Array.isArray(t.departures_raw)
+      ? t.departures_raw
+      : [];
 
-    if (depErr) throw depErr;
-
-    const departures =
-      (depRows || []).map((d: any) => ({
-        dep_date: d.date ? String(d.date).slice(0, 10) : "",
-        dep_time: d.dep_time || "",
-        line_name: d.line_name || "",
-        stops: Array.isArray(d.stops) ? d.stops : [],
-      })) || [];
-
-    const trip = {
-      ...tripRow,
-      departures,
-      lines: tripRow.lines || [],
-    };
-
-    return res.status(200).json({ ok: true, trip });
+    return res.status(200).json({
+      ok: true,
+      trip: {
+        id: t.id,
+        title: t.title || "",
+        subtitle: t.subtitle || "",
+        trip_kind: t.trip_kind || null,
+        badge: t.badge || null,
+        ribbon: t.ribbon || null,
+        city: t.city || null,
+        country: t.country || null,
+        price_from: t.price_from ?? null,
+        hero_image: t.hero_image || null,
+        year: t.year ?? null,
+        external_url: t.external_url || null,
+        summary: t.summary || "",
+        published: !!t.published,
+        slug: t.slug || "",
+        departures_coming_soon: !!t.departures_coming_soon,
+        lines: Array.isArray(t.lines) ? t.lines : [],
+        departures,
+      },
+    });
   } catch (e: any) {
     console.error("/api/public/trips/[id] error:", e?.message || e);
     return res
