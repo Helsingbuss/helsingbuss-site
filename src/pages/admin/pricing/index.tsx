@@ -3,462 +3,492 @@ import { useEffect, useMemo, useState } from "react";
 import AdminMenu from "@/components/AdminMenu";
 import Header from "@/components/Header";
 
-type TripOption = {
+type Trip = {
   id: string;
   title: string;
-  year?: number | null;
+  year: number | null;
+  slug?: string | null;
+  published: boolean;
 };
 
-type DepartureOption = {
-  trip_id: string;
-  date: string; // YYYY-MM-DD
+type Departure = {
+  trip_id: string | null;
+  date: string | null;
+  depart_date?: string | null;
+  dep_date?: string | null;
+  departure_date?: string | null;
 };
 
 type TicketType = {
-  id: string;
-  code: string;
+  id: number;
   name: string;
-  description?: string | null;
-  kind: "ticket" | "addon" | string;
-  sort_order: number;
-  is_active: boolean;
+  code?: string | null;
 };
 
-type ExistingPrice = {
-  id: string;
-  ticket_type_id: string;
+type PricingRow = {
+  id: number;
+  trip_id: string;
+  ticket_type_id: number;
+  departure_date: string | null;
   price: number;
   currency: string;
+  sales_valid_from?: string | null;
+  sales_valid_to?: string | null;
 };
 
-function FieldLabel({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="text-[13px] font-medium text-[#194C66]/80 mb-1">
-      {children}
-    </div>
-  );
-}
+type LoadResponse = {
+  ok: boolean;
+  trips: Trip[];
+  ticket_types: TicketType[];
+  departures: Departure[];
+  pricing: PricingRow[];
+  error?: string;
+};
 
-function Help({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="text-[12px] text-[#194C66]/60 mt-1">{children}</div>
-  );
-}
-
-function formatDate(date: string) {
-  if (!date) return "";
-  const d = new Date(date + "T00:00:00");
-  if (isNaN(d.getTime())) return date;
-  return d.toLocaleDateString("sv-SE", {
-    weekday: "short",
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-  });
+function money(n?: number | null) {
+  if (n == null) return "";
+  return new Intl.NumberFormat("sv-SE", {
+    style: "currency",
+    currency: "SEK",
+    maximumFractionDigits: 0,
+  }).format(n);
 }
 
 export default function PricingPage() {
-  const [initLoading, setInitLoading] = useState(true);
-  const [trips, setTrips] = useState<TripOption[]>([]);
-  const [departures, setDepartures] = useState<DepartureOption[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+
+  const [trips, setTrips] = useState<Trip[]>([]);
+  const [departures, setDepartures] = useState<Departure[]>([]);
+  const [ticketTypes, setTicketTypes] = useState<TicketType[]>([]);
+  const [pricing, setPricing] = useState<PricingRow[]>([]);
 
   const [selectedTripId, setSelectedTripId] = useState<string>("");
-  const [selectedDate, setSelectedDate] = useState<string>("");
+  const [selectedTicketTypeId, setSelectedTicketTypeId] =
+    useState<number | null>(null);
+  const [selectedDepartureDate, setSelectedDepartureDate] =
+    useState<string>("");
+  const [priceInput, setPriceInput] = useState<string>("");
 
-  const [ticketTypes, setTicketTypes] = useState<TicketType[]>([]);
-  const [priceInputs, setPriceInputs] = useState<Record<string, string>>({});
+  // Early Bird / kampanjperiod
+  const [salesFrom, setSalesFrom] = useState<string>("");
+  const [salesTo, setSalesTo] = useState<string>("");
 
-  const [loadingPrices, setLoadingPrices] = useState(false);
-  const [saving, setSaving] = useState(false);
-
-  const [err, setErr] = useState<string | null>(null);
-  const [msg, setMsg] = useState<string | null>(null);
-
-  // Hämta alla trips + avgångar vid start
   useEffect(() => {
-    (async () => {
+    let cancelled = false;
+
+    async function load() {
       try {
-        setInitLoading(true);
-        setErr(null);
-        setMsg(null);
+        setLoading(true);
+        setError(null);
+        const res = await fetch("/api/admin/pricing/load");
+        const json: LoadResponse = await res.json();
+        if (!json.ok)
+          throw new Error(json.error || "Kunde inte läsa prissättning.");
 
-        const r = await fetch("/api/pricing/init");
-        const j = await r.json();
-        if (!r.ok || j.ok === false) {
-          throw new Error(j?.error || "Kunde inte hämta grunddata.");
+        if (cancelled) return;
+
+        setTrips(json.trips || []);
+        setDepartures(json.departures || []);
+        setTicketTypes(json.ticket_types || []);
+        setPricing(json.pricing || []);
+
+        if (json.trips && json.trips.length && !selectedTripId) {
+          setSelectedTripId(json.trips[0].id);
         }
-
-        const tripsData: TripOption[] = j.trips || [];
-        const depData: DepartureOption[] = j.departures || [];
-
-        setTrips(tripsData);
-        setDepartures(depData);
-
-        if (tripsData.length > 0) {
-          const firstTripId = tripsData[0].id;
-          setSelectedTripId(firstTripId);
-
-          const depsForTrip = depData.filter(
-            (d) => d.trip_id === firstTripId && d.date
-          );
-          if (depsForTrip.length > 0) {
-            setSelectedDate(depsForTrip[0].date);
-          }
+        if (
+          json.ticket_types &&
+          json.ticket_types.length &&
+          selectedTicketTypeId == null
+        ) {
+          setSelectedTicketTypeId(json.ticket_types[0].id);
         }
       } catch (e: any) {
-        setErr(e?.message || "Tekniskt fel vid hämtning.");
+        console.error(e);
+        if (!cancelled) setError(e?.message || "Tekniskt fel.");
       } finally {
-        setInitLoading(false);
+        if (!cancelled) setLoading(false);
       }
-    })();
-  }, []);
-
-  // Filtrerade avgångar för vald resa
-  const departuresForTrip = useMemo(
-    () =>
-      departures
-        .filter((d) => d.trip_id === selectedTripId && d.date)
-        .sort((a, b) => (a.date < b.date ? -1 : 1)),
-    [departures, selectedTripId]
-  );
-
-  // Hämta biljetttyper + priser när trip + datum ändras
-  useEffect(() => {
-    if (!selectedTripId || !selectedDate) {
-      setTicketTypes([]);
-      setPriceInputs({});
-      return;
     }
 
-    (async () => {
-      try {
-        setLoadingPrices(true);
-        setErr(null);
-        setMsg(null);
+    load();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-        const params = new URLSearchParams({
-          trip_id: selectedTripId,
-          departure_date: selectedDate,
-        });
+  const tripOptions = useMemo(
+    () =>
+      trips
+        .slice()
+        .sort((a, b) => (a.title || "").localeCompare(b.title || "")),
+    [trips]
+  );
 
-        const r = await fetch(`/api/pricing/get?${params.toString()}`);
-        const j = await r.json();
+  const currentTrip = useMemo(
+    () => tripOptions.find((t) => t.id === selectedTripId) || null,
+    [tripOptions, selectedTripId]
+  );
 
-        if (!r.ok || j.ok === false) {
-          throw new Error(j?.error || "Kunde inte hämta prissättning.");
-        }
+  // 👇 AVGÅNGAR FÖR RESA (med fallback om trip_id inte matchar)
+  const departuresForTrip = useMemo(() => {
+    if (!departures.length) return [];
 
-        const tt: TicketType[] = j.ticket_types || [];
-        const prices: ExistingPrice[] = j.prices || [];
+    let rows: Departure[] = [];
 
-        const map: Record<string, string> = {};
-        for (const t of tt) {
-          const found = prices.find((p) => p.ticket_type_id === t.id);
-          if (found && typeof found.price === "number") {
-            map[t.id] = String(found.price);
-          } else {
-            map[t.id] = "";
-          }
-        }
+    if (selectedTripId) {
+      rows = departures.filter(
+        (d) => String(d.trip_id || "") === String(selectedTripId)
+      );
+    }
 
-        setTicketTypes(tt);
-        setPriceInputs(map);
-      } catch (e: any) {
-        setErr(e?.message || "Tekniskt fel vid hämtning av priser.");
-        setTicketTypes([]);
-        setPriceInputs({});
-      } finally {
-        setLoadingPrices(false);
+    // Fallback: om inget matchar trip_id → använd alla avgångar vi har
+    if (!rows.length) {
+      rows = departures;
+    }
+
+    const uniqueDates = new Set<string>();
+    const out: string[] = [];
+
+    for (const row of rows) {
+      const raw =
+        row.date ||
+        row.depart_date ||
+        row.dep_date ||
+        row.departure_date ||
+        null;
+      if (!raw) continue;
+      const s = String(raw).slice(0, 10);
+      if (/^\d{4}-\d{2}-\d{2}$/.test(s) && !uniqueDates.has(s)) {
+        uniqueDates.add(s);
+        out.push(s);
       }
-    })();
-  }, [selectedTripId, selectedDate]);
+    }
 
-  function onChangePrice(ticketTypeId: string, value: string) {
-    // Tillåt bara siffror
-    const cleaned = value.replace(/[^\d]/g, "");
-    setPriceInputs((prev) => ({ ...prev, [ticketTypeId]: cleaned }));
-  }
+    out.sort();
+    return out;
+  }, [departures, selectedTripId]);
 
-  async function onSave() {
-    if (!selectedTripId || !selectedDate) {
-      setErr("Välj både resa och avgång innan du sparar.");
+  const pricingForCurrent = useMemo(() => {
+    if (!selectedTripId) return [];
+    return pricing
+      .filter((p) => p.trip_id === selectedTripId)
+      .sort((a, b) => {
+        const dA = a.departure_date || "";
+        const dB = b.departure_date || "";
+        if (dA === dB) return a.ticket_type_id - b.ticket_type_id;
+        return dA.localeCompare(dB);
+      });
+  }, [pricing, selectedTripId]);
+
+  async function handleSave(e: React.FormEvent) {
+    e.preventDefault();
+    if (!selectedTripId) {
+      setError("Välj en resa.");
+      return;
+    }
+    if (selectedTicketTypeId == null) {
+      setError("Välj en biljett-typ.");
+      return;
+    }
+    const price = Number(priceInput.replace(/[^\d]/g, ""));
+    if (!price || isNaN(price)) {
+      setError("Ange ett pris i kronor.");
       return;
     }
 
     try {
       setSaving(true);
-      setErr(null);
-      setMsg(null);
-
-      const pricesPayload = ticketTypes
-        .map((t) => {
-          const raw = (priceInputs[t.id] || "").trim();
-          if (!raw) return null;
-          const n = Number(raw);
-          if (!Number.isFinite(n) || n <= 0) return null;
-          return {
-            ticket_type_id: t.id,
-            price: Math.round(n),
-          };
-        })
-        .filter(Boolean) as { ticket_type_id: string; price: number }[];
+      setError(null);
+      setMessage(null);
 
       const body = {
         trip_id: selectedTripId,
-        departure_date: selectedDate,
-        prices: pricesPayload,
+        ticket_type_id: selectedTicketTypeId,
+        departure_date: selectedDepartureDate || null,
+        price,
+        sales_valid_from: salesFrom || null,
+        sales_valid_to: salesTo || null,
       };
 
-      const r = await fetch("/api/pricing/save", {
+      const res = await fetch("/api/admin/pricing/save", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
-
-      const j = await r.json();
-      if (!r.ok || j.ok === false) {
-        throw new Error(j?.error || "Kunde inte spara priser.");
+      const json = await res.json();
+      if (!res.ok || json.ok === false) {
+        throw new Error(json.error || "Kunde inte spara pris.");
       }
 
-      setMsg("Priser sparade.");
+      const saved: PricingRow = json.row;
+      setPricing((prev) => {
+        const others = prev.filter((p) => p.id !== saved.id);
+        return [...others, saved];
+      });
+
+      setMessage("Pris sparat.");
     } catch (e: any) {
-      setErr(e?.message || "Tekniskt fel vid sparande.");
+      console.error(e);
+      setError(e?.message || "Tekniskt fel vid sparande.");
     } finally {
       setSaving(false);
     }
   }
-
-  const currentTrip = trips.find((t) => t.id === selectedTripId) || null;
 
   return (
     <>
       <AdminMenu />
       <div className="min-h-screen bg-[#f5f4f0] lg:pl-64">
         <Header />
-
         <main className="px-6 pb-16 pt-14 lg:pt-20">
-          {/* Topprad */}
-          <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <h1 className="text-xl font-semibold text-[#194C66]">
-                Prissättning
-              </h1>
-              <p className="text-sm text-slate-600">
-                Här sätter du priser per resa, avgångsdatum och biljetttyp.
-              </p>
-            </div>
-            {initLoading && (
-              <div className="text-[12px] text-slate-500">
-                Laddar grunddata…
-              </div>
-            )}
-          </div>
+          <div className="max-w-5xl mx-auto space-y-8">
+            <h1 className="text-xl font-semibold text-[#194C66]">
+              Prissättning – biljetter
+            </h1>
+            <p className="text-sm text-slate-600">
+              Här kopplar du <b>biljett-typer</b> till en <b>resa</b> och – om du
+              vill – till ett specifikt <b>avgångsdatum</b>. Lämnar du datumet
+              tomt blir det ett <i>standardpris</i> som gäller alla avgångar.
+            </p>
 
-          {err && (
-            <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-              {err}
-            </div>
-          )}
-          {msg && (
-            <div className="mb-4 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
-              {msg}
-            </div>
-          )}
-
-          <div className="grid gap-6 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,2fr)]">
-            {/* Vänster: val av resa + avgång */}
-            <section className="bg-white rounded-2xl shadow-sm border border-slate-200/70">
-              <div className="px-4 sm:px-5 py-3 border-b">
-                <h2 className="text-sm font-semibold tracking-wide text-[#194C66]">
-                  Välj resa & avgång
-                </h2>
-                <p className="text-[12px] text-slate-500 mt-1">
-                  Välj först resa, sedan avgångsdatum. Till höger sätter du
-                  priser för biljetttyper.
-                </p>
-              </div>
-              <div className="p-4 sm:p-5 space-y-4">
+            <form
+              onSubmit={handleSave}
+              className="bg-white border border-slate-200 rounded-2xl shadow-sm p-4 sm:p-6 space-y-4"
+            >
+              <div className="grid md:grid-cols-2 gap-4">
                 <div>
-                  <FieldLabel>Resa</FieldLabel>
+                  <div className="text-xs font-medium text-[#194C66]/80 mb-1">
+                    Resa
+                  </div>
                   <select
                     className="border rounded-xl px-3 py-2.5 w-full text-sm focus:outline-none focus:ring-2 focus:ring-[#194C66]/30"
                     value={selectedTripId}
-                    onChange={(e) => {
-                      const id = e.target.value;
-                      setSelectedTripId(id);
-                      // Välj första avgång för denna resa
-                      const depsForTrip = departures
-                        .filter((d) => d.trip_id === id && d.date)
-                        .sort((a, b) => (a.date < b.date ? -1 : 1));
-                      setSelectedDate(depsForTrip[0]?.date || "");
-                    }}
+                    onChange={(e) => setSelectedTripId(e.target.value)}
                   >
-                    {trips.length === 0 && (
-                      <option value="">Inga resor ännu</option>
-                    )}
-                    {trips.length > 0 && (
-                      <>
-                        <option value="">Välj resa…</option>
-                        {trips.map((t) => (
-                          <option key={t.id} value={t.id}>
-                            {t.title}
-                            {t.year ? ` (${t.year})` : ""}
-                          </option>
-                        ))}
-                      </>
-                    )}
+                    {!selectedTripId && <option value="">Välj resa…</option>}
+                    {tripOptions.map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.title} {t.year ? `(${t.year})` : ""}
+                      </option>
+                    ))}
                   </select>
-                  <Help>
-                    Listan hämtas från tabellen <b>trips</b>. Resor utan
-                    avgångar visas också.
-                  </Help>
+                  <div className="text-[11px] text-slate-500 mt-1">
+                    Resor hämtas från tabellen <code>trips</code>.
+                  </div>
                 </div>
 
                 <div>
-                  <FieldLabel>Avgångsdatum</FieldLabel>
+                  <div className="text-xs font-medium text-[#194C66]/80 mb-1">
+                    Biljett-typ
+                  </div>
                   <select
                     className="border rounded-xl px-3 py-2.5 w-full text-sm focus:outline-none focus:ring-2 focus:ring-[#194C66]/30"
-                    value={selectedDate}
-                    onChange={(e) => setSelectedDate(e.target.value)}
-                    disabled={!selectedTripId || departuresForTrip.length === 0}
+                    value={selectedTicketTypeId ?? ""}
+                    onChange={(e) =>
+                      setSelectedTicketTypeId(
+                        e.target.value ? Number(e.target.value) : null
+                      )
+                    }
                   >
-                    {!selectedTripId && (
-                      <option value="">Välj en resa först</option>
+                    {ticketTypes.length === 0 && (
+                      <option value="">Inga biljett-typer upplagda</option>
                     )}
-                    {selectedTripId && departuresForTrip.length === 0 && (
-                      <option value="">
+                    {ticketTypes.length > 0 && (
+                      <option value="">Välj biljett-typ…</option>
+                    )}
+                    {ticketTypes.map((tt) => (
+                      <option key={tt.id} value={tt.id}>
+                        {tt.name}
+                      </option>
+                    ))}
+                  </select>
+                  <div className="text-[11px] text-slate-500 mt-1">
+                    Biljett-typer hämtas från tabellen{" "}
+                    <code>ticket_types</code>.
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid md:grid-cols-2 gap-4">
+                <div>
+                  <div className="text-xs font-medium text-[#194C66]/80 mb-1">
+                    Avgångsdatum
+                  </div>
+                  <select
+                    className="border rounded-xl px-3 py-2.5 w-full text-sm focus:outline-none focus:ring-2 focus:ring-[#194C66]/30"
+                    value={selectedDepartureDate}
+                    onChange={(e) => setSelectedDepartureDate(e.target.value)}
+                  >
+                    <option value="">
+                      Standardpris – gäller alla avgångar
+                    </option>
+                    {departuresForTrip.length === 0 ? (
+                      <option value="" disabled>
                         Ingen avgång hittad för denna resa
                       </option>
-                    )}
-                    {selectedTripId && departuresForTrip.length > 0 && (
-                      <>
-                        <option value="">Välj avgång…</option>
-                        {departuresForTrip.map((d) => (
-                          <option key={d.trip_id + d.date} value={d.date}>
-                            {formatDate(d.date)}
-                          </option>
-                        ))}
-                      </>
+                    ) : (
+                      departuresForTrip.map((d) => (
+                        <option key={d} value={d}>
+                          {d}
+                        </option>
+                      ))
                     )}
                   </select>
-                  <Help>
-                    Datum hämtas från tabellen <b>trip_departures</b>.
-                  </Help>
+                  <div className="text-[11px] text-slate-500 mt-1">
+                    Datum hämtas från tabellen{" "}
+                    <code>trip_departures</code>.
+                  </div>
                 </div>
 
-                {currentTrip && selectedDate && (
-                  <div className="mt-2 rounded-xl bg-slate-50 px-3 py-3 text-[13px] text-slate-700">
-                    <div className="font-semibold text-[#194C66] mb-1">
-                      Aktiv kombination
+                <div>
+                  <div className="text-xs font-medium text-[#194C66]/80 mb-1">
+                    Pris (SEK)
+                  </div>
+                  <input
+                    className="border rounded-xl px-3 py-2.5 w-full text-sm focus:outline-none focus:ring-2 focus:ring-[#194C66]/30"
+                    placeholder="t.ex. 295"
+                    inputMode="numeric"
+                    value={priceInput}
+                    onChange={(e) =>
+                      setPriceInput(e.target.value.replace(/[^\d]/g, ""))
+                    }
+                  />
+                  <div className="text-[11px] text-slate-500 mt-1">
+                    Endast hela kronor. Valutan sparas som SEK.
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2 mt-3">
+                    <div>
+                      <div className="text-[11px] font-medium text-[#194C66]/80 mb-1">
+                        Gäller från (valfritt)
+                      </div>
+                      <input
+                        type="date"
+                        className="border rounded-xl px-3 py-2 w-full text-sm focus:outline-none focus:ring-2 focus:ring-[#194C66]/30"
+                        value={salesFrom}
+                        onChange={(e) => setSalesFrom(e.target.value)}
+                      />
                     </div>
-                    <div>{currentTrip.title}</div>
-                    <div className="text-[12px] text-slate-600">
-                      Avgång: {formatDate(selectedDate)}
+                    <div>
+                      <div className="text-[11px] font-medium text-[#194C66]/80 mb-1">
+                        Gäller till (Early Bird t.o.m.)
+                      </div>
+                      <input
+                        type="date"
+                        className="border rounded-xl px-3 py-2 w-full text-sm focus:outline-none focus:ring-2 focus:ring-[#194C66]/30"
+                        value={salesTo}
+                        onChange={(e) => setSalesTo(e.target.value)}
+                      />
                     </div>
+                  </div>
+                  <div className="text-[11px] text-slate-500 mt-1">
+                    Lämna tomt om priset ska gälla tills vidare. Fyll i
+                    <b> Gäller till</b> för Early Bird-kampanjer.
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-3 pt-2">
+                <button
+                  type="submit"
+                  disabled={saving}
+                  className="px-5 py-2 rounded-[999px] bg-[#194C66] text-white text-sm disabled:opacity-60"
+                >
+                  {saving ? "Sparar…" : "Spara pris"}
+                </button>
+
+                {currentTrip && (
+                  <div className="text-xs text-slate-600">
+                    Vald resa: <b>{currentTrip.title}</b>
                   </div>
                 )}
               </div>
-            </section>
 
-            {/* Höger: prislista */}
-            <section className="bg-white rounded-2xl shadow-sm border border-slate-200/70">
-              <div className="px-4 sm:px-5 py-3 border-b flex items-center justify-between">
-                <div>
-                  <h2 className="text-sm font-semibold tracking-wide text-[#194C66]">
-                    Priser per biljetttyp
-                  </h2>
-                  <p className="text-[12px] text-slate-500 mt-1">
-                    Lämna tomt för biljetttyper som inte ska erbjudas på
-                    den här avgången.
-                  </p>
+              {error && (
+                <div className="mt-3 bg-red-50 border border-red-200 text-red-700 rounded-xl px-3 py-2 text-sm">
+                  {error}
                 </div>
-                {loadingPrices && (
-                  <span className="text-[12px] text-slate-500">
-                    Laddar priser…
-                  </span>
-                )}
+              )}
+              {message && (
+                <div className="mt-3 bg-green-50 border border-green-200 text-green-700 rounded-xl px-3 py-2 text-sm">
+                  {message}
+                </div>
+              )}
+            </form>
+
+            <section className="bg-white border border-slate-200 rounded-2xl shadow-sm p-4 sm:p-6">
+              <div className="flex items-center justify-between mb-3">
+                <h2 className="text-sm font-semibold text-[#194C66]">
+                  Priser för vald resa
+                </h2>
+                <div className="text-[11px] text-slate-500">
+                  Visar rader ur <code>trip_ticket_pricing</code>.
+                </div>
               </div>
 
-              {!selectedTripId || !selectedDate ? (
-                <div className="p-5 text-sm text-slate-500">
-                  Välj först en resa och en avgång för att kunna sätta
-                  priser.
+              {!selectedTripId && (
+                <div className="text-sm text-slate-500">
+                  Välj en resa ovan för att se sparade priser.
                 </div>
-              ) : ticketTypes.length === 0 && !loadingPrices ? (
-                <div className="p-5 text-sm text-slate-500">
-                  Inga biljetttyper hittades. Skapa minst en under{" "}
-                  <b>Biljetttyper</b> först.
+              )}
+
+              {selectedTripId && pricingForCurrent.length === 0 && (
+                <div className="text-sm text-slate-500">
+                  Inga priser sparade ännu för denna resa.
                 </div>
-              ) : (
-                <div className="p-4 sm:p-5">
-                  <div className="overflow-x-auto">
-                    <table className="min-w-full text-sm">
-                      <thead className="bg-slate-50 text-slate-700">
-                        <tr>
-                          <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide">
-                            Kod
-                          </th>
-                          <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide">
-                            Namn
-                          </th>
-                          <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide">
-                            Typ
-                          </th>
-                          <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide">
-                            Pris (SEK)
-                          </th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {ticketTypes.map((t) => (
-                          <tr
-                            key={t.id}
-                            className="border-t border-slate-100 hover:bg-slate-50/60 transition-colors"
-                          >
-                            <td className="px-4 py-3 align-top font-mono text-xs text-slate-700">
-                              {t.code}
+              )}
+
+              {selectedTripId && pricingForCurrent.length > 0 && (
+                <div className="overflow-x-auto">
+                  <table className="min-w-full text-sm">
+                    <thead>
+                      <tr className="border-b bg-slate-50">
+                        <th className="text-left px-2 py-2 font-medium text-slate-600">
+                          Biljett-typ
+                        </th>
+                        <th className="text-left px-2 py-2 font-medium text-slate-600">
+                          Avgång / kampanjperiod
+                        </th>
+                        <th className="text-right px-2 py-2 font-medium text-slate-600">
+                          Pris
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {pricingForCurrent.map((row) => {
+                        const tt = ticketTypes.find(
+                          (t) => t.id === row.ticket_type_id
+                        );
+                        const depLabel =
+                          row.departure_date || "Standardpris (alla avgångar)";
+                        const from = row.sales_valid_from || "";
+                        const to = row.sales_valid_to || "";
+                        return (
+                          <tr key={row.id} className="border-b last:border-0">
+                            <td className="px-2 py-2">
+                              {tt ? tt.name : `#${row.ticket_type_id}`}
                             </td>
-                            <td className="px-4 py-3 align-top text-slate-900">
-                              <div className="font-medium">{t.name}</div>
-                              {t.description && (
-                                <div className="text-[11px] text-slate-500 mt-0.5 line-clamp-2">
-                                  {t.description}
+                            <td className="px-2 py-2">
+                              <div>{depLabel}</div>
+                              {(from || to) && (
+                                <div className="text-[11px] text-slate-500">
+                                  {from && <>Från {from} </>}
+                                  {to && <>t.o.m. {to}</>}
                                 </div>
                               )}
                             </td>
-                            <td className="px-4 py-3 align-top text-slate-700">
-                              {t.kind === "addon"
-                                ? "Tillägg"
-                                : "Vanlig biljett"}
-                            </td>
-                            <td className="px-4 py-3 align-top">
-                              <input
-                                type="number"
-                                min={0}
-                                className="border rounded-xl px-3 py-2 w-full text-sm focus:outline-none focus:ring-2 focus:ring-[#194C66]/30"
-                                placeholder="t.ex. 295"
-                                value={priceInputs[t.id] ?? ""}
-                                onChange={(e) =>
-                                  onChangePrice(t.id, e.target.value)
-                                }
-                              />
+                            <td className="px-2 py-2 text-right">
+                              {money(row.price)}
                             </td>
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-
-                  <div className="mt-4 flex items-center justify-end">
-                    <button
-                      type="button"
-                      onClick={onSave}
-                      disabled={saving || loadingPrices}
-                      className="inline-flex items-center rounded-[24px] bg-[#194C66] px-5 py-2 text-sm font-medium text-white shadow-sm disabled:opacity-60"
-                    >
-                      {saving ? "Sparar…" : "Spara priser för avgången"}
-                    </button>
-                  </div>
+                        );
+                      })}
+                    </tbody>
+                  </table>
                 </div>
               )}
             </section>

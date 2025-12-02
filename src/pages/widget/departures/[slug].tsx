@@ -1,186 +1,207 @@
 // src/pages/widget/departures/[slug].tsx
 import { useRouter } from "next/router";
 import { useEffect, useState } from "react";
-import Head from "next/head";
 
-type DepartureRow = {
-  dep_date?: string;
-  dep_time?: string;
-  line_name?: string;
-  stops?: string[] | string | null;
-};
-
-type Trip = {
+type TripInfo = {
   id: string;
   title: string;
-  slug: string;
-  price_from?: number | null;
-  departures_coming_soon?: boolean;
-  departures?: DepartureRow[];
+  subtitle?: string | null;
 };
 
-function formatDateLabel(dateStr?: string) {
-  if (!dateStr) return "";
-  try {
-    const d = new Date(dateStr);
-    if (isNaN(d.getTime())) return dateStr;
-    return d.toLocaleDateString("sv-SE", {
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-      weekday: "short",
-    });
-  } catch {
-    return dateStr;
-  }
-}
+type DepartureRow = {
+  id: string;
+  dateLabel: string;      // "2025-12-06 Lör"
+  lineLabel?: string;     // "Linje 1"
+  title: string;          // "Dagstur Ullared Shopping 07.30" (kan vara bara trip-titel)
+  priceLabel?: string;    // "295:-"
+  seatsLabel: string;     // ">8", "Slut", "Väntelista"
+  status: "available" | "full" | "waitlist";
+  stopsText?: string;     // Hållplatser + tider
+};
 
-function formatStops(raw: DepartureRow["stops"]) {
-  if (!raw) return "";
-  if (Array.isArray(raw)) return raw.join(", ");
-  return String(raw);
-}
+type ApiResponse = {
+  ok: boolean;
+  trip?: TripInfo;
+  departures?: DepartureRow[];
+  error?: string;
+};
 
 export default function DeparturesWidgetPage() {
   const router = useRouter();
   const { slug } = router.query;
 
-  const [trip, setTrip] = useState<Trip | null>(null);
+  const [trip, setTrip] = useState<TripInfo | null>(null);
+  const [rows, setRows] = useState<DepartureRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [openInfoId, setOpenInfoId] = useState<string | null>(null);
 
   useEffect(() => {
+    if (!router.isReady) return;
     if (!slug || Array.isArray(slug)) return;
 
-    (async () => {
+    const s = String(slug);
+    let cancelled = false;
+
+    async function load() {
       try {
         setLoading(true);
         setError(null);
 
-        const r = await fetch(`/api/public/trips/${encodeURIComponent(slug)}`);
-        const j = await r.json();
+        const res = await fetch(
+          `/api/public/widget/departures/${encodeURIComponent(s)}`
+        );
+        const json: ApiResponse = await res.json();
 
-        if (!r.ok || j.ok === false || !j.trip) {
-          throw new Error(j.error || "Resan hittades inte.");
+        if (!res.ok || json.ok === false) {
+          throw new Error(json.error || "Kunde inte läsa avgångar.");
         }
 
-        setTrip(j.trip as Trip);
+        if (cancelled) return;
+        setTrip(json.trip ?? null);
+        setRows(json.departures ?? []);
       } catch (e: any) {
-        setError(e?.message || "Något gick fel.");
+        console.error(e);
+        if (!cancelled) {
+          setError(e?.message || "Tekniskt fel.");
+          setTrip(null);
+          setRows([]);
+        }
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
-    })();
-  }, [slug]);
+    }
 
-  const todayMs = new Date(new Date().toDateString()).getTime();
-  const upcoming =
-    trip?.departures
-      ?.filter((d) => {
-        const raw =
-          d.dep_date ||
-          (d as any).date ||
-          (d as any).depart_date ||
-          (d as any).departure_date;
-        if (!raw) return false;
-        const iso = String(raw).slice(0, 10);
-        const ms = new Date(iso).getTime();
-        return !isNaN(ms) && ms >= todayMs;
-      })
-      .sort((a, b) => {
-        const aRaw =
-          a.dep_date ||
-          (a as any).date ||
-          (a as any).depart_date ||
-          (a as any).departure_date;
-        const bRaw =
-          b.dep_date ||
-          (b as any).date ||
-          (b as any).depart_date ||
-          (b as any).departure_date;
-        const aMs = new Date(String(aRaw).slice(0, 10)).getTime();
-        const bMs = new Date(String(bRaw).slice(0, 10)).getTime();
-        return aMs - bMs;
-      }) || [];
+    load();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [router.isReady, slug]);
 
   return (
-    <>
-      <Head>
-        <title>Kommande avgångar – Helsingbuss</title>
-        <meta name="robots" content="noindex" />
-      </Head>
-
-      <div className="min-h-[0] bg-transparent text-[#194C66]">
-        <div className="text-sm font-semibold mb-2">
-          Kommande avgångar
+    <div className="hb-widget font-sans text-[14px] text-slate-900">
+      <div className="border border-slate-200 rounded-2xl overflow-hidden bg-white">
+        {/* Header */}
+        <div className="px-4 py-3 border-b bg-slate-50">
+          <div className="text-sm font-semibold text-slate-800">
+            {trip ? `Kommande avgångar – ${trip.title}` : "Kommande avgångar"}
+          </div>
         </div>
 
-        {loading && (
-          <div className="text-sm text-slate-500">Laddar…</div>
-        )}
-
-        {error && !loading && (
-          <div className="mb-3 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+        {/* Innehåll */}
+        {loading ? (
+          <div className="p-4 text-sm text-slate-500">Laddar avgångar…</div>
+        ) : error ? (
+          <div className="p-4 text-sm text-red-700 bg-red-50 border-t border-red-200">
             {error}
           </div>
-        )}
+        ) : !rows.length ? (
+          <div className="p-4 text-sm text-slate-500">
+            Inga kommande avgångar är upplagda för den här resan.
+          </div>
+        ) : (
+          <div className="divide-y divide-slate-200">
+            {/* Tabell-header (desktop) */}
+            <div className="hidden md:grid grid-cols-[auto,1.1fr,2fr,1fr,1.3fr] gap-4 px-4 py-2 text-xs font-semibold text-slate-600 bg-slate-50">
+              <div className="pl-6">Avresa</div>
+              <div>Linje</div>
+              <div>Resmål</div>
+              <div className="text-right">Pris från</div>
+              <div className="text-right">Platser kvar</div>
+            </div>
 
-        {!loading && !error && trip && trip.departures_coming_soon && (
-          <div className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700">
-            Avgångsorter och datum kommer inom kort.
+            {/* Rader */}
+            {rows.map((row) => {
+              const isFull = row.status === "full";
+              const isWait = row.status === "waitlist";
+
+              const buttonLabel = isWait ? "Väntelista" : "Boka";
+              const buttonClasses = isWait
+                ? "bg-[#f97316] hover:bg-[#ea580c]"
+                : "bg-[#0055b8] hover:bg-[#00479a]";
+
+              const seatsText = row.seatsLabel || "";
+
+              return (
+                <div key={row.id} className="group">
+                  {/* Huvudrad */}
+                  <div className="grid grid-cols-1 md:grid-cols-[auto,1.1fr,2fr,1fr,1.3fr] gap-3 px-4 py-3 items-center">
+                    {/* Avresa + info-ikon */}
+                    <div className="flex items-center gap-3">
+                      <button
+                        type="button"
+                        aria-label="Visa hållplatser"
+                        onClick={() =>
+                          setOpenInfoId((prev) =>
+                            prev === row.id ? null : row.id
+                          )
+                        }
+                        className="flex items-center justify-center w-6 h-6 rounded-full border border-slate-300 text-[11px] text-slate-700 bg-white hover:bg-slate-50 shrink-0"
+                      >
+                        i
+                      </button>
+                      <div className="text-sm font-medium text-slate-900">
+                        {row.dateLabel}
+                      </div>
+                    </div>
+
+                    {/* Linje */}
+                    <div className="text-sm text-slate-800 md:text-left">
+                      {row.lineLabel || "Linje"}
+                    </div>
+
+                    {/* Resmål */}
+                    <div className="text-sm text-slate-900">{row.title}</div>
+
+                    {/* Pris */}
+                    <div className="text-sm font-medium text-slate-900 md:text-right">
+                      {row.priceLabel}
+                    </div>
+
+                    {/* Platser + knapp */}
+                    <div className="flex items-center justify-between md:justify-end gap-3">
+                      <div className="text-sm text-slate-800">{seatsText}</div>
+                      <button
+                        type="button"
+                        disabled={isFull}
+                        className={`px-4 py-1.5 rounded-full text-sm font-semibold text-white whitespace-nowrap disabled:opacity-60 disabled:cursor-not-allowed ${buttonClasses}`}
+                      >
+                        {buttonLabel}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Popup med hållplatser */}
+                  {openInfoId === row.id && (
+                    <div className="px-4 pb-3">
+                      <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700">
+                        <div className="font-semibold mb-1">
+                          Påstigningsplatser &amp; tider
+                        </div>
+                        {row.stopsText ? (
+                          <div>{row.stopsText}</div>
+                        ) : (
+                          <div>
+                            Information om hållplatser kommer senare.
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         )}
-
-        {!loading &&
-          !error &&
-          trip &&
-          !trip.departures_coming_soon &&
-          upcoming.length === 0 && (
-            <div className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-500">
-              Inga kommande avgångar är upplagda för denna resa.
-            </div>
-          )}
-
-        {!loading &&
-          !error &&
-          trip &&
-          !trip.departures_coming_soon &&
-          upcoming.length > 0 && (
-            <div className="mt-2 rounded-xl border border-slate-200 bg-white">
-              <table className="w-full text-sm">
-                <thead className="bg-slate-50 text-left">
-                  <tr>
-                    <th className="px-3 py-2">Datum</th>
-                    <th className="px-3 py-2">Tid</th>
-                    <th className="px-3 py-2">Linje</th>
-                    <th className="px-3 py-2">Hållplatser</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {upcoming.map((d, i) => (
-                    <tr
-                      key={i}
-                      className="border-t border-slate-100 hover:bg-slate-50/60"
-                    >
-                      <td className="px-3 py-2 whitespace-nowrap">
-                        {formatDateLabel(d.dep_date as string)}
-                      </td>
-                      <td className="px-3 py-2 whitespace-nowrap">
-                        {d.dep_time || ""}
-                      </td>
-                      <td className="px-3 py-2 whitespace-nowrap">
-                        {d.line_name || ""}
-                      </td>
-                      <td className="px-3 py-2">
-                        {formatStops(d.stops)}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
       </div>
-    </>
+
+      {/* Lite global styling för att widgeten ska funka fint i WordPress mm */}
+      <style jsx global>{`
+        .hb-widget * {
+          box-sizing: border-box;
+        }
+      `}</style>
+    </div>
   );
 }
