@@ -2,7 +2,6 @@
 import { GetServerSideProps } from "next";
 import Head from "next/head";
 import { useState } from "react";
-import { useRouter } from "next/router";
 import * as admin from "@/lib/supabaseAdmin";
 
 const supabase: any =
@@ -33,23 +32,20 @@ type TripRow = {
 };
 
 type SeatsRow = {
-  id: string | number;
   depart_date: string | null;
-  dep_time: string | null;
-  line_name: string | null;
   seats_total: number | null;
   seats_reserved: number | null;
 };
 
 type WidgetDeparture = {
-  id: string;               // används nu som departure_id till /kassa
-  date: string;             // YYYY-MM-DD
-  time: string;             // HH:MM
+  id: string;
+  date: string; // YYYY-MM-DD
+  time: string; // HH:MM
   line: string;
   stops: string[];
-  avresaLabel: string;      // "2026-02-07 Lör"
-  priceLabel: string;       // "295:-"
-  seatsLabel: string;       // "Slut" | ">8" | "5" | "–"
+  avresaLabel: string; // "2026-02-07 Lör"
+  priceLabel: string;  // "295:-"
+  seatsLabel: string;  // "Slut" | ">8" | "5" | "–"
   isFull: boolean;
 };
 
@@ -91,17 +87,6 @@ function normalizeStops(stops: RawDeparture["stops"]): string[] {
     .filter(Boolean);
 }
 
-// Nyckel för att matcha kapacitetsrad mot avgång (datum + tid + linje)
-function seatKey(
-  date: string,
-  time?: string | null,
-  line?: string | null
-): string {
-  const t = (time || "").slice(0, 5);
-  const l = (line || "").trim();
-  return `${date}|${t}|${l}`;
-}
-
 export const getServerSideProps: GetServerSideProps<Props> = async (ctx) => {
   const slug = String(ctx.params?.slug || "").trim();
   if (!slug) {
@@ -125,19 +110,13 @@ export const getServerSideProps: GetServerSideProps<Props> = async (ctx) => {
 
   const t = trip as TripRow;
 
-  // Hämta kapacitet / id per avgång
+  // Hämta kapacitet per datum
   const { data: seatRows } = await supabase
     .from("trip_departures")
-    .select(
-      "id, depart_date, dep_time, line_name, seats_total, seats_reserved"
-    )
+    .select("depart_date, seats_total, seats_reserved")
     .eq("trip_id", t.id);
 
-  const seatsMap = new Map<
-    string,
-    { label: string; isFull: boolean; id?: string }
-  >();
-
+  const seatsMap = new Map<string, { label: string; isFull: boolean }>();
   (seatRows as SeatsRow[] | null | undefined)?.forEach((row) => {
     const date = row.depart_date
       ? String(row.depart_date).slice(0, 10)
@@ -147,27 +126,19 @@ export const getServerSideProps: GetServerSideProps<Props> = async (ctx) => {
     const total = row.seats_total ?? 0;
     const reserved = row.seats_reserved ?? 0;
 
-    let label = "–";
-    let isFull = false;
-
-    if (total > 0) {
-      const remaining = Math.max(total - reserved, 0);
-      if (remaining <= 0) {
-        label = "Slut";
-        isFull = true;
-      } else if (remaining > 8) {
-        label = ">8";
-      } else {
-        label = String(remaining);
-      }
+    if (total <= 0) {
+      seatsMap.set(date, { label: "–", isFull: false });
+      return;
     }
 
-    const key = seatKey(date, row.dep_time, row.line_name);
-    seatsMap.set(key, {
-      label,
-      isFull,
-      id: row.id != null ? String(row.id) : undefined,
-    });
+    const remaining = Math.max(total - reserved, 0);
+    if (remaining <= 0) {
+      seatsMap.set(date, { label: "Slut", isFull: true });
+    } else if (remaining > 8) {
+      seatsMap.set(date, { label: ">8", isFull: false });
+    } else {
+      seatsMap.set(date, { label: String(remaining), isFull: false });
+    }
   });
 
   // Normalisera departures från trips.departures (JSONB)
@@ -208,11 +179,10 @@ export const getServerSideProps: GetServerSideProps<Props> = async (ctx) => {
       const line = String(r.line_name || r.line || "").trim();
       const stops = normalizeStops(r.stops);
 
-      const key = seatKey(d, time, line);
-      const seats = seatsMap.get(key) || { label: ">8", isFull: false };
+      const seats = seatsMap.get(d) || { label: ">8", isFull: false };
 
       return {
-        id: seats.id || `${d}-${time || "00:00"}-${idx}`, // riktiga departure_id om det finns
+        id: `${d}-${time || "00:00"}-${idx}`,
         date: d,
         time,
         line,
@@ -248,8 +218,6 @@ export const getServerSideProps: GetServerSideProps<Props> = async (ctx) => {
 export default function WidgetDeparturesPage(props: Props) {
   const { tripTitle, departures, departuresComingSoon, priceFromLabel } = props;
 
-  const router = useRouter();
-
   const [info, setInfo] = useState<{
     title: string;
     stops: string[];
@@ -279,10 +247,17 @@ export default function WidgetDeparturesPage(props: Props) {
         : "bg-transparent text-[#194C66] border-slate-300 hover:bg-slate-100",
     ].join(" ");
 
-  // KLICK PÅ BOKA → vidare till /kassa
-  function handleBookClick(d: WidgetDeparture) {
-    if (d.isFull) return; // ingen redirect om fullsatt (senare: väntelista)
-    router.push(`/kassa?departure_id=${encodeURIComponent(d.id)}`);
+  // 🔗 Öppna kassa i NY FLIK på boka.helsingbuss.se
+  function handleBook(d: WidgetDeparture) {
+    if (!d || !d.id) return;
+
+    const url = `https://boka.helsingbuss.se/kassa?departure_id=${encodeURIComponent(
+      d.id
+    )}`;
+
+    if (typeof window !== "undefined") {
+      window.open(url, "_blank", "noopener,noreferrer");
+    }
   }
 
   return (
@@ -437,7 +412,7 @@ export default function WidgetDeparturesPage(props: Props) {
                           <td className="px-3 py-3 align-middle text-right">
                             <button
                               type="button"
-                              onClick={() => handleBookClick(d)}
+                              onClick={() => handleBook(d)}
                               className={`inline-flex items-center justify-center px-4 py-1.5 rounded-full text-sm font-semibold shadow-sm transition-colors ${
                                 isFull
                                   ? "bg-amber-500 hover:bg-amber-600 text-white"
