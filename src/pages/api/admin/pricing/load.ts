@@ -22,6 +22,11 @@ type TicketType = {
   code?: string | null;
 };
 
+type DepartureRow = {
+  trip_id: string;
+  depart_date: string | null; // från tabellen trip_departures
+};
+
 type PricingRow = {
   id: number;
   trip_id: string;
@@ -35,6 +40,7 @@ type Resp = {
   ok: boolean;
   trips: Trip[];
   ticket_types: TicketType[];
+  departures: DepartureRow[];
   pricing: PricingRow[];
   error?: string;
 };
@@ -56,13 +62,14 @@ export default async function handler(
       ok: false,
       trips: [],
       ticket_types: [],
+      departures: [],
       pricing: [],
       error: "Method not allowed",
     });
   }
 
   try {
-    // 1) Resor – OBS: ingen next_date här!
+    // 1) Resor (inkl. departures-JSON)
     const { data: trips, error: tripsErr } = await supabase
       .from("trips")
       .select("id, title, year, slug, published, departures")
@@ -78,7 +85,14 @@ export default async function handler(
 
     if (ttErr) throw ttErr;
 
-    // 3) Priser
+    // 3) Avgångar från trip_departures
+    const { data: depRows, error: depErr } = await supabase
+      .from("trip_departures")
+      .select("trip_id, depart_date");
+
+    if (depErr) throw depErr;
+
+    // 4) Priser
     const { data: pricing, error: prErr } = await supabase
       .from("trip_ticket_pricing")
       .select("id, trip_id, ticket_type_id, departure_date, price, currency");
@@ -89,6 +103,7 @@ export default async function handler(
       ok: true,
       trips: trips || [],
       ticket_types: ticketTypes || [],
+      departures: depRows || [],
       pricing: pricing || [],
     });
   } catch (e: any) {
@@ -97,6 +112,7 @@ export default async function handler(
       ok: false,
       trips: [],
       ticket_types: [],
+      departures: [],
       pricing: [],
       error: e?.message || "Tekniskt fel.",
     });

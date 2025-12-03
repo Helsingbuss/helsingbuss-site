@@ -1,212 +1,230 @@
 // src/pages/api/trips/create.ts
 import type { NextApiRequest, NextApiResponse } from "next";
-import * as admin from "@/lib/supabaseAdmin";
+import { supabaseAdmin as supabase } from "@/lib/supabaseAdmin";
 
-const supabase: any =
-  (admin as any).supabaseAdmin ||
-  (admin as any).supabase ||
-  (admin as any).default;
+type SaveResp = {
+  ok: boolean;
+  id?: string;
+  error?: string;
+};
 
 type DepartureRow = {
-  dep_date?: string;
-  dep_time?: string;
-  line_name?: string;
-  stops?: any;
-  // fallback-fält om något gammalt UI skickar andra namn
-  date?: string;
-  datum?: string;
-  day?: string;
-  when?: string;
-  depart_date?: string;
-  departure_date?: string;
+  dep_date?: string | null;
+  date?: string | null;
+  day?: string | null;
+  when?: string | null;
+  dep_time?: string | null;
+  time?: string | null;
+  line_name?: string | null;
+  line?: string | null;
+  stops?: any[];
 };
-
-type Body = {
-  id?: string; // om satt ska vi UPPDATERA, annars skapa ny
-  title: string;
-  subtitle?: string | null;
-  trip_kind?: "flerdagar" | "dagsresa" | "shopping" | string | null;
-  badge?: string | null;
-  ribbon?: string | null;
-  city?: string | null;
-  country?: string | null;
-  price_from?: number | null;
-  hero_image: string | null;
-  published: boolean;
-  external_url?: string | null;
-  year?: number | null;
-  summary?: string | null;
-  categories?: string[] | null;
-  tags?: string[] | null;
-
-  // 👇 Dessa två måste vi spara för att Redigera ska funka
-  departures?: DepartureRow[] | null;
-  lines?: any[] | null;
-
-  departures_coming_soon?: boolean | null;
-  slug?: string | null;
-};
-
-function setCORS(res: NextApiResponse) {
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
-}
-
-function parseDepartureDates(rows: any[] | undefined): string[] {
-  if (!rows || !Array.isArray(rows)) return [];
-  const out: string[] = [];
-
-  for (const r of rows) {
-    const raw =
-      r?.date ||
-      r?.datum ||
-      r?.day ||
-      r?.when ||
-      r?.dep_date ||
-      r?.depart_date ||
-      r?.departure_date ||
-      null;
-
-    if (!raw) continue;
-    const s = String(raw).slice(0, 10); // YYYY-MM-DD
-    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) out.push(s);
-  }
-
-  return Array.from(new Set(out)).sort((a, b) => (a < b ? -1 : 1));
-}
-
-function slugify(title: string): string {
-  const base = (title || "")
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-  return base || "resa";
-}
 
 export default async function handler(
   req: NextApiRequest,
-  res: NextApiResponse
+  res: NextApiResponse<SaveResp>
 ) {
-  setCORS(res);
-  if (req.method === "OPTIONS") return res.status(200).end();
   if (req.method !== "POST") {
     return res
       .status(405)
-      .json({ ok: false, error: "Method not allowed" });
+      .json({ ok: false, error: "Method not allowed (use POST)." });
   }
-
-  const b = (req.body || {}) as Body;
-
-  // Enkel validering
-  if (!b?.title || !b?.hero_image) {
-    return res
-      .status(400)
-      .json({ ok: false, error: "Titel och bild krävs." });
-  }
-
-  const tagsArray = Array.isArray(b.tags)
-    ? b.tags
-    : Array.isArray(b.categories)
-    ? b.categories
-    : null;
-
-  const base: Record<string, any> = {
-    title: (b.title || "").trim(),
-    subtitle: b.subtitle ?? null,
-    trip_kind: b.trip_kind ?? null,
-    badge: b.badge ?? null,
-    ribbon: b.ribbon ?? null,
-    city: b.city ?? null,
-    country: b.country ?? null,
-    price_from: b.price_from ?? null,
-    hero_image: b.hero_image ?? null,
-    published: !!b.published,
-    external_url: b.external_url ?? null,
-    year: b.year ?? null,
-    summary:
-      typeof b.summary === "string" ? b.summary : b.summary ?? null,
-    departures_coming_soon: !!b.departures_coming_soon,
-    slug:
-      (b.slug && b.slug.trim()) ||
-      slugify(b.title || ""),
-    // 👇 Spara JSON direkt i trips
-    departures: b.departures ?? null,
-    lines: b.lines ?? null,
-  };
-
-  if (tagsArray) {
-    base["tags"] = tagsArray.filter(Boolean);
-  }
-
-  const dates = parseDepartureDates(b.departures || undefined);
-  let tripId: string | null = b.id || null;
 
   try {
-    if (tripId) {
-      // 👇 UPPDATERA befintlig resa
-      const { data, error } = await supabase
-        .from("trips")
-        .update(base)
-        .eq("id", tripId)
-        .select("id")
-        .single();
+    const body = req.body || {};
 
-      if (error) throw error;
-      tripId = data?.id || tripId;
-    } else {
-      // 👇 Skapa ny resa
-      const { data, error } = await supabase
-        .from("trips")
-        .insert(base)
-        .select("id")
-        .single();
+    const {
+      id,
+      title,
+      subtitle,
+      trip_kind,
+      badge,
+      ribbon,
+      city,
+      country,
+      price_from,
+      hero_image,
+      published,
+      external_url,
+      year,
+      summary,
+      departures,
+      lines,
+      departures_coming_soon,
+      slug,
+      operator_id,
+      bus_model_id,
+    } = body;
 
-      if (error) throw error;
-      tripId = data?.id || null;
+    if (!title || !String(title).trim()) {
+      return res.status(400).json({
+        ok: false,
+        error: "Titel saknas.",
+      });
     }
+
+    if (!hero_image || !String(hero_image).trim()) {
+      return res.status(400).json({
+        ok: false,
+        error: "Hero-bild saknas.",
+      });
+    }
+
+    const numericPrice =
+      price_from === null || price_from === undefined || price_from === ""
+        ? null
+        : Number(price_from);
+
+    if (numericPrice !== null && Number.isNaN(numericPrice)) {
+      return res.status(400).json({
+        ok: false,
+        error: "Ogiltigt prisvärde i 'price_from'.",
+      });
+    }
+
+    const yearValue =
+      year === null || year === undefined || year === ""
+        ? null
+        : Number(year);
+
+    // Normalisera textfält
+    const payload: any = {
+      title: String(title).trim(),
+      subtitle: subtitle ? String(subtitle).trim() : null,
+      trip_kind: trip_kind || "dagsresa",
+      badge: badge ? String(badge).trim() : null,
+      ribbon: ribbon ? String(ribbon).trim() : null,
+      city: city ? String(city).trim() : null,
+      country: country ? String(country).trim() : null,
+      price_from: numericPrice,
+      hero_image: String(hero_image).trim(),
+      published: !!published,
+      external_url: external_url ? String(external_url).trim() : null,
+      year: yearValue,
+      summary: summary ? String(summary).trim() : null,
+      departures: Array.isArray(departures) ? departures : [],
+      lines: Array.isArray(lines) ? lines : [],
+      departures_coming_soon: !!departures_coming_soon,
+      slug: slug ? String(slug).trim() : null,
+      operator_id: operator_id || null,
+      bus_model_id: bus_model_id || null,
+    };
+
+    let tripId: string;
+
+    if (id) {
+      // Uppdatera befintlig resa
+      const { data, error } = await supabase
+        .from("trips")
+        .update(payload)
+        .eq("id", id)
+        .select("id")
+        .single();
+
+      if (error) throw error;
+      tripId = data.id;
+    } else {
+      // Skapa ny resa
+      const { data, error } = await supabase
+        .from("trips")
+        .insert(payload)
+        .select("id")
+        .single();
+
+      if (error) throw error;
+      tripId = data.id;
+    }
+
+    // Koppla avgångar + kapacitet
+    await syncDeparturesWithCapacity(
+      tripId,
+      Array.isArray(departures) ? (departures as DepartureRow[]) : [],
+      bus_model_id || null
+    );
+
+    return res.status(200).json({ ok: true, id: tripId });
   } catch (e: any) {
-    console.error("create trip failed:", e);
+    console.error("trips/create error", e);
     return res.status(500).json({
       ok: false,
-      error: e?.message || "Kunde inte spara resa.",
+      error: e?.message || "Tekniskt fel när resan skulle sparas.",
+    });
+  }
+}
+
+async function syncDeparturesWithCapacity(
+  tripId: string,
+  departures: DepartureRow[],
+  busModelId: string | null
+) {
+  // 1) Hämta kapacitet från bussmodell (om finns)
+  let capacity: number | null = null;
+
+  if (busModelId) {
+    try {
+      const { data: bm, error: bmErr } = await supabase
+        .from("bus_models")
+        .select("capacity")
+        .eq("id", busModelId)
+        .limit(1)
+        .single();
+
+      if (!bmErr && bm && bm.capacity != null) {
+        const num = Number(bm.capacity);
+        capacity = Number.isNaN(num) ? null : num;
+      }
+    } catch (e) {
+      // Om detta failar vill vi inte stoppa hela sparningen
+      console.warn("Kunde inte läsa bus_models.capacity", e);
+    }
+  }
+
+  // 2) Normalisera avgångar från JSON (dep_date, dep_time osv)
+  const rowsToInsert: any[] = [];
+
+  for (const d of departures) {
+    const rawDate =
+      d.dep_date || d.date || d.day || d.when || null;
+
+    const dateStr = rawDate ? String(rawDate).slice(0, 10) : "";
+    if (!dateStr) continue;
+
+    const rawTime = (d.dep_time || d.time || "") as string;
+    const timeStr = rawTime ? rawTime.slice(0, 5) : null;
+
+    const lineName = (d.line_name || d.line || "") as string;
+    const normLine = lineName.trim() || null;
+
+    rowsToInsert.push({
+      trip_id: tripId,
+      depart_date: dateStr,
+      dep_time: timeStr,
+      line_name: normLine,
+      seats_total: capacity,      // HÄR kopplar vi kapacitet
+      seats_reserved: 0,          // startar på 0
     });
   }
 
-  if (!tripId) {
-    return res
-      .status(500)
-      .json({ ok: false, error: "Kunde inte skapa/uppdatera resa (saknar id)." });
+  // 3) Rensa gamla rader och lägg in nya
+  // OBS: detta nollställer seats_reserved. Det är OK nu när du inte har riktiga bokningar ännu.
+  const { error: delErr } = await supabase
+    .from("trip_departures")
+    .delete()
+    .eq("trip_id", tripId);
+
+  if (delErr) {
+    console.error("Kunde inte rensa trip_departures", delErr);
+    // vi fortsätter ändå, men loggar
   }
 
-  // Uppdatera avgångar i tabellen trip_departures
-  try {
-    await supabase.from("trip_departures").delete().eq("trip_id", tripId);
+  if (rowsToInsert.length > 0) {
+    const { error: insErr } = await supabase
+      .from("trip_departures")
+      .insert(rowsToInsert);
 
-    if (dates.length) {
-      const rows = dates.map((d) => ({ trip_id: tripId, date: d }));
-      const { error: depErr } = await supabase
-        .from("trip_departures")
-        .insert(rows);
-      if (depErr) {
-        console.warn(
-          "create: could not insert departures:",
-          depErr.message || depErr
-        );
-      }
+    if (insErr) {
+      console.error("Kunde inte skapa trip_departures", insErr);
+      // vi låter resan vara sparad, men avgångar kan saknas om detta failar
     }
-  } catch (e: any) {
-    console.warn(
-      "create: departures update failed:",
-      e?.message || e
-    );
   }
-
-  return res.status(200).json({
-    ok: true,
-    id: tripId,
-    departures_saved: dates.length,
-  });
 }

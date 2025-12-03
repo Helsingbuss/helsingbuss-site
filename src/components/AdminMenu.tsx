@@ -127,8 +127,13 @@ export default function AdminMenu() {
           {open === "trips" && (
             <ul className="mt-2 ml-3 border-l border-gray-100 pl-3 space-y-1">
               <li>
+                <Link href="/admin/trips" className={subLink}>
+                  Alla resor
+                </Link>
+              </li>
+              <li>
                 <Link href="/admin/trips/new" className={subLink}>
-                  Lägg upp resa
+                  Skapa resa
                 </Link>
               </li>
               <li>
@@ -138,25 +143,25 @@ export default function AdminMenu() {
               </li>
                <li>
                 <Link href="/admin/ticket-types" className={subLink}>
-                  Biljettyper
+                  Lägg upp biljettyp
                 </Link>
               </li>
-               <li>
+              <li>
                 <Link href="/admin/pricing" className={subLink}>
                   Prissättning
                 </Link>
               </li>
-                <li>
-                <Link href="/admin/tickets/passengers" className={subLink}>
-                  Passagerarlista
-                </Link>
-              </li>
               <li>
-                <Link href="/admin/trips" className={subLink}>
-                  Lista över resor
+                <Link href="/admin/fleet" className={subLink}>
+                  Lägg till operatör/fordon
                 </Link>
               </li>
-            </ul>
+               <li>
+                <Link href="/admin/tickets/passengers" className={subLink}>
+                  Passagerarlistor
+                </Link>
+              </li>
+              </ul>
           )}
         </div>
 

@@ -24,11 +24,29 @@ type Form = {
   year?: number; // 2025–2027
   summary?: string; // kort om resan
   departures_coming_soon?: boolean;
-  slug?: string; // NYTT: slug-kolumnen i DB
+  slug?: string; // slug-kolumnen i DB
+
+  // NYTT: koppling till operatör & bussmodell
+  operator_id?: string;
+  bus_model_id?: string;
 };
 
 type LineStop = { name: string; time?: string };
 type Line = { title: string; stops: LineStop[] };
+
+// NYTT – typer för operatör & bussmodell
+type OperatorRow = {
+  id: string;
+  name: string;
+  code?: string | null;
+};
+
+type BusModelRow = {
+  id: string;
+  name: string;
+  capacity: number | null;
+  operator_id?: string | null;
+};
 
 // ---------------- Helpers ----------------
 function fmtDate(d: Date) {
@@ -305,6 +323,8 @@ export default function NewTripPage() {
     summary: "",
     departures_coming_soon: false,
     slug: "",
+    operator_id: "",
+    bus_model_id: "",
   });
 
   // UI-fält för badge (byggs ihop till f.badge vid spar)
@@ -318,6 +338,11 @@ export default function NewTripPage() {
   const [err, setErr] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
 
+  // NYTT – operatörer & bussmodeller
+  const [operators, setOperators] = useState<OperatorRow[]>([]);
+  const [busModels, setBusModels] = useState<BusModelRow[]>([]);
+  const [fleetErr, setFleetErr] = useState<string | null>(null);
+
   function upd<K extends keyof Form>(k: K, v: Form[K]) {
     setF((s) => ({ ...s, [k]: v }));
   }
@@ -330,7 +355,7 @@ export default function NewTripPage() {
     }
   }
 
-  // Prefill om ?id= finns (inkl. slug + badge → UI-fält)
+  // Prefill om ?id= finns (inkl. slug + badge → UI-fält + operator/buss)
   useEffect(() => {
     if (!router.isReady) return;
     const qid = router.query.id;
@@ -368,6 +393,10 @@ export default function NewTripPage() {
         upd("departures_coming_soon", !!t.departures_coming_soon);
         upd("slug", t.slug || "");
 
+        // NYTT – operatör & bussmodell
+        upd("operator_id", t.operator_id || "");
+        upd("bus_model_id", t.bus_model_id || "");
+
         // badge → UI
         const spec = parseBadgeSpec(t.badge);
         if (spec) {
@@ -404,6 +433,34 @@ export default function NewTripPage() {
       }
     })();
   }, [router.isReady, router.query.id]);
+
+  // NYTT – ladda operatörer & bussmodeller
+  useEffect(() => {
+    let cancelled = false;
+
+    (async () => {
+      try {
+        setFleetErr(null);
+        const r = await fetch("/api/admin/fleet/load");
+        if (!r.ok) throw new Error("Kunde inte ladda operatörer/bussar.");
+        const j = await r.json();
+        if (!j.ok) throw new Error(j.error || "Tekniskt fel.");
+
+        if (cancelled) return;
+        setOperators(j.operators || []);
+        setBusModels(j.bus_models || []);
+      } catch (e: any) {
+        if (!cancelled) {
+          console.error(e);
+          setFleetErr(e?.message || "Kunde inte ladda fordonsdata.");
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   async function onUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const input = e.currentTarget;
@@ -484,6 +541,10 @@ export default function NewTripPage() {
         lines,
         departures_coming_soon: !!f.departures_coming_soon,
         slug,
+
+        // NYTT – skicka med till API:t
+        operator_id: f.operator_id || null,
+        bus_model_id: f.bus_model_id || null,
       };
 
       const r = await fetch("/api/trips/create", {
@@ -810,6 +871,86 @@ export default function NewTripPage() {
                     />
                   </div>
                 </div>
+              </Card>
+
+              {/* NYTT – Operatör & buss */}
+              <Card title="Operatör & buss">
+                <div className="grid md:grid-cols-2 gap-4">
+                  <div>
+                    <FieldLabel>Operatör</FieldLabel>
+                    <select
+                      className="border rounded-xl px-3 py-2.5 w-full text-sm focus:outline-none focus:ring-2 focus:ring-[#194C66]/30"
+                      value={f.operator_id || ""}
+                      onChange={(e) => {
+                        const val = e.target.value || "";
+                        upd("operator_id", val);
+                        // Om operatör byts – nollställ bussmodell om den inte matchar längre
+                        if (
+                          val &&
+                          f.bus_model_id &&
+                          !busModels.find(
+                            (bm) =>
+                              bm.id === f.bus_model_id &&
+                              (!bm.operator_id || bm.operator_id === val)
+                          )
+                        ) {
+                          upd("bus_model_id", "");
+                        }
+                      }}
+                    >
+                      <option value="">Välj operatör…</option>
+                      {operators.map((op) => (
+                        <option key={op.id} value={op.id}>
+                          {op.name}
+                          {op.code ? ` (${op.code})` : ""}
+                        </option>
+                      ))}
+                    </select>
+                    <Help>
+                      Hanteras i tabellen <code>bus_operators</code> i Supabase.
+                    </Help>
+                  </div>
+
+                  <div>
+                    <FieldLabel>Bussmodell</FieldLabel>
+                    <select
+                      className="border rounded-xl px-3 py-2.5 w-full text-sm focus:outline-none focus:ring-2 focus:ring-[#194C66]/30"
+                      value={f.bus_model_id || ""}
+                      onChange={(e) =>
+                        upd(
+                          "bus_model_id",
+                          e.target.value ? e.target.value : ""
+                        )
+                      }
+                    >
+                      <option value="">Välj bussmodell…</option>
+                      {busModels
+                        .filter(
+                          (bm) =>
+                            !f.operator_id || bm.operator_id === f.operator_id
+                        )
+                        .map((bm) => (
+                          <option key={bm.id} value={bm.id}>
+                            {bm.name}
+                            {bm.capacity
+                              ? ` (${bm.capacity} platser)`
+                              : ""}
+                          </option>
+                        ))}
+                    </select>
+                    <Help>
+                      Kapacitet & platskarta sätts per buss i{" "}
+                      <code>bus_models</code>. Vi kopplar detta till
+                      platskarta/prissättning i nästa steg.
+                    </Help>
+                  </div>
+                </div>
+
+                {fleetErr && (
+                  <div className="mt-3 bg-amber-50 border border-amber-200 text-amber-800 rounded-xl px-3 py-2 text-xs">
+                    {fleetErr}
+                  </div>
+                )}
               </Card>
 
               <Card title="Media">
