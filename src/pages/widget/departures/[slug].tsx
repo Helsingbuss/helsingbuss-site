@@ -2,7 +2,6 @@
 import { GetServerSideProps } from "next";
 import Head from "next/head";
 import { useState } from "react";
-import { useRouter } from "next/router";
 import * as admin from "@/lib/supabaseAdmin";
 
 const supabase: any =
@@ -45,13 +44,14 @@ type WidgetDeparture = {
   line: string;
   stops: string[];
   avresaLabel: string; // "2026-02-07 Lör"
-  priceLabel: string; // "295:-"
-  seatsLabel: string; // "Slut" | ">8" | "5" | "–"
+  priceLabel: string;  // "295:-"
+  seatsLabel: string;  // "Slut" | ">8" | "5" | "–"
   isFull: boolean;
 };
 
 type Props = {
   slug: string;
+  tripId: string;
   tripTitle: string;
   priceFromLabel: string;
   departuresComingSoon: boolean;
@@ -208,6 +208,7 @@ export const getServerSideProps: GetServerSideProps<Props> = async (ctx) => {
   return {
     props: {
       slug,
+      tripId: t.id,
       tripTitle: t.title,
       priceFromLabel,
       departuresComingSoon: !!t.departures_coming_soon,
@@ -217,10 +218,13 @@ export const getServerSideProps: GetServerSideProps<Props> = async (ctx) => {
 };
 
 export default function WidgetDeparturesPage(props: Props) {
-  const { slug, tripTitle, departures, departuresComingSoon, priceFromLabel } =
-    props;
-
-  const router = useRouter();
+  const {
+    tripId,
+    tripTitle,
+    departures,
+    departuresComingSoon,
+    priceFromLabel,
+  } = props;
 
   const [info, setInfo] = useState<{
     title: string;
@@ -250,13 +254,6 @@ export default function WidgetDeparturesPage(props: Props) {
         ? "bg-[#194C66] text-white border-[#194C66]"
         : "bg-transparent text-[#194C66] border-slate-300 hover:bg-slate-100",
     ].join(" ");
-
-  function handleBook(d: WidgetDeparture) {
-    const url = `/kassa?slug=${encodeURIComponent(
-      slug
-    )}&date=${encodeURIComponent(d.date)}`;
-    router.push(url);
-  }
 
   return (
     <>
@@ -348,7 +345,7 @@ export default function WidgetDeparturesPage(props: Props) {
                     </tr>
                   </thead>
                   <tbody>
-                    {filteredDepartures.map((d, idx) => {
+                    {filteredDepartures.map((d) => {
                       const resmal =
                         d.time && d.time.length
                           ? `${tripTitle} ${d.time}`
@@ -356,6 +353,10 @@ export default function WidgetDeparturesPage(props: Props) {
 
                       const isFull = d.isFull;
                       const buttonLabel = isFull ? "Väntelista" : "Boka";
+
+                      const href = `/kassa?trip_id=${encodeURIComponent(
+                        tripId
+                      )}&date=${encodeURIComponent(d.date)}`;
 
                       return (
                         <tr
@@ -408,17 +409,24 @@ export default function WidgetDeparturesPage(props: Props) {
 
                           {/* Boka / Väntelista */}
                           <td className="px-3 py-3 align-middle text-right">
-                            <button
-                              type="button"
-                              onClick={() => handleBook(d)}
-                              className={`inline-flex items-center justify-center px-4 py-1.5 rounded-full text-sm font-semibold shadow-sm transition-colors ${
-                                isFull
-                                  ? "bg-amber-500 hover:bg-amber-600 text-white"
-                                  : "bg-[#0066CC] hover:bg-[#0052a3] text-white"
-                              }`}
-                            >
-                              {buttonLabel}
-                            </button>
+                            {isFull ? (
+                              <button
+                                type="button"
+                                disabled
+                                className="inline-flex items-center justify-center px-4 py-1.5 rounded-full text-sm font-semibold shadow-sm bg-amber-500 text-white opacity-75 cursor-not-allowed"
+                              >
+                                {buttonLabel}
+                              </button>
+                            ) : (
+                              <a
+                                href={href}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center justify-center px-4 py-1.5 rounded-full text-sm font-semibold shadow-sm bg-[#0066CC] hover:bg-[#0052a3] text-white transition-colors"
+                              >
+                                {buttonLabel}
+                              </a>
+                            )}
                           </td>
                         </tr>
                       );
