@@ -91,6 +91,7 @@ export default function KassaPage() {
 
   // Stripe-betalning pågår?
   const [paying, setPaying] = useState(false);
+  const [payErr, setPayErr] = useState<string | null>(null);
 
   useEffect(() => {
     if (!router.isReady) return;
@@ -223,31 +224,58 @@ export default function KassaPage() {
     e.preventDefault();
 
     if (!trip || !departure || !selectedTicket) {
-      setErr("Tekniskt fel: saknar reseinformation.");
+      setPayErr("Tekniskt fel: saknar reseinformation.");
+      return;
+    }
+
+    if (!contactName || !contactEmail) {
+      setPayErr("Saknar uppgifter för bokningsansvarig (namn och e-post).");
+      return;
+    }
+
+    if (quantity < 1) {
+      setPayErr("Välj minst 1 resenär.");
       return;
     }
 
     try {
       setPaying(true);
-      setErr(null);
+      setPayErr(null);
+
+      const body = {
+        trip_id: trip.id,
+        // vi skickar båda fälten så API:t kan använda det som passar
+        departure_date: departure.date,
+        date: departure.date,
+        line_name: departure.line_name,
+        quantity,
+        ticket: {
+          id: selectedTicket.id,
+          name: selectedTicket.name,
+          price: selectedTicket.price,
+          currency: selectedTicket.currency,
+        },
+        contact: {
+          name: contactName,
+          email: contactEmail,
+          phone: contactPhone,
+        },
+        passengers,
+        discount_code: contactDiscountCode || null,
+      };
 
       const r = await fetch("/api/payments/create-checkout-session", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          trip_id: trip.id,
-          date: departure.date,
-          quantity,
-          ticket_id: selectedTicket.id,
-          customer: {
-            name: contactName,
-            email: contactEmail,
-            phone: contactPhone,
-          },
-        }),
+        body: JSON.stringify(body),
       });
 
-      const j = await r.json();
+      const j = (await r.json()) as {
+        ok: boolean;
+        url?: string;
+        error?: string;
+      };
+
       if (!r.ok || !j.ok || !j.url) {
         throw new Error(j.error || "Kunde inte starta betalning.");
       }
@@ -256,7 +284,7 @@ export default function KassaPage() {
       window.location.href = j.url as string;
     } catch (error: any) {
       console.error(error);
-      setErr(error?.message || "Tekniskt fel vid betalning.");
+      setPayErr(error?.message || "Tekniskt fel vid betalning.");
     } finally {
       setPaying(false);
     }
@@ -723,6 +751,13 @@ export default function KassaPage() {
                         köer i varuhusets kassor – planera ditt avslut i tid så
                         att du hinner tillbaka till bussen.
                       </div>
+
+                      {/* Betalningsfel, om något gått snett */}
+                      {payErr && (
+                        <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+                          {payErr}
+                        </div>
+                      )}
 
                       {/* Bokningsansvarig – read only */}
                       <div>

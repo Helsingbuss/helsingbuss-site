@@ -112,11 +112,11 @@ export default async function handler(
   const departDate = String(date).slice(0, 10); // YYYY-MM-DD
 
   try {
-    // --- 1) Hämta resa (inkl. departures JSON) ---
+    // --- 1) Hämta resa (inkl. departures JSON + bussmodell) ---
     const { data: trip, error: tripErr } = await supabase
       .from("trips")
       .select(
-        "id, title, subtitle, summary, city, country, hero_image, slug, departures"
+        "id, title, subtitle, summary, city, country, hero_image, slug, departures, operator_id, bus_model_id"
       )
       .eq("id", tripId)
       .single();
@@ -177,7 +177,31 @@ export default async function handler(
     const lineName: string | null =
       (matching.line_name || matching.line || null) as string | null;
 
-    // --- 3) Försök läsa kapacitet ur trip_departures (om det finns något) ---
+    // --- 3) Kapacitet från bussmodell (om satt på resan) ---
+    let busCapacity: number | null = null;
+
+    if (trip.bus_model_id) {
+      try {
+        const { data: busModel, error: busErr } = await supabase
+          .from("bus_models")
+          .select("capacity")
+          .eq("id", trip.bus_model_id)
+          .single();
+
+        if (busErr) {
+          console.error("booking/init busErr", busErr);
+        } else if (
+          busModel &&
+          typeof (busModel as any).capacity === "number"
+        ) {
+          busCapacity = (busModel as any).capacity as number;
+        }
+      } catch (e) {
+        console.error("booking/init busModel fetch error", e);
+      }
+    }
+
+    // --- 4) Försök läsa kapacitet ur trip_departures (om det finns något) ---
     const { data: depRows, error: depErr } = await supabase
       .from("trip_departures")
       .select("seats_total, seats_reserved")
@@ -197,7 +221,8 @@ export default async function handler(
 
     const capacityRow = depRows && depRows[0];
 
-    const defaultCapacity = 50; // just nu: standard om inget är satt i DB
+    // default: använd bussens kapacitet om den finns, annars 50
+    const defaultCapacity = busCapacity ?? 50;
 
     const total =
       (capacityRow && (capacityRow as any).seats_total) ?? defaultCapacity;
@@ -205,7 +230,7 @@ export default async function handler(
       (capacityRow && (capacityRow as any).seats_reserved) ?? 0;
     const left = Math.max(total - reserved, 0);
 
-    // --- 4) Hämta ev. kampanjer för denna resa & datum ---
+    // --- 5) Hämta ev. kampanjer för denna resa & datum ---
     const { data: campaignRows, error: campaignErr } = await supabase
       .from("discount_campaigns")
       .select(
@@ -272,7 +297,7 @@ export default async function handler(
       return null;
     };
 
-    // --- 5) Hämta priser för datumet (eller standardpris) ---
+    // --- 6) Hämta priser för datumet (eller standardpris) ---
     const { data: priceRows, error: priceErr } = await supabase
       .from("trip_ticket_pricing")
       .select(
@@ -316,7 +341,7 @@ export default async function handler(
       };
     });
 
-    // --- 6) Svar tillbaka till kassa-sidan ---
+    // --- 7) Svar tillbaka till kassa-sidan ---
     return res.status(200).json({
       ok: true,
       trip: {
