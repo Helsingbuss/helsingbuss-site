@@ -157,6 +157,11 @@ export default function AdminMenu() {
                 </Link>
               </li>
                <li>
+                <Link href="/admin/discounts" className={subLink}>
+                  Kampanjer & rabatter
+                </Link>
+              </li>
+               <li>
                 <Link href="/admin/tickets/passengers" className={subLink}>
                   Passagerarlistor
                 </Link>
