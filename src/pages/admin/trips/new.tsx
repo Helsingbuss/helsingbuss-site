@@ -25,14 +25,15 @@ type Form = {
   summary?: string; // kort om resan
   departures_coming_soon?: boolean;
   slug?: string; // slug-kolumnen i DB
-
-  // NYTT: koppling till operatör & bussmodell
-  operator_id?: string;
-  bus_model_id?: string;
 };
 
 type LineStop = { name: string; time?: string };
-type Line = { title: string; stops: LineStop[] };
+type Line = {
+  title: string;
+  stops: LineStop[];
+  operator_id?: string | null;
+  bus_model_id?: string | null;
+};
 
 // NYTT – typer för operatör & bussmodell
 type OperatorRow = {
@@ -153,13 +154,18 @@ function toSlug(input: string): string {
 }
 
 // --------------- Lines editor ---------------
+// Operatör + bussmodell kopplas nu per linje
 function LinesEditor({
   lines,
   setLines,
+  operators,
+  busModels,
   maxLines = 3,
 }: {
   lines: Line[];
   setLines: (v: Line[]) => void;
+  operators: OperatorRow[];
+  busModels: BusModelRow[];
   maxLines?: number;
 }) {
   function addLine() {
@@ -169,6 +175,8 @@ function LinesEditor({
       {
         title: `Linje ${String.fromCharCode(65 + lines.length)}`,
         stops: [],
+        operator_id: "",
+        bus_model_id: "",
       },
     ]);
   }
@@ -186,7 +194,7 @@ function LinesEditor({
     const next = [...lines];
     next[idx] = {
       ...next[idx],
-      stops: [...next[idx].stops, { name: "", time: "" }],
+      stops: [...(next[idx].stops || []), { name: "", time: "" }],
     };
     setLines(next);
   }
@@ -199,6 +207,45 @@ function LinesEditor({
   function removeStop(idx: number, sIdx: number) {
     const next = [...lines];
     next[idx].stops.splice(sIdx, 1);
+    setLines(next);
+  }
+
+  function setLineOperator(idx: number, operatorId: string) {
+    const next = [...lines];
+    const line = next[idx];
+    if (!line) return;
+
+    const updated: Line = {
+      ...line,
+      operator_id: operatorId || "",
+    };
+
+    // Om operatör byts och vald bussmodell inte tillhör den – nollställ buss
+    if (
+      operatorId &&
+      updated.bus_model_id &&
+      !busModels.find(
+        (bm) =>
+          bm.id === updated.bus_model_id &&
+          (!bm.operator_id || bm.operator_id === operatorId)
+      )
+    ) {
+      updated.bus_model_id = "";
+    }
+
+    next[idx] = updated;
+    setLines(next);
+  }
+
+  function setLineBusModel(idx: number, busModelId: string) {
+    const next = [...lines];
+    const line = next[idx];
+    if (!line) return;
+
+    next[idx] = {
+      ...line,
+      bus_model_id: busModelId || "",
+    };
     setLines(next);
   }
 
@@ -241,6 +288,61 @@ function LinesEditor({
             >
               Ta bort
             </button>
+          </div>
+
+          {/* Operatör + buss per linje */}
+          <div className="mt-3 grid md:grid-cols-2 gap-3">
+            <div>
+              <FieldLabel>Operatör för denna linje</FieldLabel>
+              <select
+                className="border rounded-xl px-3 py-2 w-full text-sm focus:outline-none focus:ring-2 focus:ring-[#194C66]/30"
+                value={ln.operator_id || ""}
+                onChange={(e) => setLineOperator(idx, e.target.value)}
+              >
+                <option value="">Välj operatör…</option>
+                {operators.map((op) => (
+                  <option key={op.id} value={op.id}>
+                    {op.name}
+                    {op.code ? ` (${op.code})` : ""}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <FieldLabel>Buss / modell</FieldLabel>
+              {(() => {
+                const operatorId = ln.operator_id || "";
+                const availableModels = busModels.filter((bm) =>
+                  operatorId ? bm.operator_id === operatorId : true
+                );
+                const disabled =
+                  !operatorId || availableModels.length === 0;
+
+                return (
+                  <select
+                    className="border rounded-xl px-3 py-2 w-full text-sm focus:outline-none focus:ring-2 focus:ring-[#194C66]/30"
+                    value={ln.bus_model_id || ""}
+                    onChange={(e) => setLineBusModel(idx, e.target.value)}
+                    disabled={disabled}
+                  >
+                    <option value="">
+                      {!operatorId
+                        ? "Välj operatör först"
+                        : availableModels.length === 0
+                        ? "Inga bussar registrerade"
+                        : "Välj buss / modell…"}
+                    </option>
+                    {availableModels.map((bm) => (
+                      <option key={bm.id} value={bm.id}>
+                        {bm.name}
+                        {bm.capacity ? ` (${bm.capacity} platser)` : ""}
+                      </option>
+                    ))}
+                  </select>
+                );
+              })()}
+            </div>
           </div>
 
           <div className="mt-3">
@@ -323,8 +425,6 @@ export default function NewTripPage() {
     summary: "",
     departures_coming_soon: false,
     slug: "",
-    operator_id: "",
-    bus_model_id: "",
   });
 
   // UI-fält för badge (byggs ihop till f.badge vid spar)
@@ -338,7 +438,7 @@ export default function NewTripPage() {
   const [err, setErr] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
 
-  // NYTT – operatörer & bussmodeller
+  // Operatörer & bussmodeller (delas till LinesEditor)
   const [operators, setOperators] = useState<OperatorRow[]>([]);
   const [busModels, setBusModels] = useState<BusModelRow[]>([]);
   const [fleetErr, setFleetErr] = useState<string | null>(null);
@@ -355,7 +455,7 @@ export default function NewTripPage() {
     }
   }
 
-  // Prefill om ?id= finns (inkl. slug + badge → UI-fält + operator/buss)
+  // Prefill om ?id= finns (inkl. slug + badge → UI-fält)
   useEffect(() => {
     if (!router.isReady) return;
     const qid = router.query.id;
@@ -393,10 +493,6 @@ export default function NewTripPage() {
         upd("departures_coming_soon", !!t.departures_coming_soon);
         upd("slug", t.slug || "");
 
-        // NYTT – operatör & bussmodell
-        upd("operator_id", t.operator_id || "");
-        upd("bus_model_id", t.bus_model_id || "");
-
         // badge → UI
         const spec = parseBadgeSpec(t.badge);
         if (spec) {
@@ -424,7 +520,7 @@ export default function NewTripPage() {
         }));
         setDepartures(deps.filter((d) => d.dep_date));
 
-        // Lines om finns i trip
+        // Lines om finns i trip (inkl. operator_id / bus_model_id)
         if (Array.isArray(t.lines)) setLines(t.lines);
       } catch (e) {
         console.warn("Prefill failed", e);
@@ -434,7 +530,7 @@ export default function NewTripPage() {
     })();
   }, [router.isReady, router.query.id]);
 
-  // NYTT – ladda operatörer & bussmodeller
+  // Ladda operatörer & bussmodeller
   useEffect(() => {
     let cancelled = false;
 
@@ -541,10 +637,6 @@ export default function NewTripPage() {
         lines,
         departures_coming_soon: !!f.departures_coming_soon,
         slug,
-
-        // NYTT – skicka med till API:t
-        operator_id: f.operator_id || null,
-        bus_model_id: f.bus_model_id || null,
       };
 
       const r = await fetch("/api/trips/create", {
@@ -873,86 +965,6 @@ export default function NewTripPage() {
                 </div>
               </Card>
 
-              {/* NYTT – Operatör & buss */}
-              <Card title="Operatör & buss">
-                <div className="grid md:grid-cols-2 gap-4">
-                  <div>
-                    <FieldLabel>Operatör</FieldLabel>
-                    <select
-                      className="border rounded-xl px-3 py-2.5 w-full text-sm focus:outline-none focus:ring-2 focus:ring-[#194C66]/30"
-                      value={f.operator_id || ""}
-                      onChange={(e) => {
-                        const val = e.target.value || "";
-                        upd("operator_id", val);
-                        // Om operatör byts – nollställ bussmodell om den inte matchar längre
-                        if (
-                          val &&
-                          f.bus_model_id &&
-                          !busModels.find(
-                            (bm) =>
-                              bm.id === f.bus_model_id &&
-                              (!bm.operator_id || bm.operator_id === val)
-                          )
-                        ) {
-                          upd("bus_model_id", "");
-                        }
-                      }}
-                    >
-                      <option value="">Välj operatör…</option>
-                      {operators.map((op) => (
-                        <option key={op.id} value={op.id}>
-                          {op.name}
-                          {op.code ? ` (${op.code})` : ""}
-                        </option>
-                      ))}
-                    </select>
-                    <Help>
-                      Hanteras i tabellen <code>bus_operators</code> i Supabase.
-                    </Help>
-                  </div>
-
-                  <div>
-                    <FieldLabel>Bussmodell</FieldLabel>
-                    <select
-                      className="border rounded-xl px-3 py-2.5 w-full text-sm focus:outline-none focus:ring-2 focus:ring-[#194C66]/30"
-                      value={f.bus_model_id || ""}
-                      onChange={(e) =>
-                        upd(
-                          "bus_model_id",
-                          e.target.value ? e.target.value : ""
-                        )
-                      }
-                    >
-                      <option value="">Välj bussmodell…</option>
-                      {busModels
-                        .filter(
-                          (bm) =>
-                            !f.operator_id || bm.operator_id === f.operator_id
-                        )
-                        .map((bm) => (
-                          <option key={bm.id} value={bm.id}>
-                            {bm.name}
-                            {bm.capacity
-                              ? ` (${bm.capacity} platser)`
-                              : ""}
-                          </option>
-                        ))}
-                    </select>
-                    <Help>
-                      Kapacitet & platskarta sätts per buss i{" "}
-                      <code>bus_models</code>. Vi kopplar detta till
-                      platskarta/prissättning i nästa steg.
-                    </Help>
-                  </div>
-                </div>
-
-                {fleetErr && (
-                  <div className="mt-3 bg-amber-50 border border-amber-200 text-amber-800 rounded-xl px-3 py-2 text-xs">
-                    {fleetErr}
-                  </div>
-                )}
-              </Card>
-
               <Card title="Media">
                 <div className="grid md:grid-cols-[1fr_auto] gap-4 items-end">
                   <div>
@@ -991,7 +1003,17 @@ export default function NewTripPage() {
               </Card>
 
               <Card title="Linjer & hållplatser">
-                <LinesEditor lines={lines} setLines={setLines} />
+                <LinesEditor
+                  lines={lines}
+                  setLines={setLines}
+                  operators={operators}
+                  busModels={busModels}
+                />
+                {fleetErr && (
+                  <div className="mt-3 bg-amber-50 border border-amber-200 text-amber-800 rounded-xl px-3 py-2 text-xs">
+                    {fleetErr}
+                  </div>
+                )}
               </Card>
 
               <Card
