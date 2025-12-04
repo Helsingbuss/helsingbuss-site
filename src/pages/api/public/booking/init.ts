@@ -70,25 +70,55 @@ export default async function handler(
   const departDate = String(date).slice(0, 10);
 
   try {
-    // 1) Hämta departure från trip_departures
-    const { data: dep, error: depErr } = await supabase
+    // --- 1) Hämta avgång (var tolerant mot olika kolumnnamn) ---
+    const { data: depRows, error: depErr } = await supabase
       .from("trip_departures")
       .select(
-        "trip_id, depart_date, dep_time, line_name, seats_total, seats_reserved"
+        "trip_id, depart_date, date, dep_date, departure_date, dep_time, time, line_name, line, seats_total, seats_reserved"
       )
       .eq("trip_id", tripId)
-      .eq("depart_date", departDate)
-      .single();
+      .or(
+        [
+          `depart_date.eq.${departDate}`,
+          `date.eq.${departDate}`,
+          `dep_date.eq.${departDate}`,
+          `departure_date.eq.${departDate}`,
+        ].join(",")
+      );
 
-    if (depErr || !dep) {
+    if (depErr) {
       console.error("booking/init depErr", depErr);
+    }
+
+    const dep = (depRows && depRows[0]) || null;
+
+    if (!dep) {
       return res.status(404).json({
         ok: false,
         error: "Hittade ingen avgång för det datumet.",
       });
     }
 
-    // 2) Hämta resa
+    const rawDate: string =
+      (dep as any).depart_date ||
+      (dep as any).date ||
+      (dep as any).dep_date ||
+      (dep as any).departure_date ||
+      departDate;
+
+    const dateOnly = String(rawDate).slice(0, 10);
+
+    const rawTime: string | null =
+      (dep as any).dep_time || (dep as any).time || null;
+
+    const lineName: string | null =
+      (dep as any).line_name || (dep as any).line || null;
+
+    const total = (dep as any).seats_total ?? 0;
+    const reserved = (dep as any).seats_reserved ?? 0;
+    const left = Math.max(total - reserved, 0);
+
+    // --- 2) Hämta resa ---
     const { data: trip, error: tripErr } = await supabase
       .from("trips")
       .select(
@@ -105,19 +135,14 @@ export default async function handler(
       });
     }
 
-    // 3) Räkna platser
-    const total = dep.seats_total ?? 0;
-    const reserved = dep.seats_reserved ?? 0;
-    const left = Math.max(total - reserved, 0);
-
-    // 4) Hämta priser (för exakt datum ELLER standardpris med NULL)
+    // --- 3) Hämta priser för datumet (eller standardpris med NULL) ---
     const { data: priceRows, error: priceErr } = await supabase
       .from("trip_ticket_pricing")
       .select(
         "id, trip_id, ticket_type_id, departure_date, price, currency, ticket_types(name, code)"
       )
       .eq("trip_id", tripId)
-      .or(`departure_date.is.null,departure_date.eq.${departDate}`)
+      .or(`departure_date.is.null,departure_date.eq.${dateOnly}`)
       .order("departure_date", { ascending: true });
 
     if (priceErr) throw priceErr;
@@ -148,9 +173,9 @@ export default async function handler(
       },
       departure: {
         trip_id: dep.trip_id,
-        date: String(dep.depart_date).slice(0, 10),
-        time: dep.dep_time || null,
-        line_name: dep.line_name || null,
+        date: dateOnly,
+        time: rawTime,
+        line_name: lineName,
         seats_total: total,
         seats_reserved: reserved,
         seats_left: left,
