@@ -46,6 +46,19 @@ type BookingInitResponse = {
   tickets?: BookingTicket[];
 };
 
+// samma struktur som i widgeten
+type RawDeparture = {
+  dep_date?: string;
+  depart_date?: string;
+  date?: string;
+  day?: string;
+  when?: string;
+  dep_time?: string;
+  time?: string;
+  line_name?: string;
+  line?: string;
+};
+
 export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse<BookingInitResponse>
@@ -67,62 +80,14 @@ export default async function handler(
   }
 
   const tripId = String(trip_id);
-  const departDate = String(date).slice(0, 10);
+  const departDate = String(date).slice(0, 10); // YYYY-MM-DD
 
   try {
-    // --- 1) Hämta avgång (var tolerant mot olika kolumnnamn) ---
-    const { data: depRows, error: depErr } = await supabase
-      .from("trip_departures")
-      .select(
-        "trip_id, depart_date, date, dep_date, departure_date, dep_time, time, line_name, line, seats_total, seats_reserved"
-      )
-      .eq("trip_id", tripId)
-      .or(
-        [
-          `depart_date.eq.${departDate}`,
-          `date.eq.${departDate}`,
-          `dep_date.eq.${departDate}`,
-          `departure_date.eq.${departDate}`,
-        ].join(",")
-      );
-
-    if (depErr) {
-      console.error("booking/init depErr", depErr);
-    }
-
-    const dep = (depRows && depRows[0]) || null;
-
-    if (!dep) {
-      return res.status(404).json({
-        ok: false,
-        error: "Hittade ingen avgång för det datumet.",
-      });
-    }
-
-    const rawDate: string =
-      (dep as any).depart_date ||
-      (dep as any).date ||
-      (dep as any).dep_date ||
-      (dep as any).departure_date ||
-      departDate;
-
-    const dateOnly = String(rawDate).slice(0, 10);
-
-    const rawTime: string | null =
-      (dep as any).dep_time || (dep as any).time || null;
-
-    const lineName: string | null =
-      (dep as any).line_name || (dep as any).line || null;
-
-    const total = (dep as any).seats_total ?? 0;
-    const reserved = (dep as any).seats_reserved ?? 0;
-    const left = Math.max(total - reserved, 0);
-
-    // --- 2) Hämta resa ---
+    // --- 1) Hämta resa (inkl. departures JSON) ---
     const { data: trip, error: tripErr } = await supabase
       .from("trips")
       .select(
-        "id, title, subtitle, summary, city, country, hero_image, slug"
+        "id, title, subtitle, summary, city, country, hero_image, slug, departures"
       )
       .eq("id", tripId)
       .single();
@@ -135,7 +100,83 @@ export default async function handler(
       });
     }
 
-    // --- 3) Hämta priser för datumet (eller standardpris med NULL) ---
+    // --- 2) Hitta avgången i trips.departures (JSON) ---
+    let rawDepartures: RawDeparture[] = [];
+    if (Array.isArray(trip.departures)) {
+      rawDepartures = trip.departures as RawDeparture[];
+    } else if (typeof trip.departures === "string") {
+      try {
+        const parsed = JSON.parse(trip.departures);
+        if (Array.isArray(parsed)) rawDepartures = parsed as RawDeparture[];
+      } catch {
+        // ignorera trasig JSON
+      }
+    }
+
+    const matching = rawDepartures.find((r) => {
+      const rawDate =
+        (r.dep_date ||
+          r.depart_date ||
+          r.date ||
+          r.day ||
+          r.when ||
+          "") as string;
+      const d = String(rawDate).slice(0, 10);
+      return d === departDate;
+    });
+
+    if (!matching) {
+      // nu ÄR det faktiskt ingen avgång för det datumet
+      return res.status(404).json({
+        ok: false,
+        error: "Hittade ingen avgång för det datumet.",
+      });
+    }
+
+    const rawDate =
+      (matching.dep_date ||
+        matching.depart_date ||
+        matching.date ||
+        matching.day ||
+        matching.when ||
+        departDate) as string;
+    const dateOnly = String(rawDate).slice(0, 10);
+
+    const rawTime: string | null =
+      (matching.dep_time || matching.time || null) as string | null;
+
+    const lineName: string | null =
+      (matching.line_name || matching.line || null) as string | null;
+
+    // --- 3) Försök läsa kapacitet ur trip_departures (om det finns något) ---
+    const { data: depRows, error: depErr } = await supabase
+      .from("trip_departures")
+      .select("seats_total, seats_reserved")
+      .eq("trip_id", tripId)
+      .or(
+        [
+          `depart_date.eq.${dateOnly}`,
+          `date.eq.${dateOnly}`,
+          `dep_date.eq.${dateOnly}`,
+          `departure_date.eq.${dateOnly}`,
+        ].join(",")
+      );
+
+    if (depErr) {
+      console.error("booking/init depErr", depErr);
+    }
+
+    const capacityRow = depRows && depRows[0];
+
+    const defaultCapacity = 50; // just nu: standard om inget är satt i DB
+
+    const total =
+      (capacityRow && (capacityRow as any).seats_total) ?? defaultCapacity;
+    const reserved =
+      (capacityRow && (capacityRow as any).seats_reserved) ?? 0;
+    const left = Math.max(total - reserved, 0);
+
+    // --- 4) Hämta priser för datumet (eller standardpris) ---
     const { data: priceRows, error: priceErr } = await supabase
       .from("trip_ticket_pricing")
       .select(
@@ -159,6 +200,7 @@ export default async function handler(
         : null,
     }));
 
+    // --- 5) Svar tillbaka till kassa-sidan ---
     return res.status(200).json({
       ok: true,
       trip: {
@@ -172,7 +214,7 @@ export default async function handler(
         slug: trip.slug,
       },
       departure: {
-        trip_id: dep.trip_id,
+        trip_id: trip.id,
         date: dateOnly,
         time: rawTime,
         line_name: lineName,
