@@ -3,163 +3,138 @@ import type { NextApiRequest, NextApiResponse } from "next";
 import Stripe from "stripe";
 import * as admin from "@/lib/supabaseAdmin";
 
+// --- Stripe setup ---
+const stripeSecret = process.env.STRIPE_SECRET_KEY;
+
+if (!stripeSecret) {
+  console.warn("STRIPE_SECRET_KEY is not satt i .env – betalning kan inte fungera.");
+}
+
+// använd den API-version som ditt stripe-paket vill ha
+const stripe = stripeSecret
+  ? new Stripe(stripeSecret, { apiVersion: "2025-11-17.clover" })
+  : (null as any);
+
+// --- Supabase admin (samma pattern som i booking/init) ---
 const supabase: any =
   (admin as any).supabaseAdmin ||
   (admin as any).supabase ||
   (admin as any).default;
 
-const stripeSecret = process.env.STRIPE_SECRET_KEY;
-if (!stripeSecret) {
-  throw new Error("STRIPE_SECRET_KEY saknas i .env.local");
-}
-
-// Låt Stripe välja sin default-version – enklast, slipper typfel
-const stripe = new Stripe(stripeSecret as string);
-
 type CreateCheckoutResponse =
-  | {
-      ok: true;
-      url: string;
-    }
-  | {
-      ok: false;
-      error: string;
-    };
-
-type CreateCheckoutBody = {
-  trip_id: string;
-  date: string; // YYYY-MM-DD
-  quantity: number;
-  ticket_id: number;
-  customer?: {
-    name?: string;
-    email?: string;
-    phone?: string;
-  };
-};
+  | { ok: true; url: string }
+  | { ok: false; error: string };
 
 export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse<CreateCheckoutResponse>
 ) {
   if (req.method !== "POST") {
-    return res.status(405).json({
-      ok: false,
-      error: "Method not allowed (use POST).",
-    });
+    return res
+      .status(405)
+      .json({ ok: false, error: "Method not allowed (use POST)." });
   }
 
-  let body: CreateCheckoutBody;
-  try {
-    body = req.body as CreateCheckoutBody;
-  } catch {
-    return res.status(400).json({
+  if (!stripe) {
+    return res.status(500).json({
       ok: false,
-      error: "Ogiltig JSON i body.",
-    });
-  }
-
-  const { trip_id, date, quantity, ticket_id, customer } = body;
-
-  if (!trip_id || !date || !quantity || !ticket_id) {
-    return res.status(400).json({
-      ok: false,
-      error: "Saknar nödvändig information (trip_id, date, quantity, ticket_id).",
-    });
-  }
-
-  if (quantity <= 0) {
-    return res.status(400).json({
-      ok: false,
-      error: "Antalet biljetter måste vara minst 1.",
+      error: "Betalning är inte konfigurerad (saknar Stripe-nyckel).",
     });
   }
 
   try {
-    // --- 1) Hämta biljetten från databasen (så vi inte litar på pris från frontend) ---
+    const { trip_id, date, quantity, ticket_id, customer } = req.body || {};
+
+    if (!trip_id || !date || !ticket_id || !quantity || !customer?.email) {
+      return res.status(400).json({
+        ok: false,
+        error: "Saknar nödvändig bokningsinformation för betalning.",
+      });
+    }
+
+    const qty = Number(quantity) || 1;
+
+    // --- Hämta priset från databasen ---
     const { data: priceRow, error: priceErr } = await supabase
       .from("trip_ticket_pricing")
-      .select(
-        "id, trip_id, ticket_type_id, price, currency, ticket_types(name, code)"
-      )
+      .select("id, price, currency, ticket_types(name)")
       .eq("id", ticket_id)
-      .eq("trip_id", trip_id)
       .single();
 
     if (priceErr || !priceRow) {
-      console.error("create-checkout-session priceErr", priceErr);
-      return res.status(404).json({
+      console.error("Stripe: kunde inte läsa prisrad", priceErr);
+      return res.status(400).json({
         ok: false,
-        error: "Kunde inte hitta pris för vald biljett.",
+        error: "Kunde inte hitta priset för vald biljett.",
       });
     }
 
     const unitAmount = Math.round(Number(priceRow.price) * 100); // ören
+    if (!unitAmount || unitAmount <= 0) {
+      return res.status(400).json({
+        ok: false,
+        error: "Biljettens pris är ogiltigt.",
+      });
+    }
+
     const currency =
-      (priceRow.currency as string | null) ||
-      process.env.NEXT_PUBLIC_STRIPE_CURRENCY ||
-      "SEK";
+      (priceRow.currency ||
+        process.env.NEXT_PUBLIC_STRIPE_CURRENCY ||
+        "SEK") as string;
 
-    const ticketName =
-      priceRow.ticket_types?.name || "Helsingbuss – biljett";
+    const productName =
+      priceRow.ticket_types?.name || "Helsingbuss – bussresa";
 
-    // --- 2) Sätt upp URL:er för success/cancel ---
-    const baseUrl =
-      process.env.NEXT_PUBLIC_BASE_URL || "http://localhost:3000";
+    const successBase =
+      process.env.NEXT_PUBLIC_CUSTOMER_BASE_URL ||
+      process.env.NEXT_PUBLIC_BASE_URL ||
+      "http://localhost:3000";
 
-    const successUrl = `${baseUrl}/kassa/klart?session_id={CHECKOUT_SESSION_ID}`;
-    const cancelUrl = `${baseUrl}/kassa/avbruten`;
-
-    // --- 3) Skapa Stripe Checkout-session ---
+    // --- Skapa Stripe Checkout-session ---
     const session = await stripe.checkout.sessions.create({
       mode: "payment",
-      payment_method_types: ["card", "klarna", "link"], // Apple/Google Pay ingår i "card"
+      // Apple/Google Pay går via "card", Klarna och Link är extra
+      payment_method_types: ["card", "klarna", "link"],
+      customer_email: customer.email,
+      success_url: `${successBase}/betalning/klar?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${successBase}/betalning/avbruten`,
+      metadata: {
+        trip_id: String(trip_id),
+        departure_date: String(date),
+        ticket_id: String(ticket_id),
+        quantity: String(qty),
+        customer_name: customer.name || "",
+        customer_phone: customer.phone || "",
+      },
       line_items: [
         {
-          quantity,
+          quantity: qty,
           price_data: {
+            currency: currency.toLowerCase(), // sek
             unit_amount: unitAmount,
-            currency: currency.toLowerCase(), // t.ex. "sek"
             product_data: {
-              name: ticketName,
-              metadata: {
-                trip_id,
-                ticket_id: String(ticket_id),
-              },
+              name: productName,
             },
           },
         },
       ],
-      success_url: successUrl,
-      cancel_url: cancelUrl,
-      customer_email: customer?.email,
-      metadata: {
-        trip_id,
-        departure_date: date,
-        ticket_id: String(ticket_id),
-        quantity: String(quantity),
-        customer_name: customer?.name || "",
-        customer_phone: customer?.phone || "",
-        source: "helsingbuss-portal",
-      },
     });
 
     if (!session.url) {
+      console.error("Stripe: ingen session.url", session);
       return res.status(500).json({
         ok: false,
-        error: "Stripe returnerade ingen URL för betalning.",
+        error: "Kunde inte skapa betalningssession.",
       });
     }
 
-    return res.status(200).json({
-      ok: true,
-      url: session.url,
-    });
+    return res.status(200).json({ ok: true, url: session.url });
   } catch (e: any) {
-    console.error("create-checkout-session error", e);
+    console.error("Stripe create-checkout-session error:", e);
     return res.status(500).json({
       ok: false,
-      error: e?.message || "Tekniskt fel vid skapande av betalning.",
+      error:
+        e?.message || "Tekniskt fel uppstod när betalningen skulle startas.",
     });
   }
 }
