@@ -4,13 +4,22 @@ import Stripe from "stripe";
 import * as admin from "@/lib/supabaseAdmin";
 
 // --- Stripe setup ---
-const stripeSecret = process.env.STRIPE_SECRET_KEY;
+// Försök läsa hemlig nyckel från några olika varianter
+const rawStripeSecret =
+  process.env.STRIPE_SECRET_KEY ||
+  process.env.STRIPE_SECRET ||
+  process.env.STRIPE_API_KEY ||
+  "";
+
+const stripeSecret = rawStripeSecret.trim() || undefined;
 
 if (!stripeSecret) {
-  console.warn("STRIPE_SECRET_KEY is not satt i .env – betalning kan inte fungera.");
+  console.warn(
+    "⚠️ STRIPE_SECRET_KEY (eller STRIPE_SECRET / STRIPE_API_KEY) är inte satt i .env – betalning kan inte fungera."
+  );
 }
 
-// använd den API-version som ditt stripe-paket vill ha
+// använd den API-version som ditt stripe-paket kräver
 const stripe = stripeSecret
   ? new Stripe(stripeSecret, { apiVersion: "2025-11-17.clover" })
   : (null as any);
@@ -93,7 +102,7 @@ export default async function handler(
     // --- Skapa Stripe Checkout-session ---
     const session = await stripe.checkout.sessions.create({
       mode: "payment",
-      // Apple/Google Pay går via "card", Klarna och Link är extra
+      // Apple/Google Pay via "card", plus Klarna & Link
       payment_method_types: ["card", "klarna", "link"],
       customer_email: customer.email,
       success_url: `${successBase}/betalning/klar?session_id={CHECKOUT_SESSION_ID}`,
@@ -110,7 +119,7 @@ export default async function handler(
         {
           quantity: qty,
           price_data: {
-            currency: currency.toLowerCase(), // sek
+            currency: currency.toLowerCase(),
             unit_amount: unitAmount,
             product_data: {
               name: productName,
