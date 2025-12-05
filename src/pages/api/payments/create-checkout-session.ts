@@ -3,40 +3,30 @@ import type { NextApiRequest, NextApiResponse } from "next";
 import Stripe from "stripe";
 import * as admin from "@/lib/supabaseAdmin";
 
-// --- Stripe setup ---
-// Försök läsa hemlig nyckel från några olika varianter
-const rawStripeSecret =
-  process.env.STRIPE_SECRET_KEY ||
-  process.env.STRIPE_SECRET ||
-  process.env.STRIPE_API_KEY ||
-  "";
+type ApiResponse = {
+  ok: boolean;
+  url?: string;
+  error?: string;
+};
 
-const stripeSecret = rawStripeSecret.trim() || undefined;
+const stripeSecret = process.env.STRIPE_SECRET_KEY;
 
-if (!stripeSecret) {
-  console.warn(
-    "⚠️ STRIPE_SECRET_KEY (eller STRIPE_SECRET / STRIPE_API_KEY) är inte satt i .env – betalning kan inte fungera."
-  );
+// Enda som verkligen krävs för Stripe Checkout är hemliga nyckeln
+let stripe: Stripe | null = null;
+if (stripeSecret) {
+  stripe = new Stripe(stripeSecret, {
+    apiVersion: "2023-10-16" as Stripe.LatestApiVersion,
+  });
 }
 
-// använd den API-version som ditt stripe-paket kräver
-const stripe = stripeSecret
-  ? new Stripe(stripeSecret, { apiVersion: "2025-11-17.clover" })
-  : (null as any);
-
-// --- Supabase admin (samma pattern som i booking/init) ---
 const supabase: any =
   (admin as any).supabaseAdmin ||
   (admin as any).supabase ||
   (admin as any).default;
 
-type CreateCheckoutResponse =
-  | { ok: true; url: string }
-  | { ok: false; error: string };
-
 export default async function handler(
   req: NextApiRequest,
-  res: NextApiResponse<CreateCheckoutResponse>
+  res: NextApiResponse<ApiResponse>
 ) {
   if (req.method !== "POST") {
     return res
@@ -44,7 +34,10 @@ export default async function handler(
       .json({ ok: false, error: "Method not allowed (use POST)." });
   }
 
-  if (!stripe) {
+  if (!stripeSecret || !stripe) {
+    console.error("Stripe secret key saknas", {
+      hasSecret: !!stripeSecret,
+    });
     return res.status(500).json({
       ok: false,
       error: "Betalning är inte konfigurerad (saknar Stripe-nyckel).",
@@ -54,96 +47,89 @@ export default async function handler(
   try {
     const { trip_id, date, quantity, ticket_id, customer } = req.body || {};
 
-    if (!trip_id || !date || !ticket_id || !quantity || !customer?.email) {
+    if (!trip_id || !date || !ticket_id || !quantity) {
       return res.status(400).json({
         ok: false,
-        error: "Saknar nödvändig bokningsinformation för betalning.",
+        error: "Saknar uppgifter för betalning.",
       });
     }
 
-    const qty = Number(quantity) || 1;
-
-    // --- Hämta priset från databasen ---
+    // Hämta korrekt biljettpris från databasen (litar inte på klienten)
     const { data: priceRow, error: priceErr } = await supabase
       .from("trip_ticket_pricing")
-      .select("id, price, currency, ticket_types(name)")
+      .select(
+        "id, trip_id, ticket_type_id, price, currency, ticket_types(name)"
+      )
       .eq("id", ticket_id)
+      .eq("trip_id", trip_id)
       .single();
 
     if (priceErr || !priceRow) {
-      console.error("Stripe: kunde inte läsa prisrad", priceErr);
-      return res.status(400).json({
-        ok: false,
-        error: "Kunde inte hitta priset för vald biljett.",
-      });
+      console.error("create-checkout-session priceErr", priceErr);
+      return res
+        .status(404)
+        .json({ ok: false, error: "Kunde inte hitta biljettpris." });
     }
 
-    const unitAmount = Math.round(Number(priceRow.price) * 100); // ören
-    if (!unitAmount || unitAmount <= 0) {
-      return res.status(400).json({
-        ok: false,
-        error: "Biljettens pris är ogiltigt.",
-      });
-    }
+    const quantityInt = Math.max(
+      1,
+      parseInt(String(quantity), 10) || 1
+    );
 
-    const currency =
-      (priceRow.currency ||
-        process.env.NEXT_PUBLIC_STRIPE_CURRENCY ||
-        "SEK") as string;
+    const currency: string =
+      priceRow.currency ||
+      process.env.NEXT_PUBLIC_STRIPE_CURRENCY ||
+      "SEK";
 
-    const productName =
-      priceRow.ticket_types?.name || "Helsingbuss – bussresa";
+    const lineItemName =
+      priceRow.ticket_types?.name || "Bussbiljett – Helsingbuss";
 
-    const successBase =
+    const baseUrl =
       process.env.NEXT_PUBLIC_CUSTOMER_BASE_URL ||
       process.env.NEXT_PUBLIC_BASE_URL ||
       "http://localhost:3000";
 
-    // --- Skapa Stripe Checkout-session ---
+    const successUrl = `${baseUrl}/tack?status=success`;
+    const cancelUrl = `${baseUrl}/kassa/avbruten`;
+
     const session = await stripe.checkout.sessions.create({
       mode: "payment",
-      // Apple/Google Pay via "card", plus Klarna & Link
       payment_method_types: ["card", "klarna", "link"],
-      customer_email: customer.email,
-      success_url: `${successBase}/betalning/klar?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${successBase}/betalning/avbruten`,
+      customer_email: customer?.email || undefined,
       metadata: {
         trip_id: String(trip_id),
         departure_date: String(date),
-        ticket_id: String(ticket_id),
-        quantity: String(qty),
-        customer_name: customer.name || "",
-        customer_phone: customer.phone || "",
+        ticket_pricing_id: String(priceRow.id),
+        quantity: String(quantityInt),
       },
       line_items: [
         {
-          quantity: qty,
+          quantity: quantityInt,
           price_data: {
             currency: currency.toLowerCase(),
-            unit_amount: unitAmount,
+            unit_amount: Math.round(Number(priceRow.price) * 100),
             product_data: {
-              name: productName,
+              name: lineItemName,
+              description: `Resa med Helsingbuss – ${date}`,
             },
           },
         },
       ],
+      success_url: successUrl,
+      cancel_url: cancelUrl,
     });
 
-    if (!session.url) {
-      console.error("Stripe: ingen session.url", session);
-      return res.status(500).json({
-        ok: false,
-        error: "Kunde inte skapa betalningssession.",
-      });
-    }
-
-    return res.status(200).json({ ok: true, url: session.url });
-  } catch (e: any) {
-    console.error("Stripe create-checkout-session error:", e);
+    return res.status(200).json({
+      ok: true,
+      url: session.url || undefined,
+    });
+  } catch (error: any) {
+    console.error("create-checkout-session error", error);
     return res.status(500).json({
       ok: false,
       error:
-        e?.message || "Tekniskt fel uppstod när betalningen skulle startas.",
+        error?.message ||
+        "Tekniskt fel vid skapande av betalning. Försök igen.",
     });
   }
 }
