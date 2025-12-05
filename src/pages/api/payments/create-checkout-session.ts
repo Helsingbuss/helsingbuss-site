@@ -9,15 +9,14 @@ const supabase: any =
   (admin as any).default;
 
 const stripeSecret = process.env.STRIPE_SECRET_KEY;
-const stripeCurrency = process.env.NEXT_PUBLIC_STRIPE_CURRENCY || "SEK";
+const stripeCurrencyEnv =
+  process.env.NEXT_PUBLIC_STRIPE_CURRENCY || "SEK";
 
 let stripe: Stripe | null = null;
 
+// Initiera Stripe-klienten om vi har hemliga nyckeln
 if (stripeSecret) {
-  stripe = new Stripe(stripeSecret, {
-    // matchar den API-version som Stripe-SDK:t förväntar sig hos dig
-    apiVersion: "2025-11-17.clover",
-  });
+  stripe = new Stripe(stripeSecret);
 }
 
 type CreateSessionBody = {
@@ -25,9 +24,9 @@ type CreateSessionBody = {
   date: string; // YYYY-MM-DD
   quantity: number;
   ticket_id: number;
-  customer: {
-    name: string;
-    email: string;
+  customer?: {
+    name?: string;
+    email?: string;
     phone?: string;
   };
 };
@@ -110,12 +109,13 @@ export default async function handler(
       });
     }
 
-    const currency: string = priceRow.currency || stripeCurrency;
+    const currency: string = (priceRow.currency ||
+      stripeCurrencyEnv).toLowerCase();
     const unitAmount = Math.round(Number(priceRow.price) * 100);
 
     const baseUrl = ensureBaseUrl();
-    const successUrl = `${baseUrl}/kassa/success?session_id={CHECKOUT_SESSION_ID}`;
-    const cancelUrl = `${baseUrl}/kassa/cancel`;
+    const successUrl = `${baseUrl}/kassa/tack?session_id={CHECKOUT_SESSION_ID}`;
+    const cancelUrl = `${baseUrl}/kassa/avbruten`;
 
     console.log("create-checkout-session | urls", {
       baseUrl,
@@ -125,7 +125,8 @@ export default async function handler(
 
     const session = await stripe.checkout.sessions.create({
       mode: "payment",
-      payment_method_types: ["card", "klarna", "link"], // Apple/Google Pay ingår i "card"
+      // Apple/Google Pay ingår i "card". Swish är borttagen så länge.
+      payment_method_types: ["card", "klarna", "link"],
       locale: "sv",
       line_items: [
         {
@@ -140,7 +141,7 @@ export default async function handler(
           },
         },
       ],
-      customer_email: body.customer?.email,
+      customer_email: body.customer?.email || undefined,
       metadata: {
         trip_id: body.trip_id,
         date: body.date,
