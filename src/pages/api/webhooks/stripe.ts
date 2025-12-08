@@ -22,8 +22,12 @@ type WebhookResponse = {
 const stripeSecret = process.env.STRIPE_SECRET_KEY;
 const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
 const resendApiKey = process.env.RESEND_API_KEY;
-const mailFrom =
-  process.env.MAIL_FROM || "Helsingbuss <info@helsingbuss.se>";
+
+// 🔹 Ny, tydlig FROM-konstant (så den aldrig blir tom eller fel format)
+const FROM_EMAIL =
+  process.env.RESEND_FROM_EMAIL ||
+  process.env.MAIL_FROM ||
+  "Helsingbuss Biljetter <onboarding@resend.dev>";
 
 const supabase: any =
   (admin as any).supabaseAdmin ||
@@ -81,18 +85,12 @@ export default async function handler(
         .json({ ok: false, error: "Saknar stripe-signature header." });
     }
 
-    event = stripe.webhooks.constructEvent(
-      rawBody,
-      sig,
-      webhookSecret
-    );
+    event = stripe.webhooks.constructEvent(rawBody, sig, webhookSecret);
   } catch (err: any) {
     console.error("Stripe webhook signature error", err);
     return res.status(400).json({
       ok: false,
-      error: `Webhook verification failed: ${
-        err?.message ?? "okänt fel"
-      }`,
+      error: `Webhook verification failed: ${err?.message ?? "okänt fel"}`,
     });
   }
 
@@ -111,9 +109,7 @@ export default async function handler(
   }
 }
 
-async function handleCheckoutCompleted(
-  session: Stripe.Checkout.Session
-) {
+async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
   const metadata = session.metadata || {};
 
   const tripId = metadata.trip_id || "";
@@ -145,10 +141,7 @@ async function handleCheckoutCompleted(
       .single();
 
     if (priceErr) {
-      console.error(
-        "Webhook: kunde inte läsa trip_ticket_pricing",
-        priceErr
-      );
+      console.error("Webhook: kunde inte läsa trip_ticket_pricing", priceErr);
     } else if (priceRow?.price != null) {
       baseAmountSek = Number(priceRow.price) * quantity;
     }
@@ -163,13 +156,6 @@ async function handleCheckoutCompleted(
   const vatSek = computeVat(totalSek);
 
   // --- Bygg TicketPdfData ---
-  //
-  // OBS: Här är hållplatser/linje/operatör:
-  //  - Om du skickar metadata.trip_title / line_name / operator_name /
-  //    departure_time / return_time / departure_stop
-  //    från create-checkout-session så används de.
-  //  - Annars används Ullared-exempel (Malmö C – Gekås Ullared osv.).
-  //
   const ticketData: TicketPdfData = {
     orderId: session.id,
     ticketId: session.id,
@@ -180,8 +166,7 @@ async function handleCheckoutCompleted(
     operatorName:
       metadata.operator_name || "Norra Skåne Buss AB / Bergkvara",
 
-    departureDate:
-      date || new Date().toISOString().slice(0, 10), // YYYY-MM-DD
+    departureDate: date || new Date().toISOString().slice(0, 10), // YYYY-MM-DD
     departureTime: metadata.departure_time || "06:00",
     returnTime: metadata.return_time || "18:00",
     departureStop: metadata.departure_stop || "Malmö C (Läge k)",
@@ -402,10 +387,10 @@ async function handleCheckoutCompleted(
   `;
 
   await resend.emails.send({
-    from: mailFrom,
+    from: FROM_EMAIL,          // 🔹 använder nya säkra from-värdet
     to: customerEmail,
     subject,
-    text,  // fallback för enkla mailklienter
+    text, // fallback för enkla mailklienter
     html,
     attachments: [
       {
