@@ -31,7 +31,7 @@ const supabase: any =
 const stripe = stripeSecret ? new Stripe(stripeSecret) : null;
 const resend = resendApiKey ? new Resend(resendApiKey) : null;
 
-// ✅ HÅRDKODAD, GARANTERAT GILTIG FROM-ADRESS FÖR RESEND
+// ✅ Hårdkodad, giltig from-adress för Resend (funkar med ditt konto)
 const FROM_EMAIL = "Helsingbuss Biljetter <onboarding@resend.dev>";
 
 // Läser rå body från request (för Stripe-signatur)
@@ -49,6 +49,23 @@ function computeVat(amountSek: number): number {
   if (!amountSek) return 0;
   const vat = amountSek - amountSek / 1.06;
   return Math.round(vat * 100) / 100;
+}
+
+// ✅ Hjälp: bygg ett kort bokningsnummer av Stripe-session-id
+function buildTicketNumber(sessionId: string | null | undefined): string {
+  if (!sessionId) return "HB-XXXXXX";
+
+  let cleaned = sessionId
+    .replace("cs_test_", "")
+    .replace("cs_live_", "")
+    .replace("cs_", "");
+
+  if (cleaned.length < 8) {
+    return `HB-${cleaned.toUpperCase()}`;
+  }
+
+  const suffix = cleaned.slice(-8).toUpperCase();
+  return `HB-${suffix}`;
 }
 
 export default async function handler(
@@ -152,16 +169,20 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
   const totalSek = baseAmountSek;
   const vatSek = computeVat(totalSek);
 
+  // ✅ Nytt kort bokningsnummer
+  const ticketNumber = buildTicketNumber(session.id);
+
   // --- Bygg TicketPdfData ---
   const ticketData: TicketPdfData = {
     orderId: session.id,
     ticketId: session.id,
-    ticketNumber: session.id.replace("cs_", "HB-"),
+    ticketNumber, // kort, typ "HB-ABCDEFGH"
 
     tripTitle: metadata.trip_title || "Malmö C – Gekås Ullared",
     lineName: metadata.line_name || "Linje 1 Helsingbuss",
-    operatorName:
-      metadata.operator_name || "Norra Skåne Buss AB / Bergkvara",
+
+    // ✅ Endast en operatör i fallback
+    operatorName: metadata.operator_name || "Norra Skåne Buss AB",
 
     departureDate: date || new Date().toISOString().slice(0, 10), // YYYY-MM-DD
     departureTime: metadata.departure_time || "06:00",
