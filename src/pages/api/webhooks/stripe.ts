@@ -22,6 +22,8 @@ type WebhookResponse = {
 const stripeSecret = process.env.STRIPE_SECRET_KEY;
 const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
 const resendApiKey = process.env.RESEND_API_KEY;
+const mailFrom =
+  process.env.MAIL_FROM || "Helsingbuss <info@helsingbuss.se>";
 
 const supabase: any =
   (admin as any).supabaseAdmin ||
@@ -30,9 +32,6 @@ const supabase: any =
 
 const stripe = stripeSecret ? new Stripe(stripeSecret) : null;
 const resend = resendApiKey ? new Resend(resendApiKey) : null;
-
-// ✅ Hårdkodad, giltig from-adress för Resend (funkar med ditt konto)
-const FROM_EMAIL = "Helsingbuss Biljetter <onboarding@resend.dev>";
 
 // Läser rå body från request (för Stripe-signatur)
 async function readRawBody(req: NextApiRequest): Promise<Buffer> {
@@ -51,21 +50,24 @@ function computeVat(amountSek: number): number {
   return Math.round(vat * 100) / 100;
 }
 
-// ✅ Hjälp: bygg ett kort bokningsnummer av Stripe-session-id
-function buildTicketNumber(sessionId: string | null | undefined): string {
-  if (!sessionId) return "HB-XXXXXX";
+// Skapa ett snyggt bokningsnummer baserat på Stripe-sessionen
+// Exempel: HB-20251208-9F2A
+function buildTicketNumber(session: Stripe.Checkout.Session): string {
+  const createdUnix = session.created ?? Math.floor(Date.now() / 1000);
+  const d = new Date(createdUnix * 1000);
 
-  let cleaned = sessionId
-    .replace("cs_test_", "")
-    .replace("cs_live_", "")
-    .replace("cs_", "");
+  const pad = (n: number) => (n < 10 ? `0${n}` : `${n}`);
 
-  if (cleaned.length < 8) {
-    return `HB-${cleaned.toUpperCase()}`;
-  }
+  const year = d.getFullYear();
+  const month = pad(d.getMonth() + 1);
+  const day = pad(d.getDate());
 
-  const suffix = cleaned.slice(-8).toUpperCase();
-  return `HB-${suffix}`;
+  const rawId = session.id || "";
+  let suffix = rawId.slice(-4).toUpperCase();
+  // Rensa bort konstiga tecken
+  suffix = suffix.replace(/[^A-Z0-9]/g, "X");
+
+  return `HB-${year}${month}${day}-${suffix}`;
 }
 
 export default async function handler(
@@ -99,12 +101,18 @@ export default async function handler(
         .json({ ok: false, error: "Saknar stripe-signature header." });
     }
 
-    event = stripe.webhooks.constructEvent(rawBody, sig, webhookSecret);
+    event = stripe.webhooks.constructEvent(
+      rawBody,
+      sig,
+      webhookSecret
+    );
   } catch (err: any) {
     console.error("Stripe webhook signature error", err);
     return res.status(400).json({
       ok: false,
-      error: `Webhook verification failed: ${err?.message ?? "okänt fel"}`,
+      error: `Webhook verification failed: ${
+        err?.message ?? "okänt fel"
+      }`,
     });
   }
 
@@ -123,7 +131,9 @@ export default async function handler(
   }
 }
 
-async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
+async function handleCheckoutCompleted(
+  session: Stripe.Checkout.Session
+) {
   const metadata = session.metadata || {};
 
   const tripId = metadata.trip_id || "";
@@ -155,7 +165,10 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
       .single();
 
     if (priceErr) {
-      console.error("Webhook: kunde inte läsa trip_ticket_pricing", priceErr);
+      console.error(
+        "Webhook: kunde inte läsa trip_ticket_pricing",
+        priceErr
+      );
     } else if (priceRow?.price != null) {
       baseAmountSek = Number(priceRow.price) * quantity;
     }
@@ -169,22 +182,29 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
   const totalSek = baseAmountSek;
   const vatSek = computeVat(totalSek);
 
-  // ✅ Nytt kort bokningsnummer
-  const ticketNumber = buildTicketNumber(session.id);
+  // Skapa ett kort, snyggt bokningsnummer
+  const ticketNumber = buildTicketNumber(session);
 
   // --- Bygg TicketPdfData ---
+  //
+  // OBS: Hållplatser/linje/operatör:
+  //  - Om du skickar metadata.trip_title / line_name / operator_name /
+  //    departure_time / return_time / departure_stop
+  //    från create-checkout-session så används de.
+  //  - Annars används Ullared-exempel (Malmö C – Gekås Ullared osv.).
+  //
   const ticketData: TicketPdfData = {
     orderId: session.id,
     ticketId: session.id,
-    ticketNumber, // kort, typ "HB-ABCDEFGH"
+    ticketNumber, // ✅ nu använder vi vårt egna korta nummer
 
     tripTitle: metadata.trip_title || "Malmö C – Gekås Ullared",
     lineName: metadata.line_name || "Linje 1 Helsingbuss",
+    operatorName:
+      metadata.operator_name || "Norra Skåne Buss AB / Bergkvara",
 
-    // ✅ Endast en operatör i fallback
-    operatorName: metadata.operator_name || "Norra Skåne Buss AB",
-
-    departureDate: date || new Date().toISOString().slice(0, 10), // YYYY-MM-DD
+    departureDate:
+      date || new Date().toISOString().slice(0, 10), // YYYY-MM-DD
     departureTime: metadata.departure_time || "06:00",
     returnTime: metadata.return_time || "18:00",
     departureStop: metadata.departure_stop || "Malmö C (Läge k)",
@@ -404,21 +424,19 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
   </html>
   `;
 
-  console.log("📧 Skickar e-biljett från:", FROM_EMAIL);
-
   await resend.emails.send({
-    from: FROM_EMAIL,
+    from: mailFrom,
     to: customerEmail,
     subject,
-    text,
+    text,  // fallback för enkla mailklienter
     html,
     attachments: [
       {
-        filename: "Helsingbuss-e-biljett.pdf",
+        filename: "biljett.pdf",          // ✅ nytt filnamn ut mot kund
         content: Buffer.from(pdfBytes),
       },
     ],
   });
 
-  console.log("✅ E-biljett skickad till", customerEmail);
+  console.log("✅ E-biljett skickad till", customerEmail, "med nr", ticketNumber);
 }

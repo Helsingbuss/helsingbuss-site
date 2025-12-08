@@ -129,7 +129,7 @@ export async function generateTicketPdf(
         process.cwd(),
         "public",
         "tickets",
-        "helsingbuss-e-biljett-mall.pdf"
+        "helsingbuss-e-biljett-mall.pdf" // ✅ mallen heter detta
       );
 
   if (!fs.existsSync(templatePath)) {
@@ -143,7 +143,7 @@ export async function generateTicketPdf(
   const pdfDoc = await PDFDocument.load(templateBytes);
 
   const [page] = pdfDoc.getPages();
-  const { width, height } = page.getSize(); // <-- nu har vi även width
+  const { width, height } = page.getSize();
 
   // ---- Typsnitt (Open Sans om filerna finns, annars Helvetica) ----
   let headerFont: PDFFont = await pdfDoc.embedFont(
@@ -260,9 +260,9 @@ export async function generateTicketPdf(
     const qrImage = await pdfDoc.embedPng(qrBytes);
 
     // ===== HÄR JUSTERAR DU QR-POSITION OCH STORLEK =====
-    const QR_SIZE = 100;             // bredd/höjd i px
-    const QR_X = 360;                // vänster/höger
-    const QR_Y = headerTitleY - 120; // upp/ner
+    const QR_SIZE = 100;
+    const QR_X = 360;
+    const QR_Y = headerTitleY - 120;
 
     page.drawImage(qrImage, {
       x: QR_X,
@@ -438,13 +438,13 @@ export async function generateTicketPdf(
   }
 
   // ==========================================
-  // RETURRAD
+  // RETURRAD – "Avgång från Gekås Ullared, 18:00"
   // ==========================================
   let returnLineY: number | null = null;
 
   if (data.returnTime) {
     const returnLocation = getReturnLocationFromTitle(headerTitle);
-    const returnText = `Avgår retur från ${returnLocation}, ${data.returnTime}`;
+    const returnText = `Avgång från ${returnLocation}, ${data.returnTime}`;
 
     const RETURN_LINE_X = DEPART_LINE_X;
     const RETURN_LINE_Y =
@@ -638,7 +638,7 @@ export async function generateTicketPdf(
 
   if (purchaseText) {
     const FOOTER_FONT_SIZE = 7;
-    const RIGHT_MARGIN = 50; // avstånd från högra kanten
+    const RIGHT_MARGIN = 50;
 
     const textWidth = lightFont.widthOfTextAtSize(
       purchaseText,
@@ -646,7 +646,7 @@ export async function generateTicketPdf(
     );
 
     const FOOTER_PURCHASE_X = width - RIGHT_MARGIN - textWidth;
-    const FOOTER_PURCHASE_Y = 62; // höjd från nederkant
+    const FOOTER_PURCHASE_Y = 62;
 
     page.drawText(purchaseText, {
       x: FOOTER_PURCHASE_X,
