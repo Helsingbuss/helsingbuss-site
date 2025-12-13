@@ -196,7 +196,7 @@ async function handleCheckoutCompleted(
   const ticketData: TicketPdfData = {
     orderId: session.id,
     ticketId: session.id,
-    ticketNumber, // ✅ nu använder vi vårt egna korta nummer
+    ticketNumber, // ✅ vårt korta nummer
 
     tripTitle: metadata.trip_title || "Malmö C – Gekås Ullared",
     lineName: metadata.line_name || "Linje 1 Helsingbuss",
@@ -273,11 +273,14 @@ async function handleCheckoutCompleted(
     return;
   }
 
-  const customerBaseUrl =
+  // ✅ Ny bas-URL för Mitt Konto / Mina bokningar
+  const accountBaseUrl =
+    process.env.NEXT_PUBLIC_ACCOUNT_BASE_URL ||
+    process.env.ACCOUNT_BASE_URL ||
     process.env.NEXT_PUBLIC_CUSTOMER_BASE_URL ||
     "https://kund.helsingbuss.se";
 
-  const manageUrl = `${customerBaseUrl}/mina-bokningar`;
+  const manageUrl = `${accountBaseUrl}/mina-bokningar`;
 
   const subject = `Din e-biljett – ${ticketData.tripTitle} (${ticketData.departureDate})`;
 
