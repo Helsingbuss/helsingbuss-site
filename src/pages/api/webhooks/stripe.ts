@@ -25,6 +25,12 @@ const resendApiKey = process.env.RESEND_API_KEY;
 const mailFrom =
   process.env.MAIL_FROM || "Helsingbuss <info@helsingbuss.se>";
 
+// ✅ Ny env-variabel för admin-notiser
+const ticketsInbox =
+  process.env.TICKETS_INBOX ||
+  process.env.ADMIN_ALERT_EMAIL ||
+  "biljetter@helsingbuss.se";
+
 const supabase: any =
   (admin as any).supabaseAdmin ||
   (admin as any).supabase ||
@@ -186,17 +192,10 @@ async function handleCheckoutCompleted(
   const ticketNumber = buildTicketNumber(session);
 
   // --- Bygg TicketPdfData ---
-  //
-  // OBS: Hållplatser/linje/operatör:
-  //  - Om du skickar metadata.trip_title / line_name / operator_name /
-  //    departure_time / return_time / departure_stop
-  //    från create-checkout-session så används de.
-  //  - Annars används Ullared-exempel (Malmö C – Gekås Ullared osv.).
-  //
   const ticketData: TicketPdfData = {
     orderId: session.id,
     ticketId: session.id,
-    ticketNumber, // ✅ vårt korta nummer
+    ticketNumber, // vårt egna korta nummer
 
     tripTitle: metadata.trip_title || "Malmö C – Gekås Ullared",
     lineName: metadata.line_name || "Linje 1 Helsingbuss",
@@ -258,7 +257,7 @@ async function handleCheckoutCompleted(
   // --- Skapa PDF ---
   const pdfBytes = await generateTicketPdf(ticketData);
 
-  // --- Skicka mail med Resend (HTML + PDF) ---
+  // --- Skicka mail med Resend (HTML + PDF) till kund ---
   if (!resend) {
     console.warn(
       "Resend saknas – biljetten genererades men kunde inte mailas."
@@ -273,7 +272,6 @@ async function handleCheckoutCompleted(
     return;
   }
 
-  // ✅ Ny bas-URL för Mitt Konto / Mina bokningar
   const accountBaseUrl =
     process.env.NEXT_PUBLIC_ACCOUNT_BASE_URL ||
     process.env.ACCOUNT_BASE_URL ||
@@ -427,19 +425,54 @@ async function handleCheckoutCompleted(
   </html>
   `;
 
+  // 1) Mail till kund med biljett
   await resend.emails.send({
     from: mailFrom,
     to: customerEmail,
     subject,
-    text,  // fallback för enkla mailklienter
+    text,
     html,
     attachments: [
       {
-        filename: "biljett.pdf",          // ✅ nytt filnamn ut mot kund
+        filename: "biljett.pdf",
         content: Buffer.from(pdfBytes),
       },
     ],
   });
 
   console.log("✅ E-biljett skickad till", customerEmail, "med nr", ticketNumber);
+
+  // 2) Admin-notis till biljetter@helsingbuss.se (eller TICKETS_INBOX)
+  if (ticketsInbox) {
+    const adminSubject = `Ny bokning – ${ticketData.tripTitle} (${ticketNumber})`;
+    const adminText = [
+      "Ny biljettbokning har genomförts.",
+      "",
+      `Bokningsnummer: ${ticketNumber}`,
+      `Kund: ${ticketData.customerName}`,
+      `E-post: ${customerEmail}`,
+      `Telefon: ${customerPhone || "-"}`,
+      "",
+      `Resa: ${ticketData.tripTitle}`,
+      `Datum: ${ticketData.departureDate}`,
+      `Avgångstid: ${ticketData.departureTime}`,
+      ticketData.returnTime ? `Retur: ${ticketData.returnTime}` : "",
+      "",
+      `Antal resenärer: ${ticketData.passengers?.length || 1}`,
+      `Totalt pris: ${Math.round(ticketData.totalAmount)} SEK`,
+      "",
+      "Biljett skickad som PDF till kunden.",
+    ]
+      .filter(Boolean)
+      .join("\n");
+
+    await resend.emails.send({
+      from: mailFrom,
+      to: ticketsInbox,
+      subject: adminSubject,
+      text: adminText,
+    });
+
+    console.log("📬 Admin-notis skickad till", ticketsInbox);
+  }
 }
