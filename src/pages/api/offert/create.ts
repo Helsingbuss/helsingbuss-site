@@ -25,6 +25,48 @@ function parseBool(v: any): boolean | null {
   return null;
 }
 
+/** Hjälpfunktion: hitta första e-postadress (med "@") någonstans i payloaden */
+function findEmailInBody(body: any): string | undefined {
+  const visited = new Set<any>();
+
+  function search(value: any): string | undefined {
+    if (value === null || value === undefined) return;
+
+    if (typeof value === "string") {
+      const trimmed = value.trim();
+      if (trimmed.includes("@")) {
+        return trimmed;
+      }
+      return;
+    }
+
+    if (typeof value === "number" || typeof value === "boolean") {
+      return;
+    }
+
+    if (typeof value === "object") {
+      if (visited.has(value)) return;
+      visited.add(value);
+
+      if (Array.isArray(value)) {
+        for (const item of value) {
+          const found = search(item);
+          if (found) return found;
+        }
+      } else {
+        for (const v of Object.values(value)) {
+          const found = search(v);
+          if (found) return found;
+        }
+      }
+    }
+
+    return;
+  }
+
+  return search(body);
+}
+
 /** Generera nästa offertnummer HB25XXX */
 async function getNextOfferNumber() {
   const year = new Date().getFullYear().toString().slice(-2); // t.ex. "25"
@@ -65,12 +107,32 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
     /** ===== HÄMTA FÄLT FRÅN FORMULÄR ===== */
 
-    const customerEmail =
+    // 1) Försök med våra vanliga fältnamn
+    let customerEmail =
       pick(rawBody, "customer_email", "email", "kund_email") || "";
-    if (!customerEmail) {
-      return res
-        .status(400)
-        .json({ error: "customer_email / email saknas i payload." });
+
+    // 2) Om det INTE ser ut som en riktig e-post (t.ex. "E-post"), försök hitta
+    //    första strängen med "@" någonstans i hela payloaden.
+    if (!customerEmail || !customerEmail.includes("@")) {
+      const fallback = findEmailInBody(rawBody);
+      if (fallback) {
+        console.log(
+          "[offert/create] Fallback hittade kundens e-post i payload:",
+          fallback
+        );
+        customerEmail = fallback;
+      }
+    }
+
+    // 3) Slutlig validering
+    if (!customerEmail || !customerEmail.includes("@")) {
+      console.error(
+        "[offert/create] Ogiltig eller saknad kund-e-post i payload:",
+        rawBody
+      );
+      return res.status(400).json({
+        error: "Kundens e-postadress saknas eller är ogiltig.",
+      });
     }
 
     const contactPerson =
@@ -205,7 +267,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     const offerId = String(created.id);
 
     /** ===== Bygg kundlänk med token ===== */
-    const token = signOfferToken({ id: offerId, offerNumber: finalOfferNumber });
+    const token = signOfferToken({
+      id: offerId,
+      offerNumber: finalOfferNumber,
+    });
 
     const baseCustomerUrl =
       process.env.NEXT_PUBLIC_CUSTOMER_BASE_URL ||
