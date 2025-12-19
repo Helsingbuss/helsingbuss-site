@@ -258,18 +258,18 @@ export default function OfferInkommen({ offer }: OfferInkommenProps) {
                 <OfferFooterTerms
                   termsParagraphs={[]}
                   companyName="Helsingbuss"
-                  address1="Höjderupsgränd 12"
-                  address2="254 45 Helsingborg"
+                  address1="Hofverbergsgatan 2B"
+                  address2="254 43 Helsingborg"
                   website="helsingbuss.se"
                   phoneMain="+46 (0)10-405 38 38"
                   phoneEmergency="+46 (0)10-777 21 58"
                   email="info@helsingbuss.se"
-                  bankgiro="9810-01 3931"
-                  orgNumber="890101-1391"
-                  vatNumber="SE890101931301"
+                  bankgiro="763-4157"
+                  orgNumber="890101-3931"
+                  vatNumber="SE890101393101"
                   bankName="Swedbank"
-                  iban="20000000000000000"
-                  bic="XXXXXX"
+                  iban="SE09 8000 0816 9581 4754 3998"
+                  bic="SWEDSESS"
                 />
               </div>
             </div>

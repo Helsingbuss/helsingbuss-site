@@ -236,9 +236,9 @@ export default function OfferGodkand({ offer }: OfferGodkandProps) {
         >
           <div>
             <div>Helsingbuss</div>
-            <div>Höjderupsgränd 12</div>
-            <div>254 45 Helsingborg</div>
-            <div>helsingbuss.se</div>
+                    <div>Hofverbergsgatan 2B</div>
+                    <div>254 43 Helsingborg</div>
+                    <div>helsingbuss.se</div>
           </div>
           <div>
             <div>Tel. +46 (0) 405 38 38</div>
@@ -246,14 +246,14 @@ export default function OfferGodkand({ offer }: OfferGodkandProps) {
             <div>info@helsingbuss.se</div>
           </div>
           <div>
-            <div>Bankgiro: 9810-01 3931</div>
-            <div>Org.nr: 890101-1391</div>
-            <div>VAT nr: SE890101931301</div>
+            <div>Bankgiro: 763-4157</div>
+                    <div>Org.nr: 890101-3931</div>
+                    <div>VAT nr: SE890101393101</div>
           </div>
           <div>
             <div>Swedbank</div>
-            <div>IBAN: 20000000000000000</div>
-            <div>Swiftadress/BIC: XXXXXX</div>
+                    <div>IBAN: SE09 8000 0816 9581 4754 3998</div>
+                    <div>Swift/BIC: SWEDSESS</div>
           </div>
         </div>
       </div>

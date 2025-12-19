@@ -199,8 +199,8 @@ export default function OfferBokningsbekraftelse({ offer }: any) {
                 <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 text-[13px] text-[#0f172a]">
                   <div>
                     <div>Helsingbuss</div>
-                    <div>Höjderupsgränd 12</div>
-                    <div>254 45 Helsingborg</div>
+                    <div>Hofverbergsgatan 2B</div>
+                    <div>254 43 Helsingborg</div>
                     <div>helsingbuss.se</div>
                   </div>
                   <div>
@@ -209,14 +209,14 @@ export default function OfferBokningsbekraftelse({ offer }: any) {
                     <div>info@helsingbuss.se</div>
                   </div>
                   <div>
-                    <div>Bankgiro: 9810-01 3931</div>
-                    <div>Org.nr: 890101-1391</div>
-                    <div>VAT nr: SE890101391301</div>
+                    <div>Bankgiro: 763-4157</div>
+                    <div>Org.nr: 890101-3931</div>
+                    <div>VAT nr: SE890101393101</div>
                   </div>
                   <div>
                     <div>Swedbank</div>
-                    <div>IBAN: 2000000000000000</div>
-                    <div>Swift/BIC: XXXXX</div>
+                    <div>IBAN: SE09 8000 0816 9581 4754 3998</div>
+                    <div>Swift/BIC: SWEDSESS</div>
                   </div>
                 </div>
               </div>
