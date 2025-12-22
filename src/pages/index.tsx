@@ -7,24 +7,14 @@ import Logo from "../components/Logo";
 import { supabase } from "../lib/supabaseClient";
 
 function mapSupabaseError(message: string): string {
-  // Varför: ge begripliga svenska fel, utan att exponera intern text
-  const m = message.toLowerCase();
-  if (m.includes("invalid login") || m.includes("invalid email") || m.includes("email not confirmed")) {
+  const m = (message || "").toLowerCase();
+  if (m.includes("invalid login") || m.includes("invalid email") || m.includes("email not confirmed"))
     return "Fel e-post eller lösenord.";
-  }
-  if (m.includes("too many requests")) {
-    return "För många försök. Vänta en stund och försök igen.";
-  }
-  if (m.includes("network")) {
-    return "Nätverksfel. Kontrollera din anslutning.";
-  }
+  if (m.includes("too many requests")) return "För många försök. Vänta en stund och försök igen.";
+  if (m.includes("network")) return "Nätverksfel. Kontrollera din anslutning.";
   return "Något gick fel. Försök igen.";
 }
-
-function isValidEmail(value: string): boolean {
-  // enkel men robust emailkontroll
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
-}
+const isValidEmail = (v: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.trim());
 
 export default function Home() {
   const router = useRouter();
@@ -37,7 +27,6 @@ export default function Home() {
   const emailRef = useRef<HTMLInputElement>(null);
   const passwordRef = useRef<HTMLInputElement>(null);
 
-  // Läs förvald e-post
   useEffect(() => {
     try {
       const saved = localStorage.getItem("hb_email");
@@ -45,12 +34,9 @@ export default function Home() {
         setEmail(saved);
         setRememberMe(true);
       }
-    } catch {
-      /* Varför: localStorage kan vara blockerat */
-    }
+    } catch {}
   }, []);
 
-  // Spara/rensa e-post
   useEffect(() => {
     try {
       if (rememberMe && isValidEmail(email)) {
@@ -58,9 +44,7 @@ export default function Home() {
       } else {
         localStorage.removeItem("hb_email");
       }
-    } catch {
-      /* ignore */
-    }
+    } catch {}
   }, [rememberMe, email]);
 
   const handleLogin = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -85,14 +69,11 @@ export default function Home() {
         email: normalizedEmail,
         password,
       });
-
       if (authError || !data?.user) {
         setError(mapSupabaseError(authError?.message ?? ""));
-        // Varför: fokusera där användaren sannolikt behöver rätta
         passwordRef.current?.focus();
         return;
       }
-
       await router.push("/dashboard");
     } catch (err: any) {
       setError(mapSupabaseError(err?.message ?? ""));
@@ -106,79 +87,58 @@ export default function Home() {
       <Head>
         <title>Helsingbuss – Logga in</title>
         <meta name="description" content="Logga in på Helsingbuss portal." />
+        <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
       </Head>
 
-      <div
-        className="relative flex min-h-screen flex-col justify-between"
-        style={{
-          backgroundImage: "url('/buss.jpeg')",
-          backgroundSize: "cover",
-          backgroundPosition: "center",
-        }}
-      >
-        {/* Mörk overlay för kontrast */}
-        <div className="absolute inset-0 bg-black/50" aria-hidden="true" />
-
-        {/* Innehåll */}
-        <div className="relative z-10 flex flex-1 items-center justify-center px-4 py-8">
+      <div className="relative flex min-h-[100dvh] flex-col justify-between bg-slate-50 text-slate-900 dark:bg-slate-950 dark:text-slate-100">
+        <div className="relative z-10 flex flex-1 items-center justify-center px-4 py-6 sm:py-8">
           <section
-            className="w-full max-w-md rounded-2xl border border-white/10 bg-white/80 p-8 shadow-xl backdrop-blur-md dark:border-slate-700/60 dark:bg-slate-900/70"
+            className="w-full max-w-sm rounded-xl border border-slate-200 bg-white p-6 shadow-lg dark:border-slate-800 dark:bg-slate-900 sm:max-w-md sm:rounded-2xl sm:p-8"
             role="dialog"
             aria-labelledby="login-title"
           >
-            {/* Logo */}
-            <div className="mb-6 flex justify-center">
-              <Logo className="h-12" />
+            {/* Logo – större, bibehållen proportion */}
+            <div className="mb-5 flex items-center justify-center sm:mb-6">
+              <Logo className="h-12 sm:h-14 md:h-16 w-auto max-w-[320px] shrink-0" />
             </div>
 
-            <h1 id="login-title" className="mb-1 text-center text-xl font-bold text-slate-900 dark:text-slate-100">
-              Logga in
-            </h1>
-            <p className="mb-6 text-center text-sm text-slate-600 dark:text-slate-300">
-              Välkommen tillbaka.
-            </p>
+            <h1 id="login-title" className="mb-1 text-center text-lg font-bold sm:text-xl">Logga in</h1>
+            <p className="mb-5 text-center text-sm text-slate-600 dark:text-slate-300 sm:mb-6">Välkommen tillbaka.</p>
 
-            {/* Felruta */}
             {error && (
-              <div
-                role="alert"
-                aria-live="assertive"
-                className="mb-4 rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800 dark:border-red-800/40 dark:bg-red-900/40 dark:text-red-100"
-              >
+              <div role="alert" aria-live="assertive" className="mb-4 rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800 dark:border-red-800/40 dark:bg-red-900/40 dark:text-red-100">
                 {error}
               </div>
             )}
 
-            {/* Formulär */}
             <form onSubmit={handleLogin} className="space-y-5" noValidate>
               <div>
-                <label htmlFor="email" className="block text-sm font-medium text-slate-800 dark:text-slate-200">
-                  E-postadress
-                </label>
+                <label htmlFor="email" className="block text-sm font-medium">E-postadress</label>
                 <input
                   id="email"
                   ref={emailRef}
                   type="email"
                   inputMode="email"
                   autoComplete="username"
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  spellCheck={false}
                   autoFocus
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   aria-invalid={!!error && !isValidEmail(email) ? "true" : "false"}
-                  className="mt-1 block w-full rounded-xl border border-slate-300 bg-white/90 px-4 py-3 text-slate-900 shadow-sm outline-none ring-offset-2 placeholder:text-slate-400 focus:border-blue-600 focus:ring-2 focus:ring-blue-200 dark:border-slate-700 dark:bg-slate-800/80 dark:text-slate-100 dark:placeholder:text-slate-400 dark:focus:border-blue-500 dark:focus:ring-blue-900"
+                  className="mt-1 block w-full rounded-lg border border-slate-300 bg-white px-4 py-3 text-base text-slate-900 shadow-sm outline-none ring-offset-2 placeholder:text-slate-400 focus:border-blue-600 focus:ring-2 focus:ring-blue-200 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:placeholder:text-slate-400 dark:focus:border-blue-500 dark:focus:ring-blue-900"
                 />
               </div>
 
               <div>
-                <div className="flex items-center justify-between">
-                  <label htmlFor="password" className="block text-sm font-medium text-slate-800 dark:text-slate-200">
-                    Lösenord
-                  </label>
+                <div className="mb-1 flex items-center justify-between">
+                  <label htmlFor="password" className="block text-sm font-medium">Lösenord</label>
                   <button
                     type="button"
                     onClick={() => setShowPassword((s) => !s)}
                     aria-pressed={showPassword}
-                    className="text-sm font-medium text-blue-700 hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 dark:text-blue-400"
+                    className="-mr-1 rounded px-3 py-1 text-sm font-medium text-blue-700 hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 dark:text-blue-400"
                     title="Visa/dölj lösenord"
                   >
                     {showPassword ? "Dölj" : "Visa"}
@@ -192,7 +152,7 @@ export default function Home() {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   aria-invalid={!!error && !password ? "true" : "false"}
-                  className="mt-1 block w-full rounded-xl border border-slate-300 bg-white/90 px-4 py-3 text-slate-900 shadow-sm outline-none ring-offset-2 placeholder:text-slate-400 focus:border-blue-600 focus:ring-2 focus:ring-blue-200 dark:border-slate-700 dark:bg-slate-800/80 dark:text-slate-100 dark:placeholder:text-slate-400 dark:focus:border-blue-500 dark:focus:ring-blue-900"
+                  className="block w-full rounded-lg border border-slate-300 bg-white px-4 py-3 text-base text-slate-900 shadow-sm outline-none ring-offset-2 placeholder:text-slate-400 focus:border-blue-600 focus:ring-2 focus:ring-blue-200 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:placeholder:text-slate-400 dark:focus:border-blue-500 dark:focus:ring-blue-900"
                 />
               </div>
 
@@ -200,10 +160,9 @@ export default function Home() {
                 type="submit"
                 disabled={loading}
                 aria-busy={loading}
-                className="group relative w-full rounded-xl bg-blue-900 py-3 text-lg font-semibold text-white shadow transition hover:bg-blue-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-75"
+                className="group relative w-full rounded-lg bg-blue-900 py-3 text-base font-semibold text-white shadow transition hover:bg-blue-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-75 sm:text-lg"
               >
                 {loading ? "Loggar in…" : "Logga in"}
-                {/* Varför: tydlig focus-indikator utan att förstöra layout */}
               </button>
 
               <div className="flex items-center justify-between text-sm">
@@ -225,13 +184,8 @@ export default function Home() {
           </section>
         </div>
 
-        {/* Footer */}
-        <footer className="relative z-10 bg-black/40 py-4 text-center text-sm text-gray-200">
-          © Helsingbuss •{" "}
-          <Link href="/cookies" className="underline hover:no-underline">
-            Om cookies
-          </Link>{" "}
-          • <span aria-label="Svenska" title="Svenska">🇸🇪 Svenska</span>
+        <footer className="relative z-10 bg-transparent pb-[env(safe-area-inset-bottom)] py-4 text-center text-xs text-slate-600 dark:text-slate-300 sm:text-sm">
+          © Helsingbuss • <Link href="/cookies" className="underline hover:no-underline">Om cookies</Link> • <span aria-label="Svenska">🇸🇪 Svenska</span>
         </footer>
       </div>
     </>
