@@ -2,14 +2,7 @@
 import React from "react";
 import Head from "next/head";
 import Link from "next/link";
-import {
-  User,
-  Ticket,
-  MapPin,
-  Star,
-  Trophy,
-  LogOut,
-} from "lucide-react";
+import { User, Ticket, MapPin, Star, Trophy, LogOut } from "lucide-react";
 
 const fakeUser = {
   firstName: "Demo",
@@ -83,7 +76,6 @@ export default function MinaSidorDemo() {
               {isDemo && <span className="brandDemoTag">DEMO</span>}
             </div>
 
-            {/* Huvudmeny – kopplas till riktiga sidor senare */}
             <nav className="topNav">
               <Link href="#" className="topNavLink">
                 Tidtabeller
@@ -102,7 +94,6 @@ export default function MinaSidorDemo() {
               </Link>
             </nav>
 
-            {/* Användare uppe till höger */}
             <div className="userChip">
               <div className="avatar">
                 {fakeUser.firstName.charAt(0).toUpperCase()}
@@ -193,14 +184,13 @@ export default function MinaSidorDemo() {
                 </div>
               </header>
 
-              {/* Demo-kort / widgetar */}
               <div className="grid">
-                {/* ====== KOMMANDE RESOR ====== */}
+                {/* KOMMANDE RESOR */}
                 <article className="card cardHighlight">
                   <h2 className="cardTitle">Kommande resor</h2>
                   <p className="cardTextMuted">
-                    Här ser du exempel på hur dina bokade resor kommer visas.
-                    I skarpt läge kan du klicka dig vidare till biljetten direkt.
+                    Här ser du exempel på hur dina bokade resor kommer visas. I
+                    skarpt läge kan du klicka dig vidare till biljetten direkt.
                   </p>
 
                   <div className="tripList">
@@ -241,7 +231,7 @@ export default function MinaSidorDemo() {
                   </div>
                 </article>
 
-                {/* ====== MINA BILJETTER ====== */}
+                {/* MINA BILJETTER */}
                 <article className="card">
                   <h2 className="cardTitle">Mina biljetter</h2>
                   <p className="cardTextMuted">
@@ -252,17 +242,19 @@ export default function MinaSidorDemo() {
                   <ul className="bulletList">
                     <li>Översikt över alla biljetter i ett flöde</li>
                     <li>Snabb nedladdning av PDF-biljett</li>
-                    <li>Klart markerade statusar: kommande, använda, avbokade</li>
+                    <li>
+                      Klart markerade statusar: kommande, använda, avbokade
+                    </li>
                   </ul>
                 </article>
 
-                {/* ====== KUNDKLUBB / QUIZ ====== */}
+                {/* QUIZ/KAMPANJ-YTA */}
                 <article className="card fullWidth">
                   <h2 className="cardTitle">Quiz, kampanjer & kundklubb</h2>
                   <p className="cardTextMuted">
                     Denna ytan kan användas för PrideXpress, shoppingkampanjer
-                    och quiz där kunden samlar poäng och kan vinna resor, rabatt
-                    eller andra förmåner.
+                    och quiz där kunden samlar poäng och kan vinna resor,
+                    rabatt eller andra förmåner.
                   </p>
                   <div className="pillRow">
                     <span className="pill">PrideXpress-quiz</span>
@@ -278,20 +270,25 @@ export default function MinaSidorDemo() {
         </div>
       </div>
 
-      {/* ==== STYLES ==== */}
       <style jsx>{`
         .page {
           min-height: 100vh;
-          background: radial-gradient(circle at top, #e0f2f1 0, #f3f4f6 55%);
+          background: radial-gradient(
+            circle at top,
+            #e0f2f1 0,
+            #f3f4f6 55%
+          );
           color: #111827;
-          font-family: "Open Sans", system-ui, -apple-system, BlinkMacSystemFont,
-            "Segoe UI", sans-serif;
+          font-family: "Open Sans", system-ui, -apple-system,
+            BlinkMacSystemFont, "Segoe UI", sans-serif;
         }
 
         .shell {
-          max-width: 1320px; /* 🔹 lite bredare */
-          margin: 0 auto;
-          padding: 20px 20px 40px;
+          width: 100%;
+          max-width: 100%;
+          margin: 0;
+          padding: 20px 32px 40px;
+          box-sizing: border-box;
         }
 
         .demoBanner {
@@ -303,13 +300,11 @@ export default function MinaSidorDemo() {
           font-size: 12px;
         }
 
-        /* HEADER */
-
         .appHeader {
           display: grid;
           grid-template-columns: auto 1fr auto;
           align-items: center;
-          gap: 32px; /* lite mer luft mellan logotyp / meny / användare */
+          gap: 32px;
           margin-bottom: 28px;
         }
 
@@ -362,7 +357,7 @@ export default function MinaSidorDemo() {
         .topNav {
           display: flex;
           justify-content: center;
-          gap: 22px; /* lite glesare */
+          gap: 22px;
           font-size: 14px;
         }
 
@@ -423,13 +418,12 @@ export default function MinaSidorDemo() {
           color: #6b7280;
         }
 
-        /* LAYOUT */
-
         .mainLayout {
           display: grid;
-          grid-template-columns: 260px minmax(0, 1fr); /* 🔹 bredare sidomeny */
-          gap: 28px; /* lite mer gap */
+          grid-template-columns: 260px minmax(0, 1fr);
+          gap: 28px;
           align-items: flex-start;
+          margin-top: 8px;
         }
 
         .sideNav {
@@ -551,7 +545,7 @@ export default function MinaSidorDemo() {
         .grid {
           display: grid;
           grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
-          gap: 20px; /* lite bredare kort */
+          gap: 20px;
         }
 
         .card {
@@ -561,9 +555,9 @@ export default function MinaSidorDemo() {
           background: #ffffff;
         }
 
+        /* 👇 Endast lite grön kant – ingen grön skugga längre */
         .cardHighlight {
           border-color: #bbf7d0;
-          box-shadow: 0 12px 30px rgba(22, 163, 74, 0.12);
         }
 
         .card.fullWidth {
@@ -608,8 +602,6 @@ export default function MinaSidorDemo() {
           background: #f3f4f6;
           color: #6b7280;
         }
-
-        /* --- KOMMANDE RESOR-LISTA --- */
 
         .tripList {
           display: flex;
@@ -688,9 +680,7 @@ export default function MinaSidorDemo() {
           background: #ecfdf5;
         }
 
-        /* RESPONSIVE */
-
-        @media (max-width: 900px) {
+        @media (max-width: 1100px) {
           .appHeader {
             grid-template-columns: 1fr;
             row-gap: 16px;
@@ -699,11 +689,17 @@ export default function MinaSidorDemo() {
             justify-content: flex-start;
             flex-wrap: wrap;
           }
+        }
+
+        @media (max-width: 900px) {
           .mainLayout {
             grid-template-columns: 1fr;
           }
           .contentHeader {
             flex-direction: column;
+          }
+          .pointsCard {
+            width: 100%;
           }
           .grid {
             grid-template-columns: 1fr;
@@ -711,8 +707,14 @@ export default function MinaSidorDemo() {
         }
 
         @media (max-width: 640px) {
+          .shell {
+            padding: 16px 14px 28px;
+          }
           .content {
             padding: 18px 16px 22px;
+          }
+          .topNav {
+            gap: 12px;
           }
         }
       `}</style>
