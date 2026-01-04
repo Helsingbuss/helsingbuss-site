@@ -1,5 +1,5 @@
 // src/pages/admin/prislistor.tsx
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import AdminMenu from "@/components/AdminMenu";
 import Header from "@/components/Header";
 
@@ -160,6 +160,11 @@ const INITIAL_STATE: PriceState = {
   forening: { ...EMPTY_CATEGORY },
 };
 
+type LoadPricesResponse = {
+  ok?: boolean;
+  prices?: Partial<PriceState>;
+};
+
 export default function PrislistorPage() {
   const [activeCategory, setActiveCategory] =
     useState<CategoryKey>("bestallning");
@@ -168,6 +173,68 @@ export default function PrislistorPage() {
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
 
   const cfg = CATEGORY_CONFIG[activeCategory];
+
+  // 🔹 Hämta sparade prislistor från API när sidan laddas
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadPrices() {
+      try {
+        const res = await fetch("/api/admin/prislistor");
+        if (!res.ok) {
+          console.error(
+            "Kunde inte läsa prislistor (status):",
+            res.status
+          );
+          return;
+        }
+
+        const data: LoadPricesResponse = await res.json();
+
+        if (!data || !data.prices) {
+          console.warn("Inga sparade prislistor i svaret från API:t.");
+          return;
+        }
+
+        const resultPrices = data.prices ?? {};
+
+        if (!cancelled) {
+          // Vi mergar in svaret i state, så att ev. saknade fält fortfarande har ""
+          setPrices((prev) => {
+            const next: PriceState = { ...prev };
+
+            (Object.keys(resultPrices) as CategoryKey[]).forEach(
+              (catKey) => {
+                const catData = resultPrices[catKey];
+                if (!catData) return;
+
+                (Object.keys(catData) as BusTypeKey[]).forEach((busKey) => {
+                  const busData = catData[busKey];
+                  if (!busData) return;
+
+                  next[catKey] = next[catKey] || { ...EMPTY_CATEGORY };
+                  next[catKey][busKey] = {
+                    ...next[catKey][busKey],
+                    ...busData,
+                  };
+                });
+              }
+            );
+
+            return next;
+          });
+        }
+      } catch (err) {
+        console.error("Fel vid hämtning av prislistor:", err);
+      }
+    }
+
+    loadPrices();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   function handleChange(
     category: CategoryKey,
@@ -232,7 +299,7 @@ export default function PrislistorPage() {
               Helsingbuss Portal
             </p>
             <h1 className="mt-1 text-2xl font-semibold text-slate-900">
-              Prislistor & grundpriser
+              Prislistor &amp; grundpriser
             </h1>
             <p className="mt-1 max-w-2xl text-sm text-slate-600">
               Lägg in grundpriser för beställningstrafik, bröllop och
@@ -291,7 +358,9 @@ export default function PrislistorPage() {
               {cfg.generalRows && (
                 <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
                   <div className="grid grid-cols-2 gap-y-1 text-xs font-medium text-slate-300">
-                    <span className="text-slate-400">Sträcka / villkor</span>
+                    <span className="text-slate-400">
+                      Sträcka / villkor
+                    </span>
                     <span className="text-right text-slate-400">
                       Minimi-debitering / info
                     </span>
@@ -360,7 +429,9 @@ export default function PrislistorPage() {
                           Grundavgift
                         </p>
                         <label className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm">
-                          <span className="text-slate-600">Per uppdrag</span>
+                          <span className="text-slate-600">
+                            Per uppdrag
+                          </span>
                           <div className="ml-auto flex items-center gap-1">
                             <input
                               type="number"

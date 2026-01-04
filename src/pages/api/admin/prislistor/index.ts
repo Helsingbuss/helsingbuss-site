@@ -1,17 +1,13 @@
 // src/pages/api/admin/prislistor/index.ts
+
 import type { NextApiRequest, NextApiResponse } from "next";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-
-/**
- * Samma struktur som på sidan:
- * category: "bestallning" | "brollop" | "forening"
- * segment:  "sprinter" | "turistbuss" | "helturistbuss" | "dubbeldackare"
- */
+import { withCors } from "@/lib/cors";
 
 type PriceCategoryKey = "bestallning" | "brollop" | "forening";
 type BusTypeKey = "sprinter" | "turistbuss" | "helturistbuss" | "dubbeldackare";
 
-interface BusTypePrice {
+type PriceFields = {
   grundavgift: string;
   tim_vardag: string;
   tim_kvall: string;
@@ -20,28 +16,39 @@ interface BusTypePrice {
   km_26_100: string;
   km_101_250: string;
   km_251_plus: string;
-}
+};
 
-type PriceFormState = Record<
+export type PriceFormValues = Record<
   PriceCategoryKey,
-  Record<BusTypeKey, BusTypePrice>
+  Record<BusTypeKey, PriceFields>
 >;
+
+type DbRow = {
+  id: string;
+  segment: string; // "bestallning" | "brollop" | "forening"
+  bus_type: string; // "sprinter" | "turistbuss" | "helturistbuss" | "dubbeldackare"
+  base_fee: number | null;
+  hour_weekday_day: number | null;
+  hour_weekday_evening: number | null;
+  hour_weekend: number | null;
+  km_0_25: number | null;
+  km_26_100: number | null;
+  km_101_250: number | null;
+  km_251_plus: number | null;
+};
 
 type ApiResponse =
   | {
       ok: true;
-      prices: Partial<PriceFormState>;
+      prices: PriceFormValues;
     }
   | {
       ok: false;
       error: string;
     };
 
-/**
- * Hjälp: gör en tom struktur (om något saknas i DB)
- */
-function makeEmptyPrices(): PriceFormState {
-  const emptyBusType: BusTypePrice = {
+function emptyPriceFields(): PriceFields {
+  return {
     grundavgift: "",
     tim_vardag: "",
     tim_kvall: "",
@@ -51,104 +58,117 @@ function makeEmptyPrices(): PriceFormState {
     km_101_250: "",
     km_251_plus: "",
   };
-
-  const makeCat = () => ({
-    sprinter: { ...emptyBusType },
-    turistbuss: { ...emptyBusType },
-    helturistbuss: { ...emptyBusType },
-    dubbeldackare: { ...emptyBusType },
-  });
-
-  return {
-    bestallning: makeCat(),
-    brollop: makeCat(),
-    forening: makeCat(),
-  };
 }
 
-export default async function handler(
+async function handler(
   req: NextApiRequest,
   res: NextApiResponse<ApiResponse>
 ) {
   if (req.method !== "GET") {
-    return res
-      .status(405)
-      .json({ ok: false, error: "Only GET is allowed on this endpoint." });
+    return res.status(405).json({ ok: false, error: "Method not allowed" });
   }
 
   try {
-    // Läs in alla profiler från Supabase
     const { data, error } = await supabaseAdmin
       .from("bus_price_profiles")
       .select(
         [
-          "category",
+          "id",
           "segment",
+          "bus_type",
           "base_fee",
-          "base_fee_raw",
           "hour_weekday_day",
-          "hour_weekday_day_raw",
           "hour_weekday_evening",
-          "hour_weekday_evening_raw",
           "hour_weekend",
-          "hour_weekend_raw",
           "km_0_25",
-          "km_0_25_raw",
           "km_26_100",
-          "km_26_100_raw",
           "km_101_250",
-          "km_101_250_raw",
           "km_251_plus",
-          "km_251_plus_raw",
-        ].join(",")
+        ].join(", ")
       );
 
     if (error) {
       console.error("[prislistor/index] Supabase error:", error);
       return res.status(500).json({
         ok: false,
-        error: error.message || "Kunde inte läsa prislistorna från databasen.",
+        error: "Kunde inte läsa prislistorna från databasen.",
       });
     }
 
-    const prices = makeEmptyPrices();
+    const prices: PriceFormValues = {
+      bestallning: {
+        sprinter: emptyPriceFields(),
+        turistbuss: emptyPriceFields(),
+        helturistbuss: emptyPriceFields(),
+        dubbeldackare: emptyPriceFields(),
+      },
+      brollop: {
+        sprinter: emptyPriceFields(),
+        turistbuss: emptyPriceFields(),
+        helturistbuss: emptyPriceFields(),
+        dubbeldackare: emptyPriceFields(),
+      },
+      forening: {
+        sprinter: emptyPriceFields(),
+        turistbuss: emptyPriceFields(),
+        helturistbuss: emptyPriceFields(),
+        dubbeldackare: emptyPriceFields(),
+      },
+    };
 
-    (data || []).forEach((row: any) => {
-      const cat = row.category as PriceCategoryKey;
-      const seg = row.segment as BusTypeKey;
+    const validSegments: PriceCategoryKey[] = [
+      "bestallning",
+      "brollop",
+      "forening",
+    ];
+    const validBusTypes: BusTypeKey[] = [
+      "sprinter",
+      "turistbuss",
+      "helturistbuss",
+      "dubbeldackare",
+    ];
 
-      if (!cat || !seg) return;
-      if (!prices[cat] || !prices[cat][seg]) return;
+    // 🔧 TS-workaround: kasta via unknown så den slutar klaga på GenericStringError
+    const rows: DbRow[] = ((data || []) as unknown) as DbRow[];
 
-      // Fallback: använd *_raw om det finns, annars numeriska värden
-      const grundavgift =
-        (row.base_fee_raw ?? row.base_fee)?.toString() ?? "";
-      const tim_vardag =
-        (row.hour_weekday_day_raw ?? row.hour_weekday_day)?.toString() ?? "";
-      const tim_kvall =
-        (row.hour_weekday_evening_raw ?? row.hour_weekday_evening)?.toString() ??
-        "";
-      const tim_helg =
-        (row.hour_weekend_raw ?? row.hour_weekend)?.toString() ?? "";
-      const km_0_25 =
-        (row.km_0_25_raw ?? row.km_0_25)?.toString() ?? "";
-      const km_26_100 =
-        (row.km_26_100_raw ?? row.km_26_100)?.toString() ?? "";
-      const km_101_250 =
-        (row.km_101_250_raw ?? row.km_101_250)?.toString() ?? "";
-      const km_251_plus =
-        (row.km_251_plus_raw ?? row.km_251_plus)?.toString() ?? "";
+    rows.forEach((row) => {
+      const segment = row.segment as PriceCategoryKey;
+      const busType = row.bus_type as BusTypeKey;
 
-      prices[cat][seg] = {
-        grundavgift: grundavgift,
-        tim_vardag: tim_vardag,
-        tim_kvall: tim_kvall,
-        tim_helg: tim_helg,
-        km_0_25: km_0_25,
-        km_26_100: km_26_100,
-        km_101_250: km_101_250,
-        km_251_plus: km_251_plus,
-      };
+      if (!validSegments.includes(segment)) return;
+      if (!validBusTypes.includes(busType)) return;
+
+      const target = prices[segment][busType];
+
+      target.grundavgift =
+        row.base_fee != null ? String(row.base_fee) : target.grundavgift;
+
+      target.tim_vardag =
+        row.hour_weekday_day != null
+          ? String(row.hour_weekday_day)
+          : target.tim_vardag;
+
+      target.tim_kvall =
+        row.hour_weekday_evening != null
+          ? String(row.hour_weekday_evening)
+          : target.tim_kvall;
+
+      target.tim_helg =
+        row.hour_weekend != null
+          ? String(row.hour_weekend)
+          : target.tim_helg;
+
+      target.km_0_25 =
+        row.km_0_25 != null ? String(row.km_0_25) : target.km_0_25;
+
+      target.km_26_100 =
+        row.km_26_100 != null ? String(row.km_26_100) : target.km_26_100;
+
+      target.km_101_250 =
+        row.km_101_250 != null ? String(row.km_101_250) : target.km_101_250;
+
+      target.km_251_plus =
+        row.km_251_plus != null ? String(row.km_251_plus) : target.km_251_plus;
     });
 
     return res.status(200).json({ ok: true, prices });
@@ -156,7 +176,9 @@ export default async function handler(
     console.error("[prislistor/index] Fatal error:", e?.message || e);
     return res.status(500).json({
       ok: false,
-      error: "Internt fel när prislistorna skulle läsas.",
+      error: "Internt fel vid hämtning av prislistor.",
     });
   }
 }
+
+export default withCors(handler);
