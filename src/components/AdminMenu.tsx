@@ -12,6 +12,7 @@ import {
   ChatBubbleLeftRightIcon,
   ChevronDownIcon,
   DocumentTextIcon,
+  CalculatorIcon,
 } from "@heroicons/react/24/outline";
 
 type AdminMenuProps = {
@@ -128,6 +129,19 @@ export default function AdminMenu({ active }: AdminMenuProps) {
             </ul>
           )}
         </div>
+
+        {/* Priskalkylator – EGEN huvudrubrik */}
+        <Link
+          href="/admin/priskalkylator"
+          className={`${groupButtonBase} ${
+            active === "priskalkylator" ? "bg-[#f2f6f9] text-[#194C66]" : ""
+          }`}
+        >
+          <span className={groupLabelBase}>
+            <CalculatorIcon className="h-5 w-5" />
+            <span>Priskalkylator</span>
+          </span>
+        </Link>
 
         {/* Resor & Biljetter */}
         <div>
