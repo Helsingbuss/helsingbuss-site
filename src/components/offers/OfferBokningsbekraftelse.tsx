@@ -40,42 +40,88 @@ function telSanitize(t?: string | null) {
 }
 
 export default function OfferBokningsbekraftelse({ offer }: any) {
-  // härledning tur/retur (samma som Besvarad)
-  const roundTrip = Boolean(
-    offer?.round_trip ??
+  // härledning tur/retur (samma som Besvarad, men också via legs)
+  const hasJsonLegs =
+    (Array.isArray(offer?.legs) && offer.legs.length > 1) ||
+    (Array.isArray(offer?.trip_legs) && offer.trip_legs.length > 1);
+
+  const roundTrip =
+    Boolean(offer?.round_trip) ||
+    Boolean(
       offer?.return_date ??
-      offer?.return_time ??
-      offer?.return_departure ??
-      offer?.return_destination
-  );
+        offer?.return_time ??
+        offer?.return_departure ??
+        offer?.return_destination
+    ) ||
+    hasJsonLegs;
+
   const withinSweden = (offer?.trip_type || "sverige") !== "utrikes";
   const email: string | undefined =
     offer?.contact_email || offer?.customer_email || undefined;
 
-  const trips = [
-    {
-      title: roundTrip ? "Utresa" : "Bussresa",
-      date: offer?.departure_date,
-      time: tidyTime(offer?.departure_time),
-      from: offer?.departure_place,
-      to: offer?.destination,
-      pax: offer?.passengers,
-      extra: offer?.notes || "Ingen information.",
-    },
-    ...(roundTrip
-      ? [
-          {
-            title: "Återresa",
-            date: offer?.return_date,
-            time: tidyTime(offer?.return_time),
-            from: offer?.destination,
-            to: offer?.departure_place,
-            pax: offer?.passengers,
-            extra: offer?.notes || "Ingen information.",
-          },
-        ]
-      : []),
-  ];
+  const rawLegs = (offer?.legs ?? offer?.trip_legs) as any;
+  const useLegs = Array.isArray(rawLegs) && rawLegs.length > 0;
+
+  const trips = useLegs
+    ? (rawLegs as any[]).map((leg, idx, arr) => {
+        const baseTitle =
+          arr.length === 1
+            ? "Bussresa"
+            : arr.length === 2
+            ? idx === 0
+              ? "Utresa"
+              : "Återresa"
+            : `Delresa ${idx + 1}`;
+
+        const isFirst = idx === 0;
+
+        return {
+          title: baseTitle,
+          date:
+            leg.date ??
+            leg.departure_date ??
+            (isFirst ? offer?.departure_date : offer?.return_date),
+          time: tidyTime(
+            leg.time ??
+              leg.start ??
+              (isFirst ? offer?.departure_time : offer?.return_time)
+          ),
+          from:
+            leg.from ??
+            leg.departure_place ??
+            (isFirst ? offer?.departure_place : offer?.destination),
+          to:
+            leg.to ??
+            leg.destination ??
+            (isFirst ? offer?.destination : offer?.departure_place),
+          pax: leg.pax ?? offer?.passengers,
+          extra: leg.extra ?? (offer?.notes || "Ingen information."),
+        };
+      })
+    : [
+        {
+          title: roundTrip ? "Utresa" : "Bussresa",
+          date: offer?.departure_date,
+          time: tidyTime(offer?.departure_time),
+          from: offer?.departure_place,
+          to: offer?.destination,
+          pax: offer?.passengers,
+          extra: offer?.notes || "Ingen information.",
+        },
+        ...(roundTrip
+          ? [
+              {
+                title: "Återresa",
+                date: offer?.return_date,
+                time: tidyTime(offer?.return_time),
+                from: offer?.destination,
+                to: offer?.departure_place,
+                pax: offer?.passengers,
+                extra: offer?.notes || "Ingen information.",
+              },
+            ]
+          : []),
+      ];
 
   const breakdown: Breakdown | null =
     typeof offer?.vat_breakdown === "object" && offer?.vat_breakdown
@@ -90,7 +136,7 @@ export default function OfferBokningsbekraftelse({ offer }: any) {
 
   return (
     <div className="bg-[#f5f4f0] overflow-hidden">
-      {/* TOPPRAD – exakt samma dimension/spacing som övriga sidor */}
+      {/* TOPPRAD */}
       <div style={{ height: TOPBAR_PX }}>
         <OfferTopBar
           offerNumber={offer?.offer_number ?? "HB25XXXX"}
@@ -100,15 +146,15 @@ export default function OfferBokningsbekraftelse({ offer }: any) {
         />
       </div>
 
-      {/* TRE-KOLUMNERS LAYOUT – oförändrad */}
+      {/* TRE-KOLUMNERS LAYOUT */}
       <div style={{ height: `calc(100vh - ${TOPBAR_PX}px)` }}>
         <div className="grid h-full grid-cols-1 lg:grid-cols-[280px_minmax(0,1fr)_550px] gap-0">
-          {/* Vänster: fast panel */}
+          {/* Vänster */}
           <div className="h-full">
             <OfferLeftSidebar />
           </div>
 
-          {/* Mitten: resekort + texter (oförändrat upplägg) */}
+          {/* Mitten */}
           <main className="h-full pl-4 lg:pl-6 pr-2 lg:pr-3 py-4 lg:py-6">
             <div className="h-full bg-white rounded-xl shadow flex flex-col">
               <div className="px-6 pt-6">
@@ -123,7 +169,7 @@ export default function OfferBokningsbekraftelse({ offer }: any) {
                   Bokningsbekräftelse {offer?.offer_number || "—"}
                 </h1>
 
-                {/* Introtext – kort och saklig för bokningsvy */}
+                {/* Introtext */}
                 <div
                   className="mt-5 text-[14px] text-[#0f172a]/80"
                   style={{ lineHeight: LINE_HEIGHT }}
@@ -139,7 +185,7 @@ export default function OfferBokningsbekraftelse({ offer }: any) {
                   </p>
                 </div>
 
-                {/* Resekort (identiskt utseende som Besvarad) */}
+                {/* Resekort */}
                 <div className="mt-5">
                   <TripLegGrid>
                     {trips.map((trip, idx) => {
@@ -178,7 +224,7 @@ export default function OfferBokningsbekraftelse({ offer }: any) {
                   </TripLegGrid>
                 </div>
 
-                {/* Informationsrader (samma stil/rytm som Besvarad) */}
+                {/* Informationsrader */}
                 <div
                   className="mt-6 text-[14px] text-[#0f172a]/80"
                   style={{ lineHeight: LINE_HEIGHT }}
@@ -194,7 +240,7 @@ export default function OfferBokningsbekraftelse({ offer }: any) {
                 </div>
               </div>
 
-              {/* Footer – oförändrad 4-kolumn (enligt din senaste justering) */}
+              {/* Footer */}
               <div className="mt-auto px-6 pb-6">
                 <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 text-[13px] text-[#0f172a]">
                   <div>
@@ -223,7 +269,7 @@ export default function OfferBokningsbekraftelse({ offer }: any) {
             </div>
           </main>
 
-          {/* Höger: Kund + Pris (oförändrat) + NY sektion för Buss/Chaufför + TL-kommentar */}
+          {/* Höger */}
           <aside className="h-full p-4 lg:p-6">
             <div className="h-full bg-white rounded-xl shadow flex flex-col">
               <div className="px-6 pt-6">
@@ -231,30 +277,36 @@ export default function OfferBokningsbekraftelse({ offer }: any) {
                   Kunduppgifter
                 </div>
 
-                {/* Kunduppgifter (samma grid som Besvarad) */}
                 <dl className="mt-4 grid grid-cols-[auto,1fr] gap-x-6 gap-y-1 text-[14px] text-[#0f172a] leading-tight">
-                  <DT>Offertdatum:</DT><DD>{v(offer?.offer_date, "—")}</DD>
-                  <DT>Er referens:</DT><DD>{v(offer?.customer_reference, "—")}</DD>
-                  <DT>Vår referens:</DT><DD>{v(offer?.internal_reference, "—")}</DD>
-                  <DT>Namn:</DT><DD>{v(offer?.contact_person, "—")}</DD>
-                  <DT>Adress:</DT><DD>{v(offer?.customer_address, "—")}</DD>
-                  <DT>Telefon:</DT><DD>{v(offer?.contact_phone, "—")}</DD>
-                  <DT>E-post:</DT><DD>{v(email, "—")}</DD>
+                  <dt className="font-semibold text-[#0f172a]/70 whitespace-nowrap">Offertdatum:</dt>
+                  <dd className="text-[#0f172a] break-words">{v(offer?.offer_date, "—")}</dd>
+                  <dt className="font-semibold text-[#0f172a]/70 whitespace-nowrap">Er referens:</dt>
+                  <dd className="text-[#0f172a] break-words">{v(offer?.customer_reference, "—")}</dd>
+                  <dt className="font-semibold text-[#0f172a]/70 whitespace-nowrap">Vår referens:</dt>
+                  <dd className="text-[#0f172a] break-words">{v(offer?.internal_reference, "—")}</dd>
+                  <dt className="font-semibold text-[#0f172a]/70 whitespace-nowrap">Namn:</dt>
+                  <dd className="text-[#0f172a] break-words">{v(offer?.contact_person, "—")}</dd>
+                  <dt className="font-semibold text-[#0f172a]/70 whitespace-nowrap">Adress:</dt>
+                  <dd className="text-[#0f172a] break-words">{v(offer?.customer_address, "—")}</dd>
+                  <dt className="font-semibold text-[#0f172a]/70 whitespace-nowrap">Telefon:</dt>
+                  <dd className="text-[#0f172a] break-words">{v(offer?.contact_phone, "—")}</dd>
+                  <dt className="font-semibold text-[#0f172a]/70 whitespace-nowrap">E-post:</dt>
+                  <dd className="text-[#0f172a] break-words">{v(email, "—")}</dd>
                 </dl>
 
-                {/* NY: Buss & Chaufför */}
+                {/* Buss & chaufför */}
                 <div className="mt-6">
                   <div className="font-semibold text-[#0f172a]">Buss & chaufför</div>
                   <dl className="mt-3 grid grid-cols-[auto,1fr] gap-x-6 gap-y-1 text-[14px] text-[#0f172a] leading-tight">
-                    <DT>Buss:</DT>
-                    <DD>
+                    <dt className="font-semibold text-[#0f172a]/70 whitespace-nowrap">Buss:</dt>
+                    <dd className="text-[#0f172a] break-words">
                       {v(offer?.bus_name, "—")}
                       {offer?.bus_reg ? ` • ${offer.bus_reg}` : ""}
-                    </DD>
-                    <DT>Chaufför:</DT>
-                    <DD>{v(offer?.driver_name, "—")}</DD>
-                    <DT>Telefon:</DT>
-                    <DD>
+                    </dd>
+                    <dt className="font-semibold text-[#0f172a]/70 whitespace-nowrap">Chaufför:</dt>
+                    <dd className="text-[#0f172a] break-words">{v(offer?.driver_name, "—")}</dd>
+                    <dt className="font-semibold text-[#0f172a]/70 whitespace-nowrap">Telefon:</dt>
+                    <dd className="text-[#0f172a] break-words">
                       {offer?.driver_phone ? (
                         <a className="underline" href={`tel:${telSanitize(offer.driver_phone)}`}>
                           {offer.driver_phone}
@@ -262,11 +314,11 @@ export default function OfferBokningsbekraftelse({ offer }: any) {
                       ) : (
                         "—"
                       )}
-                    </DD>
+                    </dd>
                   </dl>
                 </div>
 
-                {/* Pris – identiskt som Besvarad */}
+                {/* Pris – samma logik som Besvarad */}
                 <div className="mt-6">
                   <div className="font-semibold text-[#0f172a]">
                     Offertinformation om kostnad
@@ -310,7 +362,7 @@ export default function OfferBokningsbekraftelse({ offer }: any) {
                   </div>
                 </div>
 
-                {/* NY: Trafikledningens kommentar */}
+                {/* Trafikledningens kommentar */}
                 <div className="mt-6">
                   <div className="font-semibold text-[#0f172a]">
                     Trafikledningens kommentar
@@ -321,7 +373,6 @@ export default function OfferBokningsbekraftelse({ offer }: any) {
                 </div>
               </div>
 
-              {/* Behåller samma nederkant/luft som Besvarad (inga extra knappar här) */}
               <div className="mt-auto px-6 pb-6" />
             </div>
           </aside>
@@ -329,13 +380,6 @@ export default function OfferBokningsbekraftelse({ offer }: any) {
       </div>
     </div>
   );
-}
-
-function DT({ children }: { children: React.ReactNode }) {
-  return <dt className="font-semibold text-[#0f172a]/70 whitespace-nowrap">{children}</dt>;
-}
-function DD({ children }: { children: React.ReactNode }) {
-  return <dd className="text-[#0f172a] break-words">{children}</dd>;
 }
 
 function Row({

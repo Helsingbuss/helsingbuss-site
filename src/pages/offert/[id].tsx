@@ -21,34 +21,72 @@ type OfferRow = {
   offer_date?: string | null;
   created_at?: string | null;
 
-  // *** NYA PRISFÄLT ***
+  // *** PRISFÄLT ***
   amount_ex_vat?: number | null;
   vat_amount?: number | null;
   total_amount?: number | null;
   vat_breakdown?: any | null;
 
   // kunduppgifter / referenser
+  customer_number?: string | null;
   contact_person?: string | null;
   customer_email?: string | null;
   customer_phone?: string | null;
-  customer_reference?: string | null;   // Er referens
-  internal_reference?: string | null;   // Vår referens
+  contact_email?: string | null;
+  contact_phone?: string | null;
+  customer_reference?: string | null;
+  internal_reference?: string | null;
+  customer_address?: string | null;
 
-  // resa
+  // resa – huvud
+  trip_type?: string | null;
+  round_trip?: boolean | null;
   departure_place?: string | null;
   destination?: string | null;
+  final_destination?: string | null;
   departure_date?: string | null;
   departure_time?: string | null;
-
   via?: string | null;
   stop?: string | null;
   passengers?: number | null;
 
+  // resa – tider
+  on_site_time?: number | null;
+  on_site_minutes?: number | null;
+  end_time?: string | null;
+
+  // retur
   return_departure?: string | null;
   return_destination?: string | null;
   return_date?: string | null;
   return_time?: string | null;
+  return_on_site_time?: number | null;
+  return_on_site_minutes?: number | null;
+  return_end_time?: string | null;
+
+  // chaufför / fordon / buss
+  driver_name?: string | null;
+  driver_phone?: string | null;
+  return_driver_name?: string | null;
+  return_driver_phone?: string | null;
+  vehicle_reg?: string | null;
+  vehicle_model?: string | null;
+  return_vehicle_reg?: string | null;
+  return_vehicle_model?: string | null;
+  bus_name?: string | null;
+  bus_reg?: string | null;
+
+  // övrigt
   notes?: string | null;
+  payment_terms?: string | null;
+
+  // trafikledning
+  ops_message?: string | null;
+  ops_comment?: string | null;
+  traffic_comment?: string | null;
+
+  // multi-leg (JSON från DB)
+  legs?: any | null;
 
   // kundens godkännande
   customer_approved?: boolean | null;
@@ -216,7 +254,7 @@ export const getServerSideProps: GetServerSideProps<Props> = async (ctx) => {
   }
 
   // Här släpper vi nu igenom ÄVEN när det inte finns token alls
-   const { data, error } = await supabase
+    const { data, error } = await supabase
     .from("offers")
     .select(
       [
@@ -228,35 +266,72 @@ export const getServerSideProps: GetServerSideProps<Props> = async (ctx) => {
         "offer_date",
         "created_at",
 
-        // *** PRISFÄLT ***
+        // pris
         "amount_ex_vat",
         "vat_amount",
         "total_amount",
         "vat_breakdown",
 
-        // kunduppgifter / referenser
+        // kund
+        "customer_number",
         "contact_person",
         "customer_email",
         "customer_phone",
+        "contact_email",
+        "contact_phone",
         "customer_reference",
         "internal_reference",
+        "customer_address",
 
-        // resa
+        // resa – huvud
+        "trip_type",
+        "round_trip",
         "departure_place",
         "destination",
+        "final_destination",
         "departure_date",
         "departure_time",
-
         "via",
         "stop",
         "passengers",
 
+        // resa – tider
+        "on_site_time",
+        "on_site_minutes",
+        "end_time",
+
+        // retur
         "return_departure",
         "return_destination",
         "return_date",
         "return_time",
+        "return_on_site_time",
+        "return_on_site_minutes",
+        "return_end_time",
 
+        // chaufför / fordon / buss
+        "driver_name",
+        "driver_phone",
+        "return_driver_name",
+        "return_driver_phone",
+        "vehicle_reg",
+        "vehicle_model",
+        "return_vehicle_reg",
+        "return_vehicle_model",
+        "bus_name",
+        "bus_reg",
+
+        // övrigt
         "notes",
+        "payment_terms",
+
+        // trafikledning
+        "ops_message",
+        "ops_comment",
+        "traffic_comment",
+
+        // multi-leg
+        "legs",
 
         // kundens godkännande
         "customer_approved",
@@ -265,6 +340,7 @@ export const getServerSideProps: GetServerSideProps<Props> = async (ctx) => {
     )
     .or(`id.eq.${slug},offer_number.eq.${slug}`)
     .maybeSingle();
+
 
   if (error) {
     return {

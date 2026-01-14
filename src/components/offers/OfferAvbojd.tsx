@@ -8,12 +8,20 @@ import TripLegCard from "@/components/offers/TripLegCard";
 const TOPBAR_PX = 64;
 const LINE_HEIGHT = 1.5;
 
+type BreakdownLeg = {
+  subtotExVat: number;
+  vat: number;
+  total: number;
+  pax?: number | null;
+  extra?: string | null;
+};
+
 type Breakdown = {
   grandExVat: number;
   grandVat: number;
   grandTotal: number;
   serviceFeeExVat?: number;
-  legs?: { subtotExVat: number; vat: number; total: number }[];
+  legs?: BreakdownLeg[];
 };
 
 function money(n?: number | null) {
@@ -38,31 +46,6 @@ export default function OfferAvbojd({ offer }: any) {
   const email: string | undefined =
     offer?.contact_email || offer?.customer_email || undefined;
 
-  const trips = [
-    {
-      title: roundTrip ? "Utresa" : "Bussresa",
-      date: offer?.departure_date,
-      time: offer?.departure_time,
-      from: offer?.departure_place,
-      to: offer?.destination,
-      pax: offer?.passengers,
-      extra: offer?.notes || "Ingen information.",
-    },
-    ...(roundTrip
-      ? [
-          {
-            title: "Återresa",
-            date: offer?.return_date,
-            time: offer?.return_time,
-            from: offer?.destination,
-            to: offer?.departure_place,
-            pax: offer?.passengers,
-            extra: offer?.notes || "Ingen information.",
-          },
-        ]
-      : []),
-  ];
-
   const breakdown: Breakdown | null =
     typeof offer?.vat_breakdown === "object" && offer?.vat_breakdown
       ? (offer.vat_breakdown as Breakdown)
@@ -73,6 +56,70 @@ export default function OfferAvbojd({ offer }: any) {
     vat: offer?.vat_amount ?? breakdown?.grandVat ?? null,
     sum: offer?.total_amount ?? breakdown?.grandTotal ?? null,
   };
+
+  // Resekort – om breakdown.legs finns kan vi låta varje ben få egen pax/extra,
+  // annars fallback till offer-fälten (samma visuella layout som tidigare).
+  const trips =
+    breakdown?.legs && breakdown.legs.length > 0
+      ? breakdown.legs.map((leg, idx) => {
+          const isFirst = idx === 0;
+          const isSecond = idx === 1;
+
+          const title = roundTrip
+            ? isFirst
+              ? "Utresa"
+              : "Återresa"
+            : "Bussresa";
+
+          const date = isFirst
+            ? offer?.departure_date
+            : offer?.return_date ?? offer?.departure_date;
+
+          const time = isFirst ? offer?.departure_time : offer?.return_time;
+
+          const from = isFirst
+            ? offer?.departure_place
+            : offer?.destination ?? offer?.departure_place;
+
+          const to = isFirst
+            ? offer?.destination
+            : offer?.departure_place ?? offer?.destination;
+
+          return {
+            title,
+            date,
+            time,
+            from,
+            to,
+            pax: leg.pax ?? offer?.passengers,
+            // Viktigt: parentes runt || för att slippa TS-felet med ?? + ||
+            extra: leg.extra ?? (offer?.notes || "Ingen information."),
+          };
+        })
+      : [
+          {
+            title: roundTrip ? "Utresa" : "Bussresa",
+            date: offer?.departure_date,
+            time: offer?.departure_time,
+            from: offer?.departure_place,
+            to: offer?.destination,
+            pax: offer?.passengers,
+            extra: offer?.notes || "Ingen information.",
+          },
+          ...(roundTrip
+            ? [
+                {
+                  title: "Återresa",
+                  date: offer?.return_date,
+                  time: offer?.return_time,
+                  from: offer?.destination,
+                  to: offer?.departure_place,
+                  pax: offer?.passengers,
+                  extra: offer?.notes || "Ingen information.",
+                },
+              ]
+            : []),
+        ];
 
   return (
     <div className="bg-[#f5f4f0] overflow-hidden">
@@ -116,11 +163,15 @@ export default function OfferAvbojd({ offer }: any) {
                   <p>
                     Hej!
                     <br />
-                    Vi har registrerat att ni avböjt offerten. Tråkigt att det inte passade denna
-                    gång – men ni är varmt välkomna tillbaka när planerna ändras. Behöver ni en ny
-                    lösning framåt kan vi snabbt ta fram en uppdaterad offert efter era önskemål.
+                    Vi har registrerat att ni avböjt offerten. Tråkigt att det
+                    inte passade denna gång – men ni är varmt välkomna tillbaka
+                    när planerna ändras. Behöver ni en ny lösning framåt kan vi
+                    snabbt ta fram en uppdaterad offert efter era önskemål.
                     Frågor eller feedback? Maila{" "}
-                    <a className="underline" href="mailto:kundteam@helsingbuss.se">
+                    <a
+                      className="underline"
+                      href="mailto:kundteam@helsingbuss.se"
+                    >
                       kundteam@helsingbuss.se
                     </a>{" "}
                     så återkommer vi direkt.
@@ -151,11 +202,17 @@ export default function OfferAvbojd({ offer }: any) {
                             footer={
                               breakdown?.legs ? (
                                 <div className="grid grid-cols-[1fr_auto] gap-x-4 gap-y-1 mt-3 text-[14px]">
-                                  <div className="text-[#0f172a]/70">Pris exkl. moms</div>
+                                  <div className="text-[#0f172a]/70">
+                                    Pris exkl. moms
+                                  </div>
                                   <div>{money(leg?.subtotExVat)}</div>
-                                  <div className="text-[#0f172a]/70">Moms</div>
+                                  <div className="text-[#0f172a]/70">
+                                    Moms
+                                  </div>
                                   <div>{money(leg?.vat)}</div>
-                                  <div className="text-[#0f172a]/70">Summa</div>
+                                  <div className="text-[#0f172a]/70">
+                                    Summa
+                                  </div>
                                   <div>{money(leg?.total)}</div>
                                 </div>
                               ) : null
@@ -173,13 +230,15 @@ export default function OfferAvbojd({ offer }: any) {
                   style={{ lineHeight: LINE_HEIGHT }}
                 >
                   <p>
-                    Inga resurser är reserverade. Om ni vill återuppta ärendet kontrollerar vi
-                    tillgänglighet och tar fram en ny offert. Våra resevillkor börjar gälla först
-                    när en bokning bekräftas skriftligt av oss.
+                    Inga resurser är reserverade. Om ni vill återuppta ärendet
+                    kontrollerar vi tillgänglighet och tar fram en ny offert.
+                    Våra resevillkor börjar gälla först när en bokning
+                    bekräftas skriftligt av oss.
                   </p>
                   <p className="mt-3">
-                    Behöver ni hjälp? Vardagar kl. 08:00–17:00. För brådskande nya förfrågningar,
-                    ring jour: <strong>010–777 21 58</strong>.
+                    Behöver ni hjälp? Vardagar kl. 08:00–17:00. För brådskande
+                    nya förfrågningar, ring jour:{" "}
+                    <strong>010–777 21 58</strong>.
                   </p>
                 </div>
               </div>
@@ -222,52 +281,85 @@ export default function OfferAvbojd({ offer }: any) {
                 </div>
 
                 <dl className="mt-4 grid grid-cols-[auto,1fr] gap-x-6 gap-y-1 text-[14px] text-[#0f172a] leading-tight">
-                  <DT>Offertdatum:</DT><DD>{v(offer?.offer_date, "—")}</DD>
-                  <DT>Er referens:</DT><DD>{v(offer?.customer_reference, "—")}</DD>
-                  <DT>Vår referens:</DT><DD>{v(offer?.internal_reference, "—")}</DD>
-                  <DT>Namn:</DT><DD>{v(offer?.contact_person, "—")}</DD>
-                  <DT>Adress:</DT><DD>{v(offer?.customer_address, "—")}</DD>
-                  <DT>Telefon:</DT><DD>{v(offer?.contact_phone, "—")}</DD>
-                  <DT>E-post:</DT><DD>{v(email, "—")}</DD>
+                  <DT>Offertdatum:</DT>
+                  <DD>{v(offer?.offer_date, "—")}</DD>
+                  <DT>Er referens:</DT>
+                  <DD>{v(offer?.customer_reference, "—")}</DD>
+                  <DT>Vår referens:</DT>
+                  <DD>{v(offer?.internal_reference, "—")}</DD>
+                  <DT>Namn:</DT>
+                  <DD>{v(offer?.contact_person, "—")}</DD>
+                  <DT>Adress:</DT>
+                  <DD>{v(offer?.customer_address, "—")}</DD>
+                  <DT>Telefon:</DT>
+                  <DD>{v(offer?.contact_phone, "—")}</DD>
+                  <DT>E-post:</DT>
+                  <DD>{v(email, "—")}</DD>
                 </dl>
 
                 {/* Prisöversyn – struket likt Makulerad */}
                 <div className="mt-6">
-                  <div className="font-semibold text-[#0f172a]">Offertinformation om kostnad</div>
+                  <div className="font-semibold text-[#0f172a]">
+                    Offertinformation om kostnad
+                  </div>
                   <div className="mt-3">
                     <div
                       className="grid"
-                      style={{ gridTemplateColumns: roundTrip ? "1fr 1fr 1fr" : "1fr 1fr" }}
+                      style={{
+                        gridTemplateColumns: roundTrip ? "1fr 1fr 1fr" : "1fr 1fr",
+                      }}
                     >
                       <div className="text-[#0f172a]/70 text-sm"> </div>
-                      <div className="text-[#0f172a]/70 text-sm font-semibold">Enkel</div>
+                      <div className="text-[#0f172a]/70 text-sm font-semibold">
+                        Enkel
+                      </div>
                       {roundTrip && (
-                        <div className="text-[#0f172a]/70 text-sm font-semibold">Tur&Retur</div>
+                        <div className="text-[#0f172a]/70 text-sm font-semibold">
+                          Tur&Retur
+                        </div>
                       )}
                     </div>
 
                     <RowStrike
                       roundTrip={roundTrip}
                       label="Summa exkl. moms"
-                      enkel={money(breakdown?.legs?.[0]?.subtotExVat ?? totals.ex)}
-                      retur={roundTrip ? money(breakdown?.legs?.[1]?.subtotExVat) : undefined}
+                      enkel={money(
+                        breakdown?.legs?.[0]?.subtotExVat ?? totals.ex
+                      )}
+                      retur={
+                        roundTrip
+                          ? money(breakdown?.legs?.[1]?.subtotExVat)
+                          : undefined
+                      }
                     />
                     <RowStrike
                       roundTrip={roundTrip}
                       label="Moms"
                       enkel={money(breakdown?.legs?.[0]?.vat ?? totals.vat)}
-                      retur={roundTrip ? money(breakdown?.legs?.[1]?.vat) : undefined}
+                      retur={
+                        roundTrip
+                          ? money(breakdown?.legs?.[1]?.vat)
+                          : undefined
+                      }
                     />
                     <RowStrike
                       roundTrip={roundTrip}
                       label="Totalsumma"
                       enkel={money(breakdown?.legs?.[0]?.total ?? totals.sum)}
-                      retur={roundTrip ? money(breakdown?.legs?.[1]?.total) : undefined}
+                      retur={
+                        roundTrip
+                          ? money(breakdown?.legs?.[1]?.total)
+                          : undefined
+                      }
                     />
 
                     <div className="mt-3 grid grid-cols-[1fr_auto] items-baseline line-through opacity-60">
-                      <div className="text-[#0f172a]/70 text-sm">Offertkostnad för detta uppdrag</div>
-                      <div className="font-medium">{money(totals.sum)}</div>
+                      <div className="text-[#0f172a]/70 text-sm">
+                        Offertkostnad för detta uppdrag
+                      </div>
+                      <div className="font-medium">
+                        {money(totals.sum)}
+                      </div>
                     </div>
 
                     <div className="mt-2 text-[12px] text-[#0f172a]/60">
@@ -287,7 +379,11 @@ export default function OfferAvbojd({ offer }: any) {
 }
 
 function DT({ children }: { children: React.ReactNode }) {
-  return <dt className="font-semibold text-[#0f172a]/70 whitespace-nowrap">{children}</dt>;
+  return (
+    <dt className="font-semibold text-[#0f172a]/70 whitespace-nowrap">
+      {children}
+    </dt>
+  );
 }
 function DD({ children }: { children: React.ReactNode }) {
   return <dd className="text-[#0f172a] break-words">{children}</dd>;

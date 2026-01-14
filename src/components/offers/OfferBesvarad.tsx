@@ -97,7 +97,11 @@ export default function OfferBesvarad({ offer }: any) {
   // --- actions-state & handlers
   const [busy, setBusy] = useState<"accept" | "decline" | "change" | null>(null);
 
-  async function postWithFallback(pathWithId: string, fallbackPath: string, body: any) {
+  async function postWithFallback(
+    pathWithId: string,
+    fallbackPath: string,
+    body: any
+  ) {
     if (offer?.id) {
       const r = await fetch(pathWithId, {
         method: "POST",
@@ -159,7 +163,9 @@ export default function OfferBesvarad({ offer }: any) {
       const booking = await createBookingFromOffer();
 
       // 3) Skicka kunden till "godkänd"-vyn (inkl. boknings-ID om vi har det)
-      const q = booking?.id ? `?view=godkand&bk=${encodeURIComponent(booking.id)}` : `?view=godkand`;
+      const q = booking?.id
+        ? `?view=godkand&bk=${encodeURIComponent(booking.id)}`
+        : `?view=godkand`;
       window.location.href = `/offert/${offer.offer_number}${q}`;
     } catch (e: any) {
       alert(e?.message || "Tekniskt fel vid godkännande.");
@@ -183,7 +189,7 @@ export default function OfferBesvarad({ offer }: any) {
           customerEmail: email,
           offerNumber: offer.offer_number,
           updateStatusTo: "makulerad", // hint till API:t (ignoreras om ej stöds)
-          notifyTeam: true,             // hint till API:t (ignoreras om ej stöds)
+          notifyTeam: true, // hint till API:t (ignoreras om ej stöds)
         }
       );
       if (!res.ok) {
@@ -211,12 +217,16 @@ export default function OfferBesvarad({ offer }: any) {
         {
           customerEmail: email,
           offerNumber: offer.offer_number,
-          message: "Kunden önskar ändringar i offerten. Kontakta kunden för detaljer.",
+          message:
+            "Kunden önskar ändringar i offerten. Kontakta kunden för detaljer.",
         }
       );
       if (!res.ok) {
         const j = await res.json().catch(() => ({}));
-        throw new Error(j?.error || `Kunde inte skicka ändringsförfrågan (HTTP ${res.status})`);
+        throw new Error(
+          j?.error ||
+            `Kunde inte skicka ändringsförfrågan (HTTP ${res.status})`
+        );
       }
       alert("Tack! Vi återkommer med uppdaterad offert.");
     } catch (e: any) {
@@ -268,16 +278,23 @@ export default function OfferBesvarad({ offer }: any) {
                   style={{ lineHeight: LINE_HEIGHT }}
                 >
                   <p>
-                    Hej!<br />
-                    Er offert är nu klar och sammanställer en tydlig plan för resan. Nedan ser ni rutt
-                    och hållplatser, tider, bussmodell, pris och villkor. Kontrollera uppgifterna innan
-                    ni godkänner och klicka på <strong>Acceptera offert</strong> för att säkra kapacitet
-                    och planering. Önskar ni justera antal resenärer, bagage, barnstol/tillgänglighet
-                    eller service ombord? Maila{" "}
-                    <a className="underline" href="mailto:kundteam@helsingbuss.se">
+                    Hej!
+                    <br />
+                    Er offert är nu klar och sammanställer en tydlig plan för
+                    resan. Nedan ser ni rutt och hållplatser, tider, bussmodell,
+                    pris och villkor. Kontrollera uppgifterna innan ni
+                    godkänner och klicka på{" "}
+                    <strong>Acceptera offert</strong> för att säkra kapacitet
+                    och planering. Önskar ni justera antal resenärer, bagage,
+                    barnstol/tillgänglighet eller service ombord? Maila{" "}
+                    <a
+                      className="underline"
+                      href="mailto:kundteam@helsingbuss.se"
+                    >
                       kundteam@helsingbuss.se
                     </a>{" "}
-                    så uppdaterar vi direkt. Luta er tillbaka – vi ordnar resten.
+                    så uppdaterar vi direkt. Luta er tillbaka – vi ordnar
+                    resten.
                   </p>
                 </div>
 
@@ -306,7 +323,9 @@ export default function OfferBesvarad({ offer }: any) {
                           footer={
                             breakdown?.legs ? (
                               <div className="grid grid-cols-[1fr_auto] gap-x-4 gap-y-1 mt-3 text-[14px]">
-                                <div className="text-[#0f172a]/70">Pris exkl. moms</div>
+                                <div className="text-[#0f172a]/70">
+                                  Pris exkl. moms
+                                </div>
                                 <div>{money(leg?.subtotExVat)}</div>
                                 <div className="text-[#0f172a]/70">Moms</div>
                                 <div>{money(leg?.vat)}</div>
@@ -327,15 +346,17 @@ export default function OfferBesvarad({ offer }: any) {
                   style={{ lineHeight: LINE_HEIGHT }}
                 >
                   <p>
-                    Genom att godkänna offerten bekräftar ni att ni har tagit del av våra resevillkor
-                    (läs dem här). Observera att datum och tider är i mån av tillgänglighet; slutlig
-                    kapacitet kontrolleras vid bokning och bekräftas först genom en skriftlig
-                    bokningsbekräftelse från oss.
+                    Genom att godkänna offerten bekräftar ni att ni har tagit
+                    del av våra resevillkor (läs dem här). Observera att datum
+                    och tider är i mån av tillgänglighet; slutlig kapacitet
+                    kontrolleras vid bokning och bekräftas först genom en
+                    skriftlig bokningsbekräftelse från oss.
                   </p>
                   <p className="mt-3">
-                    Vill ni boka eller har frågor/ändringar? Kontakta oss så hjälper vi gärna.{" "}
-                    Våra öppettider är vardagar kl. 08:00–17:00. För akuta ärenden eller bokningar med
-                    kortare varsel än två arbetsdagar, ring vårt journummer:{" "}
+                    Vill ni boka eller har frågor/ändringar? Kontakta oss så
+                    hjälper vi gärna. Våra öppettider är vardagar kl. 08:00–17:00.
+                    För akuta ärenden eller bokningar med kortare varsel än två
+                    arbetsdagar, ring vårt journummer:{" "}
                     <strong>010–777 21 58</strong>.
                   </p>
                 </div>
@@ -375,13 +396,20 @@ export default function OfferBesvarad({ offer }: any) {
                 </div>
 
                 <dl className="mt-4 grid grid-cols-[auto,1fr] gap-x-6 gap-y-1 text-[14px] text-[#0f172a] leading-tight">
-                  <DT>Offertdatum:</DT><DD>{v(offer?.offer_date, "—")}</DD>
-                  <DT>Er referens:</DT><DD>{v(offer?.customer_reference, "—")}</DD>
-                  <DT>Vår referens:</DT><DD>{v(offer?.internal_reference, "—")}</DD>
-                  <DT>Namn:</DT><DD>{v(offer?.contact_person, "—")}</DD>
-                  <DT>Adress:</DT><DD>{v(offer?.customer_address, "—")}</DD>
-                  <DT>Telefon:</DT><DD>{v(offer?.contact_phone, "—")}</DD>
-                  <DT>E-post:</DT><DD>{v(email, "—")}</DD>
+                  <DT>Offertdatum:</DT>
+                  <DD>{v(offer?.offer_date, "—")}</DD>
+                  <DT>Er referens:</DT>
+                  <DD>{v(offer?.customer_reference, "—")}</DD>
+                  <DT>Vår referens:</DT>
+                  <DD>{v(offer?.internal_reference, "—")}</DD>
+                  <DT>Namn:</DT>
+                  <DD>{v(offer?.contact_person, "—")}</DD>
+                  <DT>Adress:</DT>
+                  <DD>{v(offer?.customer_address, "—")}</DD>
+                  <DT>Telefon:</DT>
+                  <DD>{v(offer?.contact_phone, "—")}</DD>
+                  <DT>E-post:</DT>
+                  <DD>{v(email, "—")}</DD>
                 </dl>
 
                 {/* Prisöversyn */}
@@ -393,11 +421,22 @@ export default function OfferBesvarad({ offer }: any) {
                   {/* Tabell: enkel vs tur&retur */}
                   <div className="mt-3">
                     {/* Head */}
-                    <div className="grid" style={{ gridTemplateColumns: roundTrip ? "1fr 1fr 1fr" : "1fr 1fr" }}>
+                    <div
+                      className="grid"
+                      style={{
+                        gridTemplateColumns: roundTrip
+                          ? "1fr 1fr 1fr"
+                          : "1fr 1fr",
+                      }}
+                    >
                       <div className="text-[#0f172a]/70 text-sm"> </div>
-                      <div className="text-[#0f172a]/70 text-sm font-semibold">Enkel</div>
+                      <div className="text-[#0f172a]/70 text-sm font-semibold">
+                        Enkel
+                      </div>
                       {roundTrip && (
-                        <div className="text-[#0f172a]/70 text-sm font-semibold">Tur&Retur</div>
+                        <div className="text-[#0f172a]/70 text-sm font-semibold">
+                          Tur&Retur
+                        </div>
                       )}
                     </div>
 
@@ -405,35 +444,54 @@ export default function OfferBesvarad({ offer }: any) {
                     <Row
                       roundTrip={roundTrip}
                       label="Summa exkl. moms"
-                      enkel={money(breakdown?.legs?.[0]?.subtotExVat ?? totals.ex)}
-                      retur={roundTrip ? money(breakdown?.legs?.[1]?.subtotExVat) : undefined}
+                      enkel={money(
+                        breakdown?.legs?.[0]?.subtotExVat ?? totals.ex
+                      )}
+                      retur={
+                        roundTrip
+                          ? money(breakdown?.legs?.[1]?.subtotExVat)
+                          : undefined
+                      }
                     />
                     <Row
                       roundTrip={roundTrip}
                       label="Moms"
                       enkel={money(breakdown?.legs?.[0]?.vat ?? totals.vat)}
-                      retur={roundTrip ? money(breakdown?.legs?.[1]?.vat) : undefined}
+                      retur={
+                        roundTrip
+                          ? money(breakdown?.legs?.[1]?.vat)
+                          : undefined
+                      }
                     />
                     <Row
                       roundTrip={roundTrip}
                       label="Totalsumma"
                       enkel={money(breakdown?.legs?.[0]?.total ?? totals.sum)}
-                      retur={roundTrip ? money(breakdown?.legs?.[1]?.total) : undefined}
+                      retur={
+                        roundTrip
+                          ? money(breakdown?.legs?.[1]?.total)
+                          : undefined
+                      }
                     />
 
                     {/* Offertkostnad för uppdraget (total) */}
                     <div className="mt-3 grid grid-cols-[1fr_auto] items-baseline">
-                      <div className="text-[#0f172a]/70 text-sm">Offertkostnad för detta uppdrag</div>
+                      <div className="text-[#0f172a]/70 text-sm">
+                        Offertkostnad för detta uppdrag
+                      </div>
                       <div className="font-medium">{money(offerCost)}</div>
                     </div>
                   </div>
 
                   {/* Betalningsvillkor */}
                   <div className="mt-6 text-[13px] text-[#0f172a]/80 leading-relaxed">
-                    <div className="font-semibold text-[#0f172a] mb-1">Betalningsvillkor</div>
+                    <div className="font-semibold text-[#0f172a] mb-1">
+                      Betalningsvillkor
+                    </div>
                     <p>
-                      10 dagar netto om de är företag/förening, faktura kommer efter uppdrag.
-                      För privatperson ska fakturan vara betald minst 3 dagar innan uppdraget.
+                      10 dagar netto om det är företag/förening, faktura kommer
+                      efter uppdrag. För privatperson ska fakturan vara betald
+                      minst 3 dagar innan uppdraget.
                     </p>
                   </div>
                 </div>
@@ -477,7 +535,11 @@ export default function OfferBesvarad({ offer }: any) {
 
 /* Små hjälpare för DL-rader */
 function DT({ children }: { children: React.ReactNode }) {
-  return <dt className="font-semibold text-[#0f172a]/70 whitespace-nowrap">{children}</dt>;
+  return (
+    <dt className="font-semibold text-[#0f172a]/70 whitespace-nowrap">
+      {children}
+    </dt>
+  );
 }
 function DD({ children }: { children: React.ReactNode }) {
   return <dd className="text-[#0f172a] break-words">{children}</dd>;

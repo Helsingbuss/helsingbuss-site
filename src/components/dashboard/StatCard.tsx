@@ -1,3 +1,4 @@
+// src/components/dashboard/StatCard.tsx
 type Props = { title: string; value: string | number; sub?: string };
 export default function StatCard({ title, value, sub }: Props) {
   return (

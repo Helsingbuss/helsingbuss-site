@@ -1,5 +1,5 @@
 // src/pages/start.tsx
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import Header from "@/components/Header";
 import AdminMenu from "@/components/AdminMenu";
 import OffersBarChart, {
@@ -54,10 +54,11 @@ function ymd(d: Date) {
 }
 
 export default function Start() {
-  // Förvalt intervall exakt som i skissen
-  const today = useMemo(() => new Date(), []);
-  const [from, setFrom] = useState("2025-11-01");
-  const [to, setTo] = useState("2025-12-31");
+  const today = new Date();
+
+  // 🔹 Standardintervall: hela 2026
+  const [from, setFrom] = useState("2026-01-01");
+  const [to, setTo] = useState("2026-12-31");
 
   const [stats, setStats] = useState<StatsData>(EMPTY_STATS);
   const [unanswered, setUnanswered] = useState<UnansweredRow[]>([]);
@@ -145,8 +146,8 @@ export default function Start() {
   }
 
   useEffect(() => {
-    // Laddar direkt med 2025-11-01 – 2025-12-31, per vecka
-    loadStats("2025-11-01", "2025-12-31", "week");
+    // Ladda direkt med 2026-01-01 – 2026-12-31, per vecka
+    loadStats("2026-01-01", "2026-12-31", "week");
     loadUnanswered();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -162,11 +163,16 @@ export default function Start() {
     setGranularity(g);
 
     if (g === "ytd") {
+      // Hittills i år: 1 jan – idag
       const year = today.getFullYear();
       const startOfYear = `${year}-01-01`;
       const todayStr = ymd(today);
       setFrom(startOfYear);
       setTo(todayStr);
+      loadStats(startOfYear, todayStr, g);
+    } else {
+      // Vecka / månad – behåll nuvarande datumintervall
+      loadStats(from, to, g);
     }
   };
 

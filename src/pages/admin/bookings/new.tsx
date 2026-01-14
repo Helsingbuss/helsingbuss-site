@@ -168,7 +168,7 @@ export default function NewBookingAdmin() {
   const [offerSearch, setOfferSearch] = useState("");
   const [offerOpts, setOfferOpts] = useState<OfferOpt[]>([]);
   const [offerLoading, setOfferLoading] = useState(false);
-  const [linkedOfferId, setLinkedOfferId] = useState<string | null>(null);
+  const [linkedOfferIds, setLinkedOfferIds] = useState<string[]>([]);
   const offersAbortRef = useRef<AbortController | null>(null);
   const offerDebounceRef = useRef<number | null>(null);
 
@@ -210,14 +210,7 @@ export default function NewBookingAdmin() {
   const addLeg = () => {
     if (!validateDraft()) return;
 
-    // Max två rader (tur & retur) – samma logik som offert
-    if (legs.length >= 2) {
-      setSubmitError(
-        "Max två rader (tur & retur). Ta bort en rad om du vill lägga till en ny."
-      );
-      return;
-    }
-
+    // Här låter vi dig fortsätta lägga till körningar (ingen max 2-begränsning i UI)
     setSubmitError(null);
 
     const normStart = tidyTime(draftLeg.start) || draftLeg.start;
@@ -282,67 +275,87 @@ export default function NewBookingAdmin() {
 
   function applyOffer(opt: OfferOpt) {
     const a = opt.autofill;
+    const isFirst = linkedOfferIds.length === 0;
 
-    setContact(a.contact_person ?? "");
-    setEmail(a.contact_email ?? "");
-    setPhone(a.contact_phone ?? "");
+    // Lägg till i lista med kopplade offerter (utan dubbletter)
+    setLinkedOfferIds((prev) =>
+      prev.includes(opt.id) ? prev : [...prev, opt.id]
+    );
 
-    const metaNote = buildMetaNote(a);
-    setFreeNotes((a.notes ?? "") + metaNote);
+    if (isFirst) {
+      // Första kopplade offerten beter sig som tidigare (autofyll)
+      setContact(a.contact_person ?? "");
+      setEmail(a.contact_email ?? "");
+      setPhone(a.contact_phone ?? "");
 
-    const first: Leg = {
-      date: a.out_date || todayISO(),
-      start: normaliseTimeHHMM(a.out_time) || "08:00",
-      end: normaliseTimeHHMM(a.end_time) || "",
-      onSite: 15,
-      from: a.out_from || "",
-      to: a.out_to || a.final_destination || "",
-      via: a.via || "",
-      passengers: a.passengers ?? undefined,
-      onboardContact: a.contact_person_ombord || "",
-      notes: a.notes || "",
-    };
+      const metaNote = buildMetaNote(a);
+      setFreeNotes((prev) => {
+        const base = prev?.trim() ? prev.trim() + "\n\n" : "";
+        const fromOffer = (a.notes ?? "") + metaNote;
+        return base + fromOffer;
+      });
 
-    const arr: Leg[] = [first];
-
-    if (a.ret_from || a.ret_to || a.ret_date || a.ret_time) {
-      arr.push({
-        date: a.ret_date || a.out_date || todayISO(),
-        start:
-          normaliseTimeHHMM(a.ret_time) ||
-          normaliseTimeHHMM(a.out_time) ||
-          "08:00",
-        end: normaliseTimeHHMM(a.return_end_time) || "",
-        onSite:
-          typeof a.return_on_site_minutes === "number"
-            ? Math.max(0, a.return_on_site_minutes || 0)
-            : 15,
-        from: a.ret_from || a.out_to || "",
-        to: a.ret_to || a.out_from || "",
-        via: "",
-        passengers: a.passengers ?? first.passengers,
+      const first: Leg = {
+        date: a.out_date || todayISO(),
+        start: normaliseTimeHHMM(a.out_time) || "08:00",
+        end: normaliseTimeHHMM(a.end_time) || "",
+        onSite: 15,
+        from: a.out_from || "",
+        to: a.out_to || a.final_destination || "",
+        via: a.via || "",
+        passengers: a.passengers ?? undefined,
         onboardContact: a.contact_person_ombord || "",
         notes: a.notes || "",
+      };
+
+      const arr: Leg[] = [first];
+
+      if (a.ret_from || a.ret_to || a.ret_date || a.ret_time) {
+        arr.push({
+          date: a.ret_date || a.out_date || todayISO(),
+          start:
+            normaliseTimeHHMM(a.ret_time) ||
+            normaliseTimeHHMM(a.out_time) ||
+            "08:00",
+          end: normaliseTimeHHMM(a.return_end_time) || "",
+          onSite:
+            typeof a.return_on_site_minutes === "number"
+              ? Math.max(0, a.return_on_site_minutes || 0)
+              : 15,
+          from: a.ret_from || a.out_to || "",
+          to: a.ret_to || a.out_from || "",
+          via: "",
+          passengers: a.passengers ?? first.passengers,
+          onboardContact: a.contact_person_ombord || "",
+          notes: a.notes || "",
+        });
+      }
+
+      setLegs(arr);
+      setDraftLeg({
+        date: todayISO(),
+        start: "08:00",
+        end: "",
+        onSite: 15,
+        from: "",
+        to: "",
+        via: "",
+        passengers: a.passengers ?? undefined,
+        onboardContact: "",
+        notes: "",
+      });
+    } else {
+      // Extra kopplade offerter: lägg info i noteringar, men rör inte redan ifyllda fält
+      const metaNote = buildMetaNote(a);
+      setFreeNotes((prev) => {
+        const base = prev || "";
+        const header = `\n\n— Extra kopplad offert: ${opt.label} —\n`;
+        return base + header + (metaNote || "");
       });
     }
 
-    setLegs(arr);
-    setDraftLeg({
-      date: todayISO(),
-      start: "08:00",
-      end: "",
-      onSite: 15,
-      from: "",
-      to: "",
-      via: "",
-      passengers: a.passengers ?? undefined,
-      onboardContact: "",
-      notes: "",
-    });
-
     setOfferSearch("");
     setOfferOpts([]);
-    setLinkedOfferId(opt.id);
     setSubmitError(null);
   }
 
@@ -364,7 +377,6 @@ export default function NewBookingAdmin() {
     offerDebounceRef.current = window.setTimeout(async () => {
       if (offersAbortRef.current) offersAbortRef.current.abort();
       const ctrl = new AbortController();
-      // viktigt: uppdatera bara .current (inte hela ref-objektet)
       offersAbortRef.current = ctrl;
       try {
         await doSearchOffers(q, ctrl.signal);
@@ -472,7 +484,7 @@ export default function NewBookingAdmin() {
           : null,
       stopover_places: _trim(leg1?.via),
 
-      // retur
+      // retur (för bakåt-kompatibilitet)
       return_departure: _trim(leg2?.from || null),
       return_destination: _trim(leg2?.to || null),
       return_date: _trim(leg2?.date || null),
@@ -488,8 +500,9 @@ export default function NewBookingAdmin() {
       assigned_vehicle_id: vehicleId || null,
       assigned_driver_id: driverId || null,
 
-      // kopplad offert (om satt)
-      source_offer_id: linkedOfferId || null,
+      // kopplade offerter
+      source_offer_id: linkedOfferIds[0] || null, // första som "huvud-offert"
+      linked_offer_ids: linkedOfferIds, // alla kopplade
 
       // övrigt / noteringar
       notes: _trim(freeNotes) || _trim(leg1?.notes) || null,
@@ -555,16 +568,16 @@ export default function NewBookingAdmin() {
             )}
           </div>
 
-          {/* Felbanner (validering + API) */}
+          {/* Felbanner */}
           {submitError && (
             <div className="rounded-lg bg-red-50 border border-red-200 text-red-700 p-3 text-sm">
               {submitError}
             </div>
           )}
 
-          {/* Övre två rutor – Körningar + Kunduppgifter (samma grid som offert) */}
+          {/* Övre två rutor – Körningar + Kunduppgifter */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-            {/* KÖRNINGAR – vänster, 2 kolumner */}
+            {/* KÖRNINGAR – vänster */}
             <section className="bg-white rounded-xl shadow p-4 space-y-4 lg:col-span-2">
               <div className="mb-1">
                 <span className="inline-block px-3 py-1 rounded-full bg-[#111827] text-white text-[11px]">
@@ -572,7 +585,7 @@ export default function NewBookingAdmin() {
                 </span>
               </div>
 
-              {/* Koppla offert – ny för bokning */}
+              {/* Koppla offert */}
               <div className="bg-[#f8fafc] rounded-lg p-3 space-y-2">
                 <div className="text-xs font-medium text-[#194C66]/80">
                   Koppla offert (valfritt)
@@ -611,15 +624,21 @@ export default function NewBookingAdmin() {
                     ))}
                   </div>
                 )}
-                {linkedOfferId && (
+                {linkedOfferIds.length > 0 && (
                   <div className="text-[11px] text-[#194C66]/70 mt-1">
-                    Kopplad offert: <b>{linkedOfferId}</b>
+                    Kopplade offerter:{" "}
+                    {linkedOfferIds.map((id, idx) => (
+                      <span key={id}>
+                        {idx > 0 && ", "}
+                        <b>{id}</b>
+                      </span>
+                    ))}
                     <button
                       type="button"
                       className="ml-2 underline"
-                      onClick={() => setLinkedOfferId(null)}
+                      onClick={() => setLinkedOfferIds([])}
                     >
-                      koppla bort
+                      rensa
                     </button>
                   </div>
                 )}
@@ -699,7 +718,10 @@ export default function NewBookingAdmin() {
                       onChange={(e) =>
                         setDraftLeg({
                           ...draftLeg,
-                          onSite: Math.max(0, Number(e.target.value) || 0),
+                          onSite: Math.max(
+                            0,
+                            Number(e.target.value) || 0
+                          ),
                         })
                       }
                       className="w-full border rounded px-2 py-1 text-sm"
@@ -822,7 +844,7 @@ export default function NewBookingAdmin() {
                 </div>
               </div>
 
-              {/* Övrig information (för leg-nivå eller generellt) */}
+              {/* Övrig information (per leg / generellt) */}
               <div>
                 <label className="block text-sm text-[#194C66]/80 mb-1">
                   Övrig information
@@ -932,7 +954,7 @@ export default function NewBookingAdmin() {
                   />
                 </div>
 
-                {/* TILLDELNING – ligger i samma kort, med tunn linje över */}
+                {/* TILLDELNING */}
                 <div className="pt-3 border-t border-gray-100 space-y-3">
                   <div className="text-sm font-semibold text-[#194C66]">
                     Tilldelning (internt)
@@ -976,7 +998,7 @@ export default function NewBookingAdmin() {
                 </div>
               </div>
 
-              {/* Skapa-bokning-knappen längst ned till höger i kortet */}
+              {/* Skapa-bokning-knappen */}
               <div className="mt-4 flex justify-end">
                 <button
                   type="button"
@@ -990,7 +1012,7 @@ export default function NewBookingAdmin() {
             </section>
           </div>
 
-          {/* NEDRE TABELLEN – samma stil som offert, men med bokningsfält */}
+          {/* NEDRE TABELLEN */}
           <section className="bg-white rounded-xl shadow p-4">
             <div className="overflow-x-auto">
               <table className="w-full text-sm">

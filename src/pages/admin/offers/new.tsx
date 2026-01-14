@@ -108,14 +108,7 @@ export default function NewOfferAdmin() {
   const addLeg = () => {
     if (!validateDraft()) return;
 
-    // Fortfarande max 2 rader (tur & retur) för att passa payloaden
-    if (legs.length >= 2) {
-      setSubmitError(
-        "Max två rader (tur & retur). Ta bort en rad om du vill lägga till en ny."
-      );
-      return;
-    }
-
+    // ❌ tidigare spärrade vi vid 2 rader – nu tillåts hur många som helst
     setSubmitError(null);
     setLegs((prev) => [...prev, { ...draftLeg }]);
 
@@ -159,8 +152,6 @@ export default function NewOfferAdmin() {
 
     if (!validateCustomer()) return;
 
-    setSubmitting(true);
-
     const leg1 = legs[0];
     const leg2 = legs[1]; // retur (valfri)
 
@@ -175,7 +166,39 @@ export default function NewOfferAdmin() {
       notesParts.push(
         `Meddelande från trafikledningen:\n${trafficMessage.trim()}`
       );
+
+    // Lägg in extra körningar (utöver första två) som text så inget tappas bort
+    if (legs.length > 2) {
+      const extra = legs.slice(2).map((l, idx) => {
+        const base = `${idx + 3}. ${l.date} ${l.time} – ${l.from} → ${l.to}`;
+        const viaText = l.via ? ` via ${l.via}` : "";
+        const paxText =
+          l.passengers && Number(l.passengers) > 0
+            ? ` (${l.passengers} pax)`
+            : "";
+        return base + viaText + paxText;
+      });
+      if (extra.length) {
+        notesParts.push("Extra körningar:\n" + extra.join("\n"));
+      }
+    }
+
     const finalNotes = notesParts.length ? notesParts.join("\n\n") : null;
+
+    // Skicka med ALLA körningar i en legs-array också (för framtida stöd i API/DB)
+    const legsPayload = legs.map((l) => {
+      const pax = Number(l.passengers ?? 0);
+      return {
+        date: _trim(l.date),
+        time: tidyTime(_trim(l.time)) ?? _trim(l.time),
+        from: _trim(l.from),
+        to: _trim(l.to),
+        via: _trim(l.via),
+        passengers: pax > 0 ? pax : null,
+        onboardContact: _trim(l.onboardContact ?? null),
+        notes: _trim(l.notes ?? null),
+      };
+    });
 
     const payload = {
       // kontakt (sparas konsekvent i DB)
@@ -184,7 +207,8 @@ export default function NewOfferAdmin() {
       customer_phone: _trim(phone),
 
       // sparas även som kundreferens
-      customer_reference: _trim(leg1?.onboardContact) || _trim(customerReference),
+      customer_reference:
+        _trim(leg1?.onboardContact) || _trim(customerReference),
 
       // övrigt kund
       customer_name: _trim(customerReference),
@@ -196,7 +220,7 @@ export default function NewOfferAdmin() {
           : "företag",
       invoice_ref: _trim(invoiceRef),
 
-      // primär sträcka
+      // primär sträcka (för bakåt-kompatibilitet)
       passengers: Number(leg1?.passengers ?? 0),
       departure_place: _trim(leg1?.from),
       destination: _trim(leg1?.to),
@@ -212,6 +236,9 @@ export default function NewOfferAdmin() {
 
       // övrigt
       notes: finalNotes,
+
+      // 🔹 NYTT: alla körningar skickas med som egen lista
+      legs: legsPayload,
     };
 
     try {
@@ -476,7 +503,7 @@ export default function NewOfferAdmin() {
                 />
               </div>
 
-              {/* Lägg till rad-knapp (endast denna, ingen "vänd" längre) */}
+              {/* Lägg till rad-knapp */}
               <div className="flex justify-end">
                 <button
                   type="button"
@@ -622,7 +649,7 @@ export default function NewOfferAdmin() {
             </section>
           </div>
 
-          {/* NEDRE TABELLEN – Inga körningar tillagda */}
+          {/* NEDRE TABELLEN */}
           <section className="bg-white rounded-xl shadow p-4">
             <div className="overflow-x-auto">
               <table className="w-full text-sm">

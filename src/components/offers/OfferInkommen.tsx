@@ -86,32 +86,63 @@ export default function OfferInkommen({ offer }: OfferInkommenProps) {
       ? v(offer?.return_destination)
       : v(offer?.departure_place, "—");
 
-  const firstLeg = {
-    title: withinSweden ? "Bussresa inom Sverige" : "Bussresa utomlands",
-    date: fmtDateSv(offer?.departure_date),
-    time: fmtTime(offer?.departure_time),
-    from: v(offer?.departure_place),
-    to: toOut,
-    pax: v(offer?.passengers),
-    extra: v(offer?.notes, "Ingen information."),
-  };
+  // ===== TRIPS: använd legs från DB om de finns, annars gamla ut/retur =====
+  const rawLegs = (offer?.legs ?? offer?.trip_legs) as any;
+  let trips:
+    | {
+        title: string;
+        date: string;
+        time: string;
+        from: string;
+        to: string;
+        pax: string;
+        extra: string;
+      }[];
 
-  const secondLeg = hasReturn
-    ? {
-        title: withinSweden ? "Bussresa inom Sverige" : "Bussresa utomlands",
-        date: fmtDateSv(offer?.return_date),
-        time: fmtTime(offer?.return_time),
-        from:
-          v(offer?.destination) !== "—"
-            ? v(offer?.destination)
-            : v(offer?.final_destination, "—"),
-        to: toRet,
-        pax: v(offer?.passengers),
-        extra: v(offer?.notes, "Ingen information."),
-      }
-    : null;
+  if (Array.isArray(rawLegs) && rawLegs.length > 0) {
+    trips = rawLegs.map((leg: any) => ({
+      title: withinSweden ? "Bussresa inom Sverige" : "Bussresa utomlands",
+      date: fmtDateSv(leg.date ?? leg.departure_date ?? offer?.departure_date),
+      time: fmtTime(leg.time ?? leg.start ?? leg.departure_time ?? offer?.departure_time),
+      from: v(leg.from ?? leg.departure_place ?? offer?.departure_place),
+      to: v(
+        leg.to ??
+          leg.destination ??
+          offer?.destination ??
+          offer?.final_destination ??
+          "—"
+      ),
+      pax: v(leg.pax ?? offer?.passengers),
+      extra: v(leg.extra ?? offer?.notes, "Ingen information."),
+    }));
+  } else {
+    const firstLeg = {
+      title: withinSweden ? "Bussresa inom Sverige" : "Bussresa utomlands",
+      date: fmtDateSv(offer?.departure_date),
+      time: fmtTime(offer?.departure_time),
+      from: v(offer?.departure_place),
+      to: toOut,
+      pax: v(offer?.passengers),
+      extra: v(offer?.notes, "Ingen information."),
+    };
 
-  const trips = secondLeg ? [firstLeg, secondLeg] : [firstLeg];
+    const secondLeg = hasReturn
+      ? {
+          title: withinSweden ? "Bussresa inom Sverige" : "Bussresa utomlands",
+          date: fmtDateSv(offer?.return_date),
+          time: fmtTime(offer?.return_time),
+          from:
+            v(offer?.destination) !== "—"
+              ? v(offer?.destination)
+              : v(offer?.final_destination, "—"),
+          to: toRet,
+          pax: v(offer?.passengers),
+          extra: v(offer?.notes, "Ingen information."),
+        }
+      : null;
+
+    trips = secondLeg ? [firstLeg, secondLeg] : [firstLeg];
+  }
 
   // === Kunduppgifter (höger kort) ===
   const offerDateRaw =

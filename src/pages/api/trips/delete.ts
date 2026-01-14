@@ -1,4 +1,3 @@
-// src/pages/api/trips/delete.ts
 import type { NextApiRequest, NextApiResponse } from "next";
 import * as admin from "@/lib/supabaseAdmin";
 
@@ -7,53 +6,37 @@ const supabase: any =
   (admin as any).supabase ||
   (admin as any).default;
 
-export default async function handler(
-  req: NextApiRequest,
-  res: NextApiResponse
-) {
-  if (req.method !== "POST") {
-    return res
-      .status(405)
-      .json({ ok: false, error: "Method not allowed" });
+export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  const idFromQuery = typeof req.query.id === "string" ? req.query.id : "";
+  const idFromBody = typeof (req.body?.id) === "string" ? req.body.id : "";
+  const id = idFromQuery || idFromBody;
+
+  if (req.method !== "POST" && req.method !== "DELETE") {
+    return res.status(405).json({ ok: false, error: "Method Not Allowed" });
   }
 
-  const { id } = req.body || {};
   if (!id) {
-    return res
-      .status(400)
-      .json({ ok: false, error: "Missing id" });
+    return res.status(400).json({ ok: false, error: "Missing id" });
   }
 
   try {
-    // ta bort avgångar först (om tabellen är kopplad med foreign key)
-    const { error: depErr } = await supabase
-      .from("trip_departures")
-      .delete()
-      .eq("trip_id", id);
-
-    if (depErr) {
-      console.error("delete: trip_departures error:", depErr);
-      // vi fortsätter ändå och försöker ta bort resan
-    }
-
-    const { error: tripErr } = await supabase
-      .from("trips")
-      .delete()
-      .eq("id", id);
-
-    if (tripErr) {
-      console.error("delete: trips error:", tripErr);
+    const { error } = await supabase.from("trips").delete().eq("id", id);
+    if (error) {
+      console.error("Delete trip error:", error);
       return res.status(500).json({
         ok: false,
-        error: tripErr.message || "Kunde inte ta bort resa.",
+        error: error.message || "Delete failed",
+        details: error,
       });
     }
 
     return res.status(200).json({ ok: true });
   } catch (e: any) {
-    console.error("/api/trips/delete fatal:", e?.message || e);
-    return res
-      .status(500)
-      .json({ ok: false, error: e?.message || "Server error" });
+    console.error("Delete trip exception:", e);
+    return res.status(500).json({
+      ok: false,
+      error: e?.message ?? "Server error",
+      details: e ?? null,
+    });
   }
 }

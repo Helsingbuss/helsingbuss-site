@@ -20,10 +20,13 @@ function money(n?: number | null) {
   if (n == null) return "—";
   return n.toLocaleString("sv-SE", { style: "currency", currency: "SEK" });
 }
+
 function v(x: any, fallback = "—") {
   if (x === null || x === undefined || x === "") return fallback;
   return String(x);
 }
+
+// HHMM → HH:MM, 08:00 → 08:00, annars lämna som är
 function tidyTime(t?: string | null) {
   if (!t) return undefined;
   const s = String(t);
@@ -115,7 +118,8 @@ export default function OfferMakulerad({ offer }: any) {
                   priority
                 />
                 <h1 className="mt-2 text-2xl font-semibold text-[#0f172a]">
-                  Offerten är makulerad – tack för beskedet, vi hoppas få köra för er framöver.
+                  Offerten är makulerad – tack för beskedet, vi hoppas få köra
+                  för er framöver.
                 </h1>
 
                 <div
@@ -125,14 +129,19 @@ export default function OfferMakulerad({ offer }: any) {
                   <p>
                     Hej!
                     <br />
-                    Tack för beskedet. Vi har makulerat er offert. Tråkigt att ni valde att tacka nej
-                    den här gången – vi hoppas på ett återseende. Om planerna ändras kan vi snabbt
-                    återöppna underlaget och ta fram en ny lösning. Har ni frågor eller vill ge
-                    feedback? Maila{" "}
-                    <a className="underline" href="mailto:kundteam@helsingbuss.se">
+                    Tack för beskedet. Vi har makulerat er offert. Tråkigt att
+                    ni valde att tacka nej den här gången – vi hoppas på ett
+                    återseende. Om planerna ändras kan vi snabbt återöppna
+                    underlaget och ta fram en ny lösning. Har ni frågor eller
+                    vill ge feedback? Maila{" "}
+                    <a
+                      className="underline"
+                      href="mailto:kundteam@helsingbuss.se"
+                    >
                       kundteam@helsingbuss.se
                     </a>{" "}
-                    så återkommer vi direkt. Varmt välkomna igen när det passar bättre.
+                    så återkommer vi direkt. Varmt välkomna igen när det passar
+                    bättre.
                   </p>
                 </div>
 
@@ -160,7 +169,9 @@ export default function OfferMakulerad({ offer }: any) {
                             footer={
                               breakdown?.legs ? (
                                 <div className="grid grid-cols-[1fr_auto] gap-x-4 gap-y-1 mt-3 text-[14px]">
-                                  <div className="text-[#0f172a]/70">Pris exkl. moms</div>
+                                  <div className="text-[#0f172a]/70">
+                                    Pris exkl. moms
+                                  </div>
                                   <div>{money(leg?.subtotExVat)}</div>
                                   <div className="text-[#0f172a]/70">Moms</div>
                                   <div>{money(leg?.vat)}</div>
@@ -181,15 +192,17 @@ export default function OfferMakulerad({ offer }: any) {
                   style={{ lineHeight: LINE_HEIGHT }}
                 >
                   <p>
-                    Er offert är nu makulerad och ingen kapacitet är reserverad. Om planerna ändras
-                    kan vi snabbt återöppna ärendet, kontrollera tillgänglighet och skicka en
-                    uppdaterad offert. Våra resevillkor (läs dem här) börjar gälla först när en
+                    Er offert är nu makulerad och ingen kapacitet är reserverad.
+                    Om planerna ändras kan vi snabbt återöppna ärendet,
+                    kontrollera tillgänglighet och skicka en uppdaterad offert.
+                    Våra resevillkor (läs dem här) börjar gälla först när en
                     bokning bekräftas skriftligt av oss.
                   </p>
                   <p className="mt-3">
-                    Vill ni återuppta ärendet eller har frågor/önskemål? Kontakta oss så hjälper vi
-                    gärna. Våra öppettider är vardagar kl. 08:00–17:00. För brådskande nya
-                    förfrågningar med kortare varsel än två arbetsdagar, ring vårt journummer:{" "}
+                    Vill ni återuppta ärendet eller har frågor/önskemål?
+                    Kontakta oss så hjälper vi gärna. Våra öppettider är
+                    vardagar kl. 08:00–17:00. För brådskande nya förfrågningar
+                    med kortare varsel än två arbetsdagar, ring vårt journummer:{" "}
                     <strong>010–777 21 58</strong>.
                   </p>
                 </div>
@@ -233,13 +246,20 @@ export default function OfferMakulerad({ offer }: any) {
                 </div>
 
                 <dl className="mt-4 grid grid-cols-[auto,1fr] gap-x-6 gap-y-1 text-[14px] text-[#0f172a] leading-tight">
-                  <DT>Offertdatum:</DT><DD>{v(offer?.offer_date, "—")}</DD>
-                  <DT>Er referens:</DT><DD>{v(offer?.customer_reference, "—")}</DD>
-                  <DT>Vår referens:</DT><DD>{v(offer?.internal_reference, "—")}</DD>
-                  <DT>Namn:</DT><DD>{v(offer?.contact_person, "—")}</DD>
-                  <DT>Adress:</DT><DD>{v(offer?.customer_address, "—")}</DD>
-                  <DT>Telefon:</DT><DD>{v(offer?.contact_phone, "—")}</DD>
-                  <DT>E-post:</DT><DD>{v(email, "—")}</DD>
+                  <DT>Offertdatum:</DT>
+                  <DD>{v(offer?.offer_date, "—")}</DD>
+                  <DT>Er referens:</DT>
+                  <DD>{v(offer?.customer_reference, "—")}</DD>
+                  <DT>Vår referens:</DT>
+                  <DD>{v(offer?.internal_reference, "—")}</DD>
+                  <DT>Namn:</DT>
+                  <DD>{v(offer?.contact_person, "—")}</DD>
+                  <DT>Adress:</DT>
+                  <DD>{v(offer?.customer_address, "—")}</DD>
+                  <DT>Telefon:</DT>
+                  <DD>{v(offer?.contact_phone, "—")}</DD>
+                  <DT>E-post:</DT>
+                  <DD>{v(email, "—")}</DD>
                 </dl>
 
                 <div className="mt-6">
@@ -251,12 +271,20 @@ export default function OfferMakulerad({ offer }: any) {
                     {/* Head */}
                     <div
                       className="grid"
-                      style={{ gridTemplateColumns: roundTrip ? "1fr 1fr 1fr" : "1fr 1fr" }}
+                      style={{
+                        gridTemplateColumns: roundTrip
+                          ? "1fr 1fr 1fr"
+                          : "1fr 1fr",
+                      }}
                     >
                       <div className="text-[#0f172a]/70 text-sm"> </div>
-                      <div className="text-[#0f172a]/70 text-sm font-semibold">Enkel</div>
+                      <div className="text-[#0f172a]/70 text-sm font-semibold">
+                        Enkel
+                      </div>
                       {roundTrip && (
-                        <div className="text-[#0f172a]/70 text-sm font-semibold">Tur & Retur</div>
+                        <div className="text-[#0f172a]/70 text-sm font-semibold">
+                          Tur & Retur
+                        </div>
                       )}
                     </div>
 
@@ -264,25 +292,43 @@ export default function OfferMakulerad({ offer }: any) {
                     <RowMak
                       roundTrip={roundTrip}
                       label="Summa exkl. moms"
-                      enkel={money(breakdown?.legs?.[0]?.subtotExVat ?? totals.ex)}
-                      retur={roundTrip ? money(breakdown?.legs?.[1]?.subtotExVat) : undefined}
+                      enkel={money(
+                        breakdown?.legs?.[0]?.subtotExVat ?? totals.ex
+                      )}
+                      retur={
+                        roundTrip
+                          ? money(breakdown?.legs?.[1]?.subtotExVat)
+                          : undefined
+                      }
                     />
                     <RowMak
                       roundTrip={roundTrip}
                       label="Moms"
                       enkel={money(breakdown?.legs?.[0]?.vat ?? totals.vat)}
-                      retur={roundTrip ? money(breakdown?.legs?.[1]?.vat) : undefined}
+                      retur={
+                        roundTrip
+                          ? money(breakdown?.legs?.[1]?.vat)
+                          : undefined
+                      }
                     />
                     <RowMak
                       roundTrip={roundTrip}
                       label="Totalsumma"
-                      enkel={money(breakdown?.legs?.[0]?.total ?? totals.sum)}
-                      retur={roundTrip ? money(breakdown?.legs?.[1]?.total) : undefined}
+                      enkel={money(
+                        breakdown?.legs?.[0]?.total ?? totals.sum
+                      )}
+                      retur={
+                        roundTrip
+                          ? money(breakdown?.legs?.[1]?.total)
+                          : undefined
+                      }
                     />
 
                     {/* Total (ogiltig) */}
                     <div className="mt-3 grid grid-cols-[1fr_auto] items-baseline line-through opacity-60">
-                      <div className="text-[#0f172a]/70 text-sm">Offertkostnad för detta uppdrag</div>
+                      <div className="text-[#0f172a]/70 text-sm">
+                        Offertkostnad för detta uppdrag
+                      </div>
                       <div className="font-medium">{money(totals.sum)}</div>
                     </div>
 
@@ -303,8 +349,13 @@ export default function OfferMakulerad({ offer }: any) {
 }
 
 function DT({ children }: { children: React.ReactNode }) {
-  return <dt className="font-semibold text-[#0f172a]/70 whitespace-nowrap">{children}</dt>;
+  return (
+    <dt className="font-semibold text-[#0f172a]/70 whitespace-nowrap">
+      {children}
+    </dt>
+  );
 }
+
 function DD({ children }: { children: React.ReactNode }) {
   return <dd className="text-[#0f172a] break-words">{children}</dd>;
 }
@@ -323,7 +374,9 @@ function RowMak({
   return (
     <div
       className="mt-1 grid items-baseline text-[14px] line-through opacity-60"
-      style={{ gridTemplateColumns: roundTrip ? "1fr 1fr 1fr" : "1fr 1fr" }}
+      style={{
+        gridTemplateColumns: roundTrip ? "1fr 1fr 1fr" : "1fr 1fr",
+      }}
     >
       <div className="text-[#0f172a]/70">{label}</div>
       <div>{enkel}</div>
