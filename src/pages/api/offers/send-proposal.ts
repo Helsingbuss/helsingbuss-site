@@ -7,7 +7,16 @@ import { sendOfferMail } from "@/lib/sendMail";
 const U = <T extends string | number | null | undefined>(v: T) =>
   v == null ? undefined : (v as Exclude<T, null>);
 
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+// Enkel UUID-koll
+const isUuid = (value: string) =>
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+    value.trim()
+  );
+
+export default async function handler(
+  req: NextApiRequest,
+  res: NextApiResponse
+) {
   try {
     if (req.method !== "POST") {
       return res.status(405).json({ error: "Method not allowed" });
@@ -26,17 +35,17 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return_time?: string | null;
     };
 
-    // Viktigt: vi accepterar både UUID (id) och offertnummer (HB25XXX)
+    // Vi accepterar både UUID (id) och offertnummer (HB25XXX)
     const idOrNumber = String(
       input.offer_id ?? input.offerNumber ?? req.query.id ?? ""
-    );
+    ).trim();
 
     if (!idOrNumber || idOrNumber === "undefined") {
       return res.status(400).json({ error: "Saknar offert-id/nummer" });
     }
 
-    // Hämta offerten – matcha på både id och offer_number
-    const { data: offer, error } = await supabase
+    // --- Hämta offerten: välj rätt kolumn beroende på om det är UUID eller offertnummer ---
+    let query = supabase
       .from("offers")
       .select(
         `
@@ -64,9 +73,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         total_amount,
         vat_breakdown
       `
-      )
-      .or(`id.eq.${idOrNumber},offer_number.eq.${idOrNumber}`)
-      .maybeSingle();
+      );
+
+    if (isUuid(idOrNumber)) {
+      query = query.eq("id", idOrNumber);
+    } else {
+      query = query.eq("offer_number", idOrNumber);
+    }
+
+    const { data: offer, error } = await query.maybeSingle();
 
     if (error) {
       console.error("[send-proposal] fetch error:", error);
@@ -77,7 +92,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     // Sätt status "besvarad" om inte redan – priset (amount_* / vat_breakdown)
-    // är redan uppdaterat av /api/offers/[id]/quote
     const current = String(offer.status ?? "").toLowerCase();
     if (current !== "besvarad") {
       const { error: uerr } = await supabase
