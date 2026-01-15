@@ -210,7 +210,6 @@ export default function NewBookingAdmin() {
   const addLeg = () => {
     if (!validateDraft()) return;
 
-    // Här låter vi dig fortsätta lägga till körningar (ingen max 2-begränsning i UI)
     setSubmitError(null);
 
     const normStart = tidyTime(draftLeg.start) || draftLeg.start;
@@ -221,7 +220,6 @@ export default function NewBookingAdmin() {
       { ...draftLeg, start: normStart, end: normEnd },
     ]);
 
-    // Reset för nästa rad (behåll passagerare + kontakt + onSite)
     setDraftLeg({
       date: todayISO(),
       start: "08:00",
@@ -247,9 +245,7 @@ export default function NewBookingAdmin() {
 
     if (a.enkel_tur_retur) rows.push(`Typ av resa: ${a.enkel_tur_retur}`);
     if (a.behover_buss !== null && a.behover_buss !== undefined)
-      rows.push(
-        `Behöver buss på plats: ${a.behover_buss ? "Ja" : "Nej"}`
-      );
+      rows.push(`Behöver buss på plats: ${a.behover_buss ? "Ja" : "Nej"}`);
     if (a.notis_pa_plats)
       rows.push(`Vad ska bussen göra på plats: ${a.notis_pa_plats}`);
     if (a.basplats_pa_destination)
@@ -262,12 +258,9 @@ export default function NewBookingAdmin() {
     if (a.contact_person_ombord)
       rows.push(`Kontaktperson ombord: ${a.contact_person_ombord}`);
 
-    if (a.foretag_forening)
-      rows.push(`Företag/Förening: ${a.foretag_forening}`);
-    if (a.referens_po_nummer)
-      rows.push(`Referens/PO-nummer: ${a.referens_po_nummer}`);
-    if (a.org_number)
-      rows.push(`Organisationsnummer: ${a.org_number}`);
+    if (a.foretag_forening) rows.push(`Företag/Förening: ${a.foretag_forening}`);
+    if (a.referens_po_nummer) rows.push(`Referens/PO-nummer: ${a.referens_po_nummer}`);
+    if (a.org_number) rows.push(`Organisationsnummer: ${a.org_number}`);
 
     if (rows.length === 0) return "";
     return `\n\n— Offertdata —\n${rows.join("\n")}`;
@@ -277,13 +270,9 @@ export default function NewBookingAdmin() {
     const a = opt.autofill;
     const isFirst = linkedOfferIds.length === 0;
 
-    // Lägg till i lista med kopplade offerter (utan dubbletter)
-    setLinkedOfferIds((prev) =>
-      prev.includes(opt.id) ? prev : [...prev, opt.id]
-    );
+    setLinkedOfferIds((prev) => (prev.includes(opt.id) ? prev : [...prev, opt.id]));
 
     if (isFirst) {
-      // Första kopplade offerten beter sig som tidigare (autofyll)
       setContact(a.contact_person ?? "");
       setEmail(a.contact_email ?? "");
       setPhone(a.contact_phone ?? "");
@@ -345,7 +334,6 @@ export default function NewBookingAdmin() {
         notes: "",
       });
     } else {
-      // Extra kopplade offerter: lägg info i noteringar, men rör inte redan ifyllda fält
       const metaNote = buildMetaNote(a);
       setFreeNotes((prev) => {
         const base = prev || "";
@@ -407,8 +395,7 @@ export default function NewBookingAdmin() {
     })();
 
     return () => {
-      if (offerDebounceRef.current)
-        window.clearTimeout(offerDebounceRef.current);
+      if (offerDebounceRef.current) window.clearTimeout(offerDebounceRef.current);
       if (offersAbortRef.current) offersAbortRef.current.abort();
     };
   }, []);
@@ -419,13 +406,49 @@ export default function NewBookingAdmin() {
     return p.replace(/[\s-]+/g, "");
   }
 
+  function _trim(v?: string | null) {
+    return v == null ? null : v.toString().trim() || null;
+  }
+
+  // ✅ Ny: skicka ALLA legs också (många backends för bookings kräver detta)
+  function buildLegsPayload(all: Leg[]) {
+    return all.map((l) => ({
+      date: _trim(l.date),
+      start: tidyTime(l.start) || null,
+      end: l.end ? tidyTime(l.end) : null,
+      onSite:
+        typeof l.onSite === "number" ? Math.max(0, l.onSite) : null,
+      from: _trim(l.from),
+      to: _trim(l.to),
+      via: _trim(l.via),
+      passengers:
+        typeof l.passengers === "number" ? Math.max(1, l.passengers) : null,
+      onboardContact: _trim(l.onboardContact || null),
+      notes: _trim(l.notes || null),
+    }));
+  }
+
+  // ✅ Ny: bättre feltext från servern
+  async function readServerError(res: Response) {
+    const text = await res.text().catch(() => "");
+    if (!text) return `HTTP ${res.status}`;
+
+    // försök JSON först
+    try {
+      const j = JSON.parse(text);
+      return j?.error || j?.message || `HTTP ${res.status}`;
+    } catch {
+      // annars returnera kort text (för att inte spamma UI med HTML)
+      const short = text.replace(/\s+/g, " ").trim().slice(0, 240);
+      return short || `HTTP ${res.status}`;
+    }
+  }
+
   async function handleSubmit() {
     setSubmitError(null);
 
     if (legs.length === 0) {
-      setSubmitError(
-        "Lägg till minst en körning innan du skapar bokningen."
-      );
+      setSubmitError("Lägg till minst en körning innan du skapar bokningen.");
       return;
     }
 
@@ -436,6 +459,7 @@ export default function NewBookingAdmin() {
 
     const dep_time = tidyTime(leg1?.start || "") || leg1?.start || null;
     const dep_end = tidyTime(leg1?.end || "") || leg1?.end || null;
+
     const ret_time = leg2
       ? tidyTime(leg2.start || "") || leg2.start || null
       : null;
@@ -443,48 +467,38 @@ export default function NewBookingAdmin() {
       ? tidyTime(leg2.end || "") || leg2.end || null
       : null;
 
-    if (!dep_time) {
-      setSubmitError("Starttid i utresan är ogiltig.");
-      return;
-    }
-    if (leg1?.end && !dep_end) {
-      setSubmitError("Sluttid i utresan är ogiltig.");
-      return;
-    }
-    if (leg2?.start && !ret_time) {
-      setSubmitError("Starttid i returen är ogiltig.");
-      return;
-    }
-    if (leg2?.end && !ret_end) {
-      setSubmitError("Sluttid i returen är ogiltig.");
-      return;
-    }
+    if (!dep_time) return setSubmitError("Starttid i utresan är ogiltig.");
+    if (leg1?.end && !dep_end) return setSubmitError("Sluttid i utresan är ogiltig.");
+    if (leg2?.start && !ret_time) return setSubmitError("Starttid i returen är ogiltig.");
+    if (leg2?.end && !ret_end) return setSubmitError("Sluttid i returen är ogiltig.");
 
     setSubmitting(true);
 
-    const _trim = (v?: string | null) =>
-      v == null ? null : v.toString().trim() || null;
+    const passengers = Math.max(1, Number(leg1?.passengers ?? 1) || 1);
 
-    const payload = {
+    const legsPayload = buildLegsPayload(legs);
+
+    const payload: any = {
       // kund
       contact_person: _trim(contact),
       customer_email: _trim(email),
       customer_phone: cleanPhone(phone.trim()),
 
-      // utresa
-      passengers: Number(leg1?.passengers ?? 0),
+      // ✅ NYTT: alla körningar (viktigt om backend skapar booking_legs)
+      legs: legsPayload,
+
+      // utresa (legacy)
+      passengers,
       departure_place: _trim(leg1?.from),
       destination: _trim(leg1?.to),
       departure_date: _trim(leg1?.date),
       departure_time: dep_time,
       end_time: dep_end,
       on_site_minutes:
-        typeof leg1?.onSite === "number"
-          ? Math.max(0, leg1.onSite)
-          : null,
+        typeof leg1?.onSite === "number" ? Math.max(0, leg1.onSite) : null,
       stopover_places: _trim(leg1?.via),
 
-      // retur (för bakåt-kompatibilitet)
+      // retur (legacy)
       return_departure: _trim(leg2?.from || null),
       return_destination: _trim(leg2?.to || null),
       return_date: _trim(leg2?.date || null),
@@ -501,8 +515,8 @@ export default function NewBookingAdmin() {
       assigned_driver_id: driverId || null,
 
       // kopplade offerter
-      source_offer_id: linkedOfferIds[0] || null, // första som "huvud-offert"
-      linked_offer_ids: linkedOfferIds, // alla kopplade
+      source_offer_id: linkedOfferIds[0] || null,
+      linked_offer_ids: linkedOfferIds.length ? linkedOfferIds : null,
 
       // övrigt / noteringar
       notes: _trim(freeNotes) || _trim(leg1?.notes) || null,
@@ -516,17 +530,23 @@ export default function NewBookingAdmin() {
       });
 
       if (!res.ok) {
-        const j = await res.json().catch(() => ({} as any));
-        const msg: string =
-          j?.error ||
-          "Kunde inte skapa bokning. Försök igen eller kontakta administratör.";
-        setSubmitError(msg);
+        const msg = await readServerError(res);
+        setSubmitError(
+          msg ||
+            "Kunde inte skapa bokning. Försök igen eller kontakta administratör."
+        );
         setSubmitting(false);
         return;
       }
 
-      const j = await res.json();
-      const bookingId = j?.booking?.id ?? j?.id ?? j?.booking_id ?? null;
+      const j = await res.json().catch(() => ({} as any));
+
+      // ✅ robust: försök hitta id i flera format
+      const bookingId =
+        j?.booking?.id ??
+        j?.id ??
+        j?.booking_id ??
+        null;
 
       if (!bookingId) {
         setSubmitError(
@@ -553,7 +573,6 @@ export default function NewBookingAdmin() {
       <div className="min-h-screen bg-[#f5f4f0] lg:pl-64">
         <Header />
         <main className="p-6 space-y-6">
-          {/* Titelrad – samma stil som offert */}
           <div className="flex items-center justify-between">
             <h1 className="text-xl font-semibold text-[#194C66]">
               Skapa bokning{" "}
@@ -568,16 +587,13 @@ export default function NewBookingAdmin() {
             )}
           </div>
 
-          {/* Felbanner */}
           {submitError && (
             <div className="rounded-lg bg-red-50 border border-red-200 text-red-700 p-3 text-sm">
               {submitError}
             </div>
           )}
 
-          {/* Övre två rutor – Körningar + Kunduppgifter */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-            {/* KÖRNINGAR – vänster */}
             <section className="bg-white rounded-xl shadow p-4 space-y-4 lg:col-span-2">
               <div className="mb-1">
                 <span className="inline-block px-3 py-1 rounded-full bg-[#111827] text-white text-[11px]">
@@ -585,7 +601,6 @@ export default function NewBookingAdmin() {
                 </span>
               </div>
 
-              {/* Koppla offert */}
               <div className="bg-[#f8fafc] rounded-lg p-3 space-y-2">
                 <div className="text-xs font-medium text-[#194C66]/80">
                   Koppla offert (valfritt)
@@ -601,14 +616,10 @@ export default function NewBookingAdmin() {
                   aria-label="Sök offert att koppla"
                 />
                 {offerLoading && (
-                  <div className="mt-1 text-xs text-[#194C66]/60">
-                    Söker…
-                  </div>
+                  <div className="mt-1 text-xs text-[#194C66]/60">Söker…</div>
                 )}
                 {!offerLoading && offerSearch && offerOpts.length === 0 && (
-                  <div className="mt-1 text-xs text-[#194C66]/60">
-                    Inga träffar.
-                  </div>
+                  <div className="mt-1 text-xs text-[#194C66]/60">Inga träffar.</div>
                 )}
                 {!offerLoading && offerOpts.length > 0 && (
                   <div className="mt-2 border rounded-lg bg-white max-h-52 overflow-auto">
@@ -645,7 +656,6 @@ export default function NewBookingAdmin() {
               </div>
 
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                {/* Vänster kolumn */}
                 <div className="space-y-4">
                   <div>
                     <label className="block text-sm text-[#194C66]/80 mb-1">
@@ -655,16 +665,12 @@ export default function NewBookingAdmin() {
                       type="date"
                       value={draftLeg.date}
                       min={todayISO()}
-                      onChange={(e) =>
-                        setDraftLeg({ ...draftLeg, date: e.target.value })
-                      }
+                      onChange={(e) => setDraftLeg({ ...draftLeg, date: e.target.value })}
                       className="w-full border rounded px-2 py-1 text-sm"
                       aria-invalid={!!legErrors.date}
                     />
                     {legErrors.date && (
-                      <p className="text-xs text-red-600 mt-1">
-                        {legErrors.date}
-                      </p>
+                      <p className="text-xs text-red-600 mt-1">{legErrors.date}</p>
                     )}
                   </div>
 
@@ -675,16 +681,12 @@ export default function NewBookingAdmin() {
                     <input
                       type="time"
                       value={draftLeg.start}
-                      onChange={(e) =>
-                        setDraftLeg({ ...draftLeg, start: e.target.value })
-                      }
+                      onChange={(e) => setDraftLeg({ ...draftLeg, start: e.target.value })}
                       className="w-full border rounded px-2 py-1 text-sm"
                       aria-invalid={!!legErrors.start}
                     />
                     {legErrors.start && (
-                      <p className="text-xs text-red-600 mt-1">
-                        {legErrors.start}
-                      </p>
+                      <p className="text-xs text-red-600 mt-1">{legErrors.start}</p>
                     )}
                   </div>
 
@@ -695,15 +697,11 @@ export default function NewBookingAdmin() {
                     <input
                       type="time"
                       value={draftLeg.end || ""}
-                      onChange={(e) =>
-                        setDraftLeg({ ...draftLeg, end: e.target.value })
-                      }
+                      onChange={(e) => setDraftLeg({ ...draftLeg, end: e.target.value })}
                       className="w-full border rounded px-2 py-1 text-sm"
                     />
                     {legErrors.end && (
-                      <p className="text-xs text-red-600 mt-1">
-                        {legErrors.end}
-                      </p>
+                      <p className="text-xs text-red-600 mt-1">{legErrors.end}</p>
                     )}
                   </div>
 
@@ -718,24 +716,18 @@ export default function NewBookingAdmin() {
                       onChange={(e) =>
                         setDraftLeg({
                           ...draftLeg,
-                          onSite: Math.max(
-                            0,
-                            Number(e.target.value) || 0
-                          ),
+                          onSite: Math.max(0, Number(e.target.value) || 0),
                         })
                       }
                       className="w-full border rounded px-2 py-1 text-sm"
                       aria-invalid={!!legErrors.onSite}
                     />
                     {legErrors.onSite && (
-                      <p className="text-xs text-red-600 mt-1">
-                        {legErrors.onSite}
-                      </p>
+                      <p className="text-xs text-red-600 mt-1">{legErrors.onSite}</p>
                     )}
                   </div>
                 </div>
 
-                {/* Mitten kolumn */}
                 <div className="space-y-4">
                   <div>
                     <label className="block text-sm text-[#194C66]/80 mb-1">
@@ -744,18 +736,14 @@ export default function NewBookingAdmin() {
                     <input
                       type="text"
                       value={draftLeg.from}
-                      onChange={(e) =>
-                        setDraftLeg({ ...draftLeg, from: e.target.value })
-                      }
+                      onChange={(e) => setDraftLeg({ ...draftLeg, from: e.target.value })}
                       onKeyDown={(e) => e.key === "Enter" && addLeg()}
                       className="w-full border rounded px-2 py-1 text-sm"
                       placeholder="Ange en plats"
                       aria-invalid={!!legErrors.from}
                     />
                     {legErrors.from && (
-                      <p className="text-xs text-red-600 mt-1">
-                        {legErrors.from}
-                      </p>
+                      <p className="text-xs text-red-600 mt-1">{legErrors.from}</p>
                     )}
                   </div>
 
@@ -766,9 +754,7 @@ export default function NewBookingAdmin() {
                     <input
                       type="text"
                       value={draftLeg.via}
-                      onChange={(e) =>
-                        setDraftLeg({ ...draftLeg, via: e.target.value })
-                      }
+                      onChange={(e) => setDraftLeg({ ...draftLeg, via: e.target.value })}
                       className="w-full border rounded px-2 py-1 text-sm"
                       placeholder="Ex. hållplatser / stopp"
                     />
@@ -793,14 +779,11 @@ export default function NewBookingAdmin() {
                       aria-invalid={!!legErrors.passengers}
                     />
                     {legErrors.passengers && (
-                      <p className="text-xs text-red-600 mt-1">
-                        {legErrors.passengers}
-                      </p>
+                      <p className="text-xs text-red-600 mt-1">{legErrors.passengers}</p>
                     )}
                   </div>
                 </div>
 
-                {/* Höger kolumn */}
                 <div className="space-y-4">
                   <div>
                     <label className="block text-sm text-[#194C66]/80 mb-1">
@@ -809,18 +792,14 @@ export default function NewBookingAdmin() {
                     <input
                       type="text"
                       value={draftLeg.to}
-                      onChange={(e) =>
-                        setDraftLeg({ ...draftLeg, to: e.target.value })
-                      }
+                      onChange={(e) => setDraftLeg({ ...draftLeg, to: e.target.value })}
                       onKeyDown={(e) => e.key === "Enter" && addLeg()}
                       className="w-full border rounded px-2 py-1 text-sm"
                       placeholder="Ange en plats"
                       aria-invalid={!!legErrors.to}
                     />
                     {legErrors.to && (
-                      <p className="text-xs text-red-600 mt-1">
-                        {legErrors.to}
-                      </p>
+                      <p className="text-xs text-red-600 mt-1">{legErrors.to}</p>
                     )}
                   </div>
 
@@ -844,21 +823,17 @@ export default function NewBookingAdmin() {
                 </div>
               </div>
 
-              {/* Övrig information (per leg / generellt) */}
               <div>
                 <label className="block text-sm text-[#194C66]/80 mb-1">
                   Övrig information
                 </label>
                 <textarea
                   value={draftLeg.notes}
-                  onChange={(e) =>
-                    setDraftLeg({ ...draftLeg, notes: e.target.value })
-                  }
+                  onChange={(e) => setDraftLeg({ ...draftLeg, notes: e.target.value })}
                   className="w-full border rounded px-2 py-2 min-h-[90px] text-sm"
                 />
               </div>
 
-              {/* Lägg till rad-knapp */}
               <div className="flex justify-end">
                 <button
                   type="button"
@@ -871,7 +846,6 @@ export default function NewBookingAdmin() {
               </div>
             </section>
 
-            {/* KUNDUPPGIFTER + TILLDELNING – höger */}
             <section className="bg-white rounded-xl shadow p-4 flex flex-col">
               <div className="mb-3">
                 <span className="inline-block px-3 py-1 rounded-full bg-[#111827] text-white text-[11px]">
@@ -895,9 +869,7 @@ export default function NewBookingAdmin() {
                     aria-invalid={!!step2Errors.contact}
                   />
                   {step2Errors.contact && (
-                    <p className="text-xs text-red-600 mt-1">
-                      {step2Errors.contact}
-                    </p>
+                    <p className="text-xs text-red-600 mt-1">{step2Errors.contact}</p>
                   )}
                 </div>
 
@@ -916,9 +888,7 @@ export default function NewBookingAdmin() {
                     aria-invalid={!!step2Errors.email}
                   />
                   {step2Errors.email && (
-                    <p className="text-xs text-red-600 mt-1">
-                      {step2Errors.email}
-                    </p>
+                    <p className="text-xs text-red-600 mt-1">{step2Errors.email}</p>
                   )}
                 </div>
 
@@ -937,9 +907,7 @@ export default function NewBookingAdmin() {
                     aria-invalid={!!step2Errors.phone}
                   />
                   {step2Errors.phone && (
-                    <p className="text-xs text-red-600 mt-1">
-                      {step2Errors.phone}
-                    </p>
+                    <p className="text-xs text-red-600 mt-1">{step2Errors.phone}</p>
                   )}
                 </div>
 
@@ -954,7 +922,6 @@ export default function NewBookingAdmin() {
                   />
                 </div>
 
-                {/* TILLDELNING */}
                 <div className="pt-3 border-t border-gray-100 space-y-3">
                   <div className="text-sm font-semibold text-[#194C66]">
                     Tilldelning (internt)
@@ -998,7 +965,6 @@ export default function NewBookingAdmin() {
                 </div>
               </div>
 
-              {/* Skapa-bokning-knappen */}
               <div className="mt-4 flex justify-end">
                 <button
                   type="button"
@@ -1012,7 +978,6 @@ export default function NewBookingAdmin() {
             </section>
           </div>
 
-          {/* NEDRE TABELLEN */}
           <section className="bg-white rounded-xl shadow p-4">
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
@@ -1034,9 +999,7 @@ export default function NewBookingAdmin() {
                   {legs.map((l, i) => (
                     <tr key={i} className="border-b">
                       <td className="px-3 py-2">{l.date}</td>
-                      <td className="px-3 py-2">
-                        {tidyTime(l.start) || l.start}
-                      </td>
+                      <td className="px-3 py-2">{tidyTime(l.start) || l.start}</td>
                       <td className="px-3 py-2">
                         {tidyTime(l.end || "") || l.end || "—"}
                       </td>
@@ -1049,13 +1012,9 @@ export default function NewBookingAdmin() {
                       <td className="px-3 py-2">{l.via}</td>
                       <td className="px-3 py-2">{l.to}</td>
                       <td className="px-3 py-2">
-                        {typeof l.passengers === "number"
-                          ? l.passengers
-                          : "—"}
+                        {typeof l.passengers === "number" ? l.passengers : "—"}
                       </td>
-                      <td className="px-3 py-2">
-                        {l.onboardContact || "—"}
-                      </td>
+                      <td className="px-3 py-2">{l.onboardContact || "—"}</td>
                       <td className="px-3 py-2 text-right">
                         <button
                           type="button"
@@ -1069,10 +1028,7 @@ export default function NewBookingAdmin() {
                   ))}
                   {legs.length === 0 && (
                     <tr>
-                      <td
-                        className="px-3 py-4 text-[#194C66]/60"
-                        colSpan={10}
-                      >
+                      <td className="px-3 py-4 text-[#194C66]/60" colSpan={10}>
                         Inga körningar tillagda.
                       </td>
                     </tr>
