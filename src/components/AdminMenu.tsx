@@ -96,7 +96,7 @@ export default function AdminMenu({ active }: AdminMenuProps) {
                   Skapa bokning
                 </Link>
               </li>
-              <li>
+               <li>
                 <Link href="/admin/orders/new" className={subLink}>
                   Skapa körorder
                 </Link>
@@ -112,11 +112,21 @@ export default function AdminMenu({ active }: AdminMenuProps) {
                 </Link>
               </li>
               <li>
+                <Link href="/admin/offers/calender" className={subLink}>
+                  Offertkalender
+                </Link>
+              </li>
+              <li>
                 <Link href="/admin/bookings" className={subLink}>
                   Alla bokningar
                 </Link>
               </li>
               <li>
+                <Link href="/admin/bookings/calender" className={subLink}>
+                  Bokningskalender
+                </Link>
+              </li>
+                <li>
                 <Link href="/admin/orders?scope=upcoming" className={subLink}>
                   Kommande körningar
                 </Link>

@@ -51,8 +51,8 @@ type Offer = {
 };
 
 function toIntOrNull(v: any): number | null {
-  if (typeof v === "number") return v;
-  if (v == null) return null;
+  if (typeof v === "number") return Number.isFinite(v) ? v : null;
+  if (v == null || v === "") return null;
   const n = Number(v);
   return Number.isFinite(n) ? n : null;
 }
@@ -62,7 +62,7 @@ function normalizeOffer(o: any | null | undefined): Offer | null {
   if (!o) return null;
 
   return {
-    id: o.id,
+    id: String(o.id ?? ""),
 
     offer_number: o.offer_number ?? o.offer_no ?? o.offerId ?? null,
     status: o.status ?? null,
@@ -91,7 +91,7 @@ function normalizeOffer(o: any | null | undefined): Offer | null {
     // Nya fält
     passengers: toIntOrNull(o.passengers),
     stopover_places: o.stopover_places ?? o.via ?? null,
-    extra_stops: o.stop ?? null,
+    extra_stops: o.extra_stops ?? o.stop ?? null,
     trip_kind: o.trip_kind ?? o.enkel_tur_retur ?? null,
     final_destination: o.final_destination ?? null,
     need_bus_on_site: o.need_bus_on_site ?? o.behov_er_buss ?? null,
@@ -101,9 +101,9 @@ function normalizeOffer(o: any | null | undefined): Offer | null {
     end_time: o.end_time ?? null,
     local_runs: o.local_runs ?? o.local_kor ?? null,
     standby_hours: o.standby_hours ?? o.standby ?? null,
-    parking: o.parking ?? null,
-    onboard_contact: o.onboard_contact ?? null,
-    more_trip_info: o.more_trip_info ?? o.contact_person ?? null,
+    parking: o.parkering ?? o.parking ?? null,
+    onboard_contact: o.onboard_contact ?? o.contact_person_ombord ?? null,
+    more_trip_info: o.more_trip_info ?? o.moreTripInfo ?? null,
 
     notes: o.notes ?? o.message ?? o.other_info ?? null,
   };
@@ -111,15 +111,16 @@ function normalizeOffer(o: any | null | undefined): Offer | null {
 
 /** Hämtar via vårt API (stöder både UUID och offer_number) */
 async function fetchOfferById(id: string): Promise<Offer | null> {
-  try {
-    const res = await fetch(`/api/offers/${encodeURIComponent(id)}`);
-    if (!res.ok) return null;
-    const json = await res.json().catch(() => null);
-    const raw = json?.offer ?? json;
-    return normalizeOffer(raw);
-  } catch {
-    return null;
+  const res = await fetch(`/api/offers/${encodeURIComponent(id)}`);
+  const json = await res.json().catch(() => ({} as any));
+
+  if (!res.ok) {
+    // Viktigt: visa exakt API-felet i UI
+    throw new Error(json?.error || `HTTP ${res.status}`);
   }
+
+  const raw = json?.offer ?? json;
+  return normalizeOffer(raw);
 }
 
 export default function AdminOfferDetail() {
@@ -132,27 +133,33 @@ export default function AdminOfferDetail() {
   const [creating, setCreating] = useState(false);
 
   useEffect(() => {
-    if (!id) return;
+    if (!router.isReady || !id) return;
+
     let cancelled = false;
+
     (async () => {
       try {
         setLoading(true);
         setError(null);
+
         const off = await fetchOfferById(id);
         if (cancelled) return;
+
         if (!off) throw new Error("Kunde inte hämta offerten (API).");
         setOffer(off);
       } catch (e: any) {
+        if (cancelled) return;
         setError(e?.message || "Kunde inte hämta offerten");
         setOffer(null);
       } finally {
         if (!cancelled) setLoading(false);
       }
     })();
+
     return () => {
       cancelled = true;
     };
-  }, [id]);
+  }, [router.isReady, id]);
 
   const titleSuffix = offer?.offer_number ? ` (${offer.offer_number})` : "";
   const hasReturn =
@@ -162,8 +169,7 @@ export default function AdminOfferDetail() {
       offer?.return_time);
 
   // OfferCalculator behöver dessa tre:
-  // Viktigt: använd offertnumret som id mot /api/offers/[id]/quote,
-  // eftersom API:t sannolikt letar på offer_number, inte UUID.
+  // Använd offer_number som "id" mot quote-API om den finns.
   const calculatorProps =
     offer && (offer.offer_number || offer.contact_email)
       ? {
@@ -203,13 +209,11 @@ export default function AdminOfferDetail() {
         <Header />
 
         <main className="p-6 space-y-6">
-          {/* Titelrad – samma stil som Skapa offert */}
+          {/* Titelrad */}
           <div className="flex items-center justify-between">
             <h1 className="text-xl font-semibold text-[#194C66]">
               Besvara offert
-              <span className="text-[#194C66]/60 font-normal">
-                {titleSuffix}
-              </span>
+              <span className="text-[#194C66]/60 font-normal">{titleSuffix}</span>
             </h1>
 
             {offer && (
@@ -217,9 +221,7 @@ export default function AdminOfferDetail() {
                 onClick={createBookingFromOffer}
                 disabled={creating}
                 className={`px-4 py-2 rounded-[25px] text-sm text-white ${
-                  creating
-                    ? "bg-gray-400 cursor-not-allowed"
-                    : "bg-[#111827] hover:bg-black"
+                  creating ? "bg-gray-400 cursor-not-allowed" : "bg-[#111827] hover:bg-black"
                 }`}
               >
                 {creating ? "Skapar…" : "Skapa bokning"}
@@ -227,7 +229,7 @@ export default function AdminOfferDetail() {
             )}
           </div>
 
-          {/* Felmeddelanden / laddning */}
+          {/* Laddning / fel */}
           {loading && (
             <div className="rounded-lg bg-white shadow p-4 text-sm text-[#194C66]">
               Laddar offert…
@@ -248,9 +250,9 @@ export default function AdminOfferDetail() {
 
           {!loading && offer && (
             <>
-              {/* Övre rader – Offert / Kund / Reseinfo / Plats & logistik */}
+              {/* Övre rader */}
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-                {/* Offert – vänster kort */}
+                {/* Offert */}
                 <section className="bg-white rounded-xl shadow p-4 space-y-2">
                   <div className="mb-1">
                     <span className="inline-block px-3 py-1 rounded-full bg-[#111827] text-white text-[11px]">
@@ -277,7 +279,7 @@ export default function AdminOfferDetail() {
                   </div>
                 </section>
 
-                {/* Kund – höger kort uppe */}
+                {/* Kund */}
                 <section className="bg-white rounded-xl shadow p-4 space-y-2 lg:col-span-2">
                   <div className="mb-1">
                     <span className="inline-block px-3 py-1 rounded-full bg-[#111827] text-white text-[11px]">
@@ -301,9 +303,7 @@ export default function AdminOfferDetail() {
                     </div>
                     <div>
                       <div>
-                        <span className="font-semibold">
-                          Företag / förening:
-                        </span>{" "}
+                        <span className="font-semibold">Företag / förening:</span>{" "}
                         {offer.company_name || "—"}
                       </div>
                       <div>
@@ -311,9 +311,7 @@ export default function AdminOfferDetail() {
                         {offer.po_reference || "—"}
                       </div>
                       <div>
-                        <span className="font-semibold">
-                          Organisationsnummer:
-                        </span>{" "}
+                        <span className="font-semibold">Organisationsnummer:</span>{" "}
                         {offer.org_number || "—"}
                       </div>
                     </div>
@@ -371,9 +369,7 @@ export default function AdminOfferDetail() {
                   </div>
                   <div className="text-sm text-[#194C66] space-y-1">
                     <div>
-                      <span className="font-semibold">
-                        Behöver ni bussen på plats?
-                      </span>{" "}
+                      <span className="font-semibold">Behöver ni bussen på plats?</span>{" "}
                       {offer.need_bus_on_site || "—"}
                     </div>
                     <div>
@@ -381,15 +377,11 @@ export default function AdminOfferDetail() {
                       {offer.site_notes || "—"}
                     </div>
                     <div>
-                      <span className="font-semibold">
-                        Basplats på destinationen:
-                      </span>{" "}
+                      <span className="font-semibold">Basplats på destinationen:</span>{" "}
                       {offer.base_at_destination || "—"}
                     </div>
                     <div>
-                      <span className="font-semibold">
-                        Sista dagen (på plats):
-                      </span>{" "}
+                      <span className="font-semibold">Sista dagen (på plats):</span>{" "}
                       {offer.last_day_on_site || "—"}
                     </div>
                     <div>
@@ -401,15 +393,11 @@ export default function AdminOfferDetail() {
                       {offer.local_runs || "—"}
                     </div>
                     <div>
-                      <span className="font-semibold">
-                        Väntetid / standby (timmar):
-                      </span>{" "}
+                      <span className="font-semibold">Väntetid / standby (timmar):</span>{" "}
                       {offer.standby_hours || "—"}
                     </div>
                     <div>
-                      <span className="font-semibold">
-                        Parkering & tillstånd:
-                      </span>{" "}
+                      <span className="font-semibold">Parkering & tillstånd:</span>{" "}
                       {offer.parking || "—"}
                     </div>
                   </div>
@@ -472,7 +460,7 @@ export default function AdminOfferDetail() {
                 </div>
               </section>
 
-              {/* Kalkyl & prisförslag – ny, mer designad box */}
+              {/* Kalkyl & prisförslag */}
               <section className="bg-white rounded-xl shadow p-4 space-y-3">
                 <div className="flex items-center justify-between">
                   <div>
@@ -483,9 +471,8 @@ export default function AdminOfferDetail() {
                     </div>
                     <p className="text-xs text-[#194C66]/70 max-w-xl">
                       Räkna fram pris, spara som utkast eller skicka ett färdigt
-                      prisförslag direkt till kunden. Uppgifterna nedan
-                      sparas på offerten och används även i offertsidan som
-                      kunden ser.
+                      prisförslag direkt till kunden. Uppgifterna nedan sparas
+                      på offerten och används även i offertsidan som kunden ser.
                     </p>
                   </div>
                 </div>
@@ -508,4 +495,9 @@ export default function AdminOfferDetail() {
       </div>
     </>
   );
+}
+
+// Tvinga SSR (bra när du har dynamiska admin-sidor)
+export async function getServerSideProps() {
+  return { props: {} };
 }

@@ -1,3 +1,4 @@
+// src/pages/api/bookings/[id].ts
 import type { NextApiRequest, NextApiResponse } from "next";
 import * as admin from "@/lib/supabaseAdmin";
 
@@ -9,7 +10,14 @@ const supabase =
 type JsonError = { error: string };
 
 function isUUID(s: string) {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(s || "");
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+    s || ""
+  );
+}
+
+// Om du vill stödja "BK123..." också (rekommenderas)
+function looksLikeBookingNo(s: string) {
+  return /^BK\d{3,}$/i.test(s || "");
 }
 
 function pickLabel(row: any): string | null {
@@ -30,18 +38,11 @@ function pickLabel(row: any): string | null {
 async function safeLookup(table: string, id: string): Promise<string | null> {
   if (!supabase || !id) return null;
   try {
-    const base = supabase.from(table).select("*").eq("id", id);
-    const hasMaybeSingle = "maybeSingle" in (base as any);
-
-    if (hasMaybeSingle) {
-      const { data, error } = await (base as any).maybeSingle();
-      if (error) return null;
-      return pickLabel(data);
-    } else {
-      const r = await base.single();
-      if (r.error) return null;
-      return pickLabel(r.data);
-    }
+    // INTE single() här heller – ta max 1 rad
+    const { data, error } = await supabase.from(table).select("*").eq("id", id).limit(1);
+    if (error) return null;
+    const row = Array.isArray(data) ? data[0] : null;
+    return pickLabel(row);
   } catch {
     return null;
   }
@@ -51,33 +52,62 @@ function toNull(v: any) {
   return v === "" || v === undefined ? null : v;
 }
 
-export default async function handler(
-  req: NextApiRequest,
-  res: NextApiResponse<any | JsonError>
-) {
+function toNumOrNull(v: any): number | null {
+  if (v === "" || v === undefined || v === null) return null;
+  const n = typeof v === "number" ? v : Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+/**
+ * Hämtar 0-2 rader för att undvika PostgREST "Cannot coerce..."
+ * och för att kunna hantera ev. dubletter utan att krascha.
+ */
+async function getBookingBy(keyCol: "id" | "booking_number", id: string) {
+  const { data, error } = await supabase
+    .from("bookings")
+    .select("*")
+    .eq(keyCol, id)
+    .limit(2);
+
+  if (error) throw error;
+  const rows = Array.isArray(data) ? data : [];
+  return rows;
+}
+
+export default async function handler(req: NextApiRequest, res: NextApiResponse<any | JsonError>) {
   try {
     if (!supabase) {
       return res.status(500).json({ error: "Supabase-admin är inte korrekt initierad." });
     }
 
     const rawId = Array.isArray(req.query.id) ? req.query.id[0] : req.query.id;
-    const id = String(rawId || "").trim();
-    if (!id) return res.status(400).json({ error: "Saknar id" });
+    const idRaw = String(rawId || "").trim();
+    if (!idRaw) return res.status(400).json({ error: "Saknar id" });
 
-    const keyCol = isUUID(id) ? "id" : "booking_number";
+    // SUPERVIKTIGT: Om Next råkar route:a /api/bookings/calender till [id]
+    // så ska vi INTE försöka köra single/uuid osv.
+    const lower = idRaw.toLowerCase();
+    if (lower === "calender" || lower === "calendar") {
+      return res.status(404).json({ error: "Not found" });
+    }
+
+    // Avgör kolumn
+    // - UUID => id
+    // - annars booking_number (t.ex. BKxxxxx)
+    // - annars fallback booking_number (tolerant)
+    const keyCol: "id" | "booking_number" = isUUID(idRaw)
+      ? "id"
+      : "booking_number";
 
     // -------- GET --------
     if (req.method === "GET") {
-      const q = supabase.from("bookings").select("*");
-      const { data, error } = await q.eq(keyCol, id).single();
+      const rows = await getBookingBy(keyCol, idRaw);
 
-      if (error) {
-        const msg = String(error.message || "");
-        if (/0 rows|Results contain 0 rows|No rows/i.test(msg)) {
-          return res.status(404).json({ error: "Bokning hittades inte" });
-        }
-        throw error;
+      if (rows.length === 0) {
+        return res.status(404).json({ error: "Bokning hittades inte" });
       }
+
+      const data = rows[0];
 
       const driver_label = data?.assigned_driver_id
         ? await safeLookup("drivers", String(data.assigned_driver_id))
@@ -87,29 +117,36 @@ export default async function handler(
         ? await safeLookup("vehicles", String(data.assigned_vehicle_id))
         : null;
 
-      return res.status(200).json({ ok: true, booking: data, driver_label, vehicle_label });
+      // OBS: om rows.length > 1 betyder det dublett i DB på booking_number.
+      // Vi kraschar inte – vi tar första.
+      return res.status(200).json({
+        ok: true,
+        booking: data,
+        driver_label,
+        vehicle_label,
+        duplicate_warning: rows.length > 1 ? true : undefined,
+      });
     }
 
     // -------- PUT (update) --------
     if (req.method === "PUT") {
       const p = req.body ?? {};
 
-      // whitelista fält du vill tillåta att redigera
-      const update = {
+      const update: Record<string, any> = {
         status: toNull(p.status),
 
         contact_person: toNull(p.contact_person),
         customer_email: toNull(p.customer_email),
         customer_phone: toNull(p.customer_phone),
 
-        passengers: p.passengers === "" || p.passengers === undefined ? null : p.passengers,
+        passengers: toNumOrNull(p.passengers),
 
         departure_place: toNull(p.departure_place),
         destination: toNull(p.destination),
         departure_date: toNull(p.departure_date),
         departure_time: toNull(p.departure_time),
         end_time: toNull(p.end_time),
-        on_site_minutes: p.on_site_minutes === "" || p.on_site_minutes === undefined ? null : p.on_site_minutes,
+        on_site_minutes: toNumOrNull(p.on_site_minutes),
         stopover_places: toNull(p.stopover_places),
 
         return_departure: toNull(p.return_departure),
@@ -117,43 +154,65 @@ export default async function handler(
         return_date: toNull(p.return_date),
         return_time: toNull(p.return_time),
         return_end_time: toNull(p.return_end_time),
-        return_on_site_minutes:
-          p.return_on_site_minutes === "" || p.return_on_site_minutes === undefined ? null : p.return_on_site_minutes,
+        return_on_site_minutes: toNumOrNull(p.return_on_site_minutes),
 
         notes: toNull(p.notes),
 
         assigned_driver_id: toNull(p.assigned_driver_id),
         assigned_vehicle_id: toNull(p.assigned_vehicle_id),
 
-        total_price: p.total_price === "" || p.total_price === undefined ? null : p.total_price,
+        total_price: toNumOrNull(p.total_price),
 
         updated_at: new Date().toISOString(),
-      } as Record<string, any>;
+      };
 
+      // 1) Hämta först en rad (så vi får ett säkert uuid-id att uppdatera)
+      const rows = await getBookingBy(keyCol, idRaw);
+      if (rows.length === 0) {
+        return res.status(404).json({ error: "Bokning hittades inte" });
+      }
+      const row = rows[0];
+      const realId = String(row.id);
+
+      // 2) Uppdatera på uuid (alltid säkrast)
       const { data, error } = await supabase
         .from("bookings")
         .update(update)
-        .eq(keyCol, id)
+        .eq("id", realId)
         .select("*")
-        .single();
+        .limit(1);
 
       if (error) throw error;
-      return res.status(200).json({ ok: true, booking: data });
+
+      const updated = Array.isArray(data) ? data[0] : null;
+      if (!updated) return res.status(500).json({ error: "Kunde inte spara (ingen rad returnerades)" });
+
+      return res.status(200).json({ ok: true, booking: updated });
     }
 
     // -------- DELETE --------
     if (req.method === "DELETE") {
+      // samma logik: hitta riktig uuid först
+      const rows = await getBookingBy(keyCol, idRaw);
+      if (rows.length === 0) {
+        return res.status(404).json({ error: "Bokning hittades inte" });
+      }
+      const realId = String(rows[0].id);
+
       const { data, error } = await supabase
         .from("bookings")
         .delete()
-        .eq(keyCol, id)
+        .eq("id", realId)
         .select("id")
-        .single();
+        .limit(1);
 
       if (error) throw error;
-      return res.status(200).json({ ok: true, deleted: data });
+
+      const deleted = Array.isArray(data) ? data[0] : null;
+      return res.status(200).json({ ok: true, deleted });
     }
 
+    res.setHeader("Allow", "GET,PUT,DELETE");
     return res.status(405).json({ error: "Method not allowed" });
   } catch (e: any) {
     console.error("/api/bookings/[id] error:", e?.message || e);
