@@ -365,21 +365,11 @@ export default function AdminMenu({ active }: AdminMenuProps) {
           {open === "economy" && (
             <ul className="mt-2 ml-3 border-l border-gray-100 pl-3 space-y-1">
               <li>
-                <Link href="#" className={subLink}>
+                <Link href="/admin/economy" className={subLink}>
                   Intäkter &amp; utgifter
                 </Link>
               </li>
-              <li>
-                <Link href="#" className={subLink}>
-                  Priser &amp; rabatter
-                </Link>
-              </li>
-              <li>
-                <Link href="#" className={subLink}>
-                  Export / bokföring
-                </Link>
-              </li>
-            </ul>
+                          </ul>
           )}
         </div>
 

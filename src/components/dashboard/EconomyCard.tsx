@@ -22,21 +22,11 @@ const ZERO_TOTALS: StatsTotals = {
   booking_done_amount: 0,
 };
 
-// ✅ Viktigt: Supabase numeric kan komma som string -> vi normaliserar allt till number
-function toNumber(v: unknown): number {
+const toNum = (v: any) => {
   if (typeof v === "number") return Number.isFinite(v) ? v : 0;
-  if (v == null) return 0;
-
-  // Rensa vanliga varianter: "12 345,67", "12345.67", "12 345 kr", "SEK"
-  const cleaned = String(v)
-    .replace(/\s/g, "")
-    .replace(/kr/gi, "")
-    .replace(/sek/gi, "")
-    .replace(",", ".");
-
-  const n = Number(cleaned);
+  const n = Number(v ?? 0);
   return Number.isFinite(n) ? n : 0;
-}
+};
 
 const formatAmount = (value: number) =>
   value.toLocaleString("sv-SE", {
@@ -53,13 +43,13 @@ export default function EconomyCard({
 }: Props) {
   const t = totals ?? ZERO_TOTALS;
 
-  // 🔹 Data för kortet (normaliserat)
-  const soldTickets = toNumber((t as any).booking_done_count);     // "sålda biljetter"
-  const bookedCount = toNumber((t as any).booking_booked_count);   // antal bokade
-  const revenue = toNumber((t as any).booking_done_amount);        // intäkter (genomförda)
+  // 🔹 Data för kortet (tvinga number så TS är glad)
+  const soldTickets = toNum(t.booking_done_count);
+  const bookedCount = toNum(t.booking_booked_count);
+  const revenue = toNum(t.booking_done_amount);
 
   const bars = useMemo(() => {
-    const values: number[] = [soldTickets, bookedCount, revenue];
+    const values = [soldTickets, bookedCount, revenue].map(toNum);
     const max = Math.max(1, ...values);
 
     return [
@@ -125,10 +115,7 @@ export default function EconomyCard({
                   <div key={b.key} className="flex flex-col items-center justify-end flex-1">
                     <div
                       className="w-10 rounded-t-md"
-                      style={{
-                        height: `${h}px`,
-                        backgroundColor: b.color,
-                      }}
+                      style={{ height: `${h}px`, backgroundColor: b.color }}
                     />
                     <span className="mt-2 text-xs text-[#6B7280] text-center leading-tight">
                       {b.label}
@@ -138,19 +125,19 @@ export default function EconomyCard({
               })}
             </div>
 
-            {/* Sammanfattning under grafen */}
+            {/* Sammanfattning */}
             <dl className="mt-4 space-y-1 text-sm">
               <div className="flex items-baseline justify-between gap-4">
                 <dt className="text-[#194C66]">Sålda biljetter</dt>
                 <dd className="font-semibold text-[#2E7D32]">
-                  {soldTickets.toLocaleString("sv-SE")}
+                  {Math.round(soldTickets).toLocaleString("sv-SE")}
                 </dd>
               </div>
 
               <div className="flex items-baseline justify-between gap-4">
                 <dt className="text-[#194C66]">Antal bokade</dt>
                 <dd className="font-semibold text-[#1D4ED8]">
-                  {bookedCount.toLocaleString("sv-SE")}
+                  {Math.round(bookedCount).toLocaleString("sv-SE")}
                 </dd>
               </div>
 
