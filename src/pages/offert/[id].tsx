@@ -2,7 +2,6 @@
 import type { GetServerSideProps, NextPage } from "next";
 import Head from "next/head";
 import supabase from "@/lib/supabaseAdmin";
-import { verifyOfferToken, type OfferTokenPayload } from "@/lib/offerToken";
 
 // Kundkomponenter
 import OfferInkommen from "@/components/offers/OfferInkommen";
@@ -99,6 +98,12 @@ type Props = {
   viewOverride: string | null;
 };
 
+function isUuid(s: string) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+    s
+  );
+}
+
 const Page: NextPage<Props> = ({ offer, auth, viewOverride }) => {
   const statusRaw = (() => {
     const base = (viewOverride || offer?.status || "").toLowerCase();
@@ -127,7 +132,7 @@ const Page: NextPage<Props> = ({ offer, auth, viewOverride }) => {
               Åtkomst nekad
             </h1>
             <p className="text-gray-600">
-              Ogiltig eller saknad token för visning av offert.
+              Tekniskt fel eller saknad behörighet för att visa offerten.
             </p>
           </div>
         </div>
@@ -191,13 +196,6 @@ const Page: NextPage<Props> = ({ offer, auth, viewOverride }) => {
   );
 };
 
-// helper: avgör om slug är UUID (för att undvika uuid-fel i DB)
-function isUuid(s: string) {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
-    s
-  );
-}
-
 export const getServerSideProps: GetServerSideProps<Props> = async (ctx) => {
   const slug = String(ctx.params?.id ?? "").trim();
   const q = ctx.query || {};
@@ -221,92 +219,12 @@ export const getServerSideProps: GetServerSideProps<Props> = async (ctx) => {
     };
   }
 
-  // ===== 1) Hämta offerten på RÄTT sätt (undvik id.eq.HBxxxxx) =====
-  const fields = [
-    "id",
-    "offer_number",
-    "status",
+  // ✅ NYTT: Om token är UUID => hämta på id=token.
+  // Annars: hämta på id=slug om slug är UUID, annars offer_number=slug.
+  const lookupId = isUuid(token) ? token : isUuid(slug) ? slug : null;
 
-    // datum
-    "offer_date",
-    "created_at",
-
-    // pris
-    "amount_ex_vat",
-    "vat_amount",
-    "total_amount",
-    "vat_breakdown",
-
-    // kund
-    "customer_number",
-    "contact_person",
-    "customer_email",
-    "customer_phone",
-    "contact_email",
-    "contact_phone",
-    "customer_reference",
-    "internal_reference",
-    "customer_address",
-
-    // resa – huvud
-    "trip_type",
-    "round_trip",
-    "departure_place",
-    "destination",
-    "final_destination",
-    "departure_date",
-    "departure_time",
-    "via",
-    "stop",
-    "passengers",
-
-    // resa – tider
-    "on_site_time",
-    "on_site_minutes",
-    "end_time",
-
-    // retur
-    "return_departure",
-    "return_destination",
-    "return_date",
-    "return_time",
-    "return_on_site_time",
-    "return_on_site_minutes",
-    "return_end_time",
-
-    // chaufför / fordon / buss
-    "driver_name",
-    "driver_phone",
-    "return_driver_name",
-    "return_driver_phone",
-    "vehicle_reg",
-    "vehicle_model",
-    "return_vehicle_reg",
-    "return_vehicle_model",
-    "bus_name",
-    "bus_reg",
-
-    // övrigt
-    "notes",
-    "payment_terms",
-
-    // trafikledning
-    "ops_message",
-    "ops_comment",
-    "traffic_comment",
-
-    // multi-leg
-    "legs",
-
-    // kundens godkännande
-    "customer_approved",
-    "customer_approved_at",
-  ].join(",");
-
-  let query = supabase.from("offers").select(fields).limit(1);
-
-  // Om slug är UUID -> sök på id, annars sök på offer_number
-  query = isUuid(slug) ? query.eq("id", slug) : query.eq("offer_number", slug);
+  let query = supabase.from("offers").select("*").limit(1);
+  query = lookupId ? query.eq("id", lookupId) : query.eq("offer_number", slug);
 
   const { data, error } = await query.maybeSingle();
 
@@ -322,72 +240,10 @@ export const getServerSideProps: GetServerSideProps<Props> = async (ctx) => {
 
   const offer = (data ?? null) as OfferRow | null;
 
-  // Om offerten inte finns -> låt UI visa "Offert saknas"
-  if (!offer) {
-    return {
-      props: {
-        offer: null,
-        auth: { ok: true },
-        viewOverride,
-      },
-    };
-  }
-
-  // 2) Du har valt att släppa igenom även utan token
-  if (!token) {
-    return {
-      props: {
-        offer,
-        auth: { ok: true },
-        viewOverride,
-      },
-    };
-  }
-
-  // 3) Token finns: Försök JWT-verifiering. Om den failar -> IGNORERA token (så den inte blockerar kunden).
-  let payload: OfferTokenPayload | null = null;
-  try {
-    payload = (await verifyOfferToken(token)) as any;
-  } catch {
-    payload = null;
-  }
-
-  // Om JWT var giltig: då måste den matcha denna offert (annars neka)
-  if (payload) {
-    const p: any = payload;
-
-    const payloadId = p.offerId ?? p.offer_id ?? p.id ?? null;
-    const payloadNo = p.offerNumber ?? p.offer_number ?? p.no ?? null;
-
-    const matches =
-      (payloadId && String(payloadId) === offer.id) ||
-      (payloadNo &&
-        String(payloadNo).toUpperCase() === offer.offer_number.toUpperCase());
-
-    if (!matches) {
-      return {
-        props: {
-          offer: null,
-          auth: { ok: false, reason: "forbidden" },
-          viewOverride,
-        },
-      };
-    }
-
-    return {
-      props: {
-        offer,
-        auth: { ok: true },
-        viewOverride,
-      },
-    };
-  }
-
-  // JWT var inte giltig: IGNORERA token så det inte blockerar.
   return {
     props: {
       offer,
-      auth: { ok: true, reason: "ignored-invalid-token" },
+      auth: { ok: true },
       viewOverride,
     },
   };
