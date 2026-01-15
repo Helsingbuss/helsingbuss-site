@@ -20,7 +20,6 @@ function pick(body: any, ...keys: string[]): string | undefined {
 function isValidEmail(value: string | undefined | null): boolean {
   if (!value) return false;
   const s = String(value).trim();
-  // Väldigt enkel men räcker gott här
   const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   return re.test(s);
 }
@@ -31,15 +30,14 @@ function isValidEmail(value: string | undefined | null): boolean {
  * 2) Om dessa inte är giltiga → sök igenom ALLA värden i rawBody
  */
 function extractCustomerEmail(rawBody: any): string | undefined {
-  // 1) Direkt via kända keys
   const directCandidate =
-    pick(rawBody, "customer_email", "email", "kund_email") || rawBody?.customer_email;
+    pick(rawBody, "customer_email", "email", "kund_email") ||
+    rawBody?.customer_email;
 
   if (isValidEmail(directCandidate)) {
     return String(directCandidate).trim();
   }
 
-  // 2) Fallback: leta efter första strängvärde som ser ut som e-post
   if (rawBody && typeof rawBody === "object") {
     for (const [key, val] of Object.entries(rawBody)) {
       if (typeof val !== "string") continue;
@@ -104,11 +102,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     const rawBody: any =
       typeof req.body === "string" ? JSON.parse(req.body) : req.body || {};
 
-    // ===== HÄMTA E-POST PÅ ETT ROBUST SÄTT =====
     const customerEmail = extractCustomerEmail(rawBody);
 
     if (!customerEmail) {
-      // Ingen giltig e-post hittad – vi loggar men blockerar inte offerten.
       console.warn(
         "[offert/create] Ingen giltig kund-e-post hittades – skickar bara adminmail.",
         {
@@ -117,8 +113,6 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         }
       );
     }
-
-    /** ===== HÄMTA ÖVRIGA FÄLT FRÅN FORMULÄR ===== */
 
     const contactPerson =
       pick(
@@ -129,41 +123,27 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         "namn_efternamn"
       ) || null;
 
-    const customerPhone =
-      pick(rawBody, "customer_phone", "telefon", "phone") || null;
+    const customerPhone = pick(rawBody, "customer_phone", "telefon", "phone") || null;
 
     const company =
-      pick(
-        rawBody,
-        "foretag_forening",
-        "företag_förening",
-        "company",
-        "företag_förening"
-      ) || null;
+      pick(rawBody, "foretag_forening", "företag_förening", "company", "företag_förening") ||
+      null;
 
-    const orgNumber =
-      pick(rawBody, "org_number", "orgnr", "org_nummer") || null;
+    const orgNumber = pick(rawBody, "org_number", "orgnr", "org_nummer") || null;
 
-    const fromPlace =
-      pick(rawBody, "departure_place", "from", "avresa") || null;
-    const toPlace =
-      pick(rawBody, "destination", "to", "destinationen") || null;
+    const fromPlace = pick(rawBody, "departure_place", "from", "avresa") || null;
+    const toPlace = pick(rawBody, "destination", "to", "destinationen") || null;
 
     const via = pick(rawBody, "via") || null;
     const stop = pick(rawBody, "stop") || null;
 
-    const departureDate =
-      pick(rawBody, "departure_date", "date", "datum") || null;
-    const departureTime =
-      pick(rawBody, "departure_time", "time", "tid") || null;
+    const departureDate = pick(rawBody, "departure_date", "date", "datum") || null;
+    const departureTime = pick(rawBody, "departure_time", "time", "tid") || null;
 
-    const enkelTurRetur =
-      pick(rawBody, "enkel_tur_retur", "typ_av_resa") || null;
+    const enkelTurRetur = pick(rawBody, "enkel_tur_retur", "typ_av_resa") || null;
 
-    const returnDeparture =
-      pick(rawBody, "return_departure", "retur_fran") || null;
-    const finalDestination =
-      pick(rawBody, "final_destination", "slutdestination") || null;
+    const returnDeparture = pick(rawBody, "return_departure", "retur_fran") || null;
+    const finalDestination = pick(rawBody, "final_destination", "slutdestination") || null;
     const returnDate = pick(rawBody, "return_date") || null;
     const returnTime = pick(rawBody, "return_time") || null;
 
@@ -171,19 +151,16 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     const behoverBuss = parseBool(behoverBussRaw);
 
     const notisPaPlats = pick(rawBody, "notis_pa_plats") || null;
-    const basplatsPaDestination =
-      pick(rawBody, "basplats_pa_destination") || null;
+    const basplatsPaDestination = pick(rawBody, "basplats_pa_destination") || null;
 
     const endTime = pick(rawBody, "end_time") || null;
     const localKor = pick(rawBody, "local_kor") || null;
     const standby = pick(rawBody, "standby") || null;
     const parkering = pick(rawBody, "parkering") || null;
 
-    const referensPo =
-      pick(rawBody, "Referens_PO_nummer", "referens_po_nummer") || null;
+    const referensPo = pick(rawBody, "Referens_PO_nummer", "referens_po_nummer") || null;
 
-    const passengersRaw =
-      pick(rawBody, "passengers", "pax", "antal_resenarer") || undefined;
+    const passengersRaw = pick(rawBody, "passengers", "pax", "antal_resenarer") || undefined;
     const passengers =
       passengersRaw != null && !Number.isNaN(Number(passengersRaw))
         ? Number(passengersRaw)
@@ -192,10 +169,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     const notes =
       pick(rawBody, "notes", "noteringar", "message", "meddelande") || null;
 
-    /** ===== skapa offertnummer ===== */
     const offerNumber = await getNextOfferNumber();
 
-    /** ===== INSERT: ENDAST KOLUMNER SOM FINNS I TABELLEN ===== */
     const insertPayload: any = {
       offer_number: offerNumber,
 
@@ -234,9 +209,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     const { data, error } = await supabaseAdmin
       .from("offers")
       .insert(insertPayload)
-      .select(
-        "id, offer_number, departure_place, destination, departure_date, departure_time, passengers"
-      )
+      .select("id, offer_number, departure_place, destination, departure_date, departure_time, passengers")
       .single();
 
     if (error) {
@@ -251,9 +224,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     const finalOfferNumber: string = created.offer_number || offerNumber;
     const offerId = String(created.id);
 
-    /** ===== Bygg kundlänk med token ===== */
+    /** ===== Bygg kundlänk med JWT-token (RÄTT) ===== */
     const token = signOfferToken({
-      id: offerId,
+      offerId,
       offerNumber: finalOfferNumber,
     });
 
@@ -263,9 +236,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       "https://kund.helsingbuss.se";
 
     const cleanBase = baseCustomerUrl.replace(/\/+$/, "");
+
+    // ✅ PATH ska vara HBxxxxx (inte UUID)
+    // ✅ Skicka både token och t (bakåtkompatibilitet)
     const customerLink = `${cleanBase}/offert/${encodeURIComponent(
-      offerId
-    )}?token=${encodeURIComponent(token)}`;
+      finalOfferNumber
+    )}?token=${encodeURIComponent(token)}&t=${encodeURIComponent(token)}`;
 
     /** ===== mail till admin ===== */
     try {
@@ -284,7 +260,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       console.error("sendOfferMail error:", (err as any)?.message || err);
     }
 
-    /** ===== kvittens till kund (endast om vi hittade en giltig e-post) ===== */
+    /** ===== kvittens till kund ===== */
     if (customerEmail && isValidEmail(customerEmail)) {
       try {
         await sendCustomerReceipt({
@@ -298,10 +274,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           link: customerLink,
         });
       } catch (err) {
-        console.error(
-          "sendCustomerReceipt error:",
-          (err as any)?.message || err
-        );
+        console.error("sendCustomerReceipt error:", (err as any)?.message || err);
       }
     } else {
       console.warn(

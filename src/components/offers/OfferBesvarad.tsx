@@ -97,6 +97,16 @@ export default function OfferBesvarad({ offer }: any) {
   // --- actions-state & handlers
   const [busy, setBusy] = useState<"accept" | "decline" | "change" | null>(null);
 
+  // ✅ FIX: behåll token när vi skickar kunden vidare mellan vyer
+  function getAuthQueryFromUrl() {
+    if (typeof window === "undefined") return "";
+    const sp = new URLSearchParams(window.location.search);
+    const t = sp.get("token") || sp.get("t");
+    if (!t) return "";
+    // Behåll båda för bakåtkompatibilitet
+    return `&token=${encodeURIComponent(t)}&t=${encodeURIComponent(t)}`;
+  }
+
   async function postWithFallback(
     pathWithId: string,
     fallbackPath: string,
@@ -163,10 +173,13 @@ export default function OfferBesvarad({ offer }: any) {
       const booking = await createBookingFromOffer();
 
       // 3) Skicka kunden till "godkänd"-vyn (inkl. boknings-ID om vi har det)
-      const q = booking?.id
+      const qBase = booking?.id
         ? `?view=godkand&bk=${encodeURIComponent(booking.id)}`
         : `?view=godkand`;
-      window.location.href = `/offert/${offer.offer_number}${q}`;
+
+      // ✅ FIX: lägg på token/t om det finns i URL:en
+      const auth = getAuthQueryFromUrl();
+      window.location.href = `/offert/${offer.offer_number}${qBase}${auth}`;
     } catch (e: any) {
       alert(e?.message || "Tekniskt fel vid godkännande.");
     } finally {
@@ -196,7 +209,10 @@ export default function OfferBesvarad({ offer }: any) {
         const j = await res.json().catch(() => ({}));
         throw new Error(j?.error || `Kunde inte avböja (HTTP ${res.status})`);
       }
-      window.location.href = `/offert/${offer.offer_number}?view=avbojd`;
+
+      // ✅ FIX: behåll token/t även här
+      const auth = getAuthQueryFromUrl();
+      window.location.href = `/offert/${offer.offer_number}?view=avbojd${auth}`;
     } catch (e: any) {
       alert(e?.message || "Tekniskt fel vid avböj.");
     } finally {
@@ -458,9 +474,7 @@ export default function OfferBesvarad({ offer }: any) {
                       label="Moms"
                       enkel={money(breakdown?.legs?.[0]?.vat ?? totals.vat)}
                       retur={
-                        roundTrip
-                          ? money(breakdown?.legs?.[1]?.vat)
-                          : undefined
+                        roundTrip ? money(breakdown?.legs?.[1]?.vat) : undefined
                       }
                     />
                     <Row
