@@ -14,16 +14,22 @@ const LINE_HEIGHT = 1.5;
 
 // --- helpers
 type Breakdown = {
-  grandExVat: number;
-  grandVat: number;
-  grandTotal: number;
+  grandExVat?: number;
+  grandVat?: number;
+  grandTotal?: number;
   serviceFeeExVat?: number;
-  legs?: { subtotExVat: number; vat: number; total: number }[];
+  legs?: any[];
 };
 
+// ✅ HELA KRONOR (inga ören)
 function money(n?: number | null) {
   if (n == null) return "—";
-  return n.toLocaleString("sv-SE", { style: "currency", currency: "SEK" });
+  const rounded = Math.round(Number(n));
+  return new Intl.NumberFormat("sv-SE", {
+    style: "currency",
+    currency: "SEK",
+    maximumFractionDigits: 0,
+  }).format(rounded);
 }
 
 function v(x: any, fallback = "—") {
@@ -38,38 +44,13 @@ export default function OfferBesvarad({ offer }: any) {
       offer?.return_date ??
       offer?.return_time ??
       offer?.return_departure ??
-      offer?.return_destination ??
-      offer?.return_from ??
-      offer?.return_to
+      offer?.return_destination
   );
 
   const withinSweden = (offer?.trip_type || "sverige") !== "utrikes";
 
-  // ✅ Email: kunden ska vara primary
   const email: string | undefined =
-    offer?.customer_email ||
-    offer?.contact_email ||
-    offer?.email ||
-    offer?.e_post ||
-    offer?.epost ||
-    undefined;
-
-  // ✅ Telefon: stöd flera fältnamn
-  const phone: string | undefined =
-    offer?.customer_phone ||
-    offer?.contact_phone ||
-    offer?.phone ||
-    offer?.telefon ||
-    offer?.tel ||
-    undefined;
-
-  // ✅ Adress: stöd flera fältnamn
-  const address: string | undefined =
-    offer?.customer_address ||
-    offer?.address ||
-    offer?.adress ||
-    offer?.customer_adress ||
-    undefined;
+    offer?.contact_email || offer?.customer_email || undefined;
 
   // Mittens resekort (ut/retur)
   const trips = [
@@ -97,27 +78,27 @@ export default function OfferBesvarad({ offer }: any) {
       : []),
   ];
 
-  // totals & per-resa (om breakdown finns)
+  // totals & breakdown (om finns)
   const breakdown: Breakdown | null =
     typeof offer?.vat_breakdown === "object" && offer?.vat_breakdown
       ? (offer.vat_breakdown as Breakdown)
       : null;
 
-  const totals = {
-    ex: offer?.amount_ex_vat ?? breakdown?.grandExVat ?? null,
-    vat: offer?.vat_amount ?? breakdown?.grandVat ?? null,
-    sum: offer?.total_amount ?? breakdown?.grandTotal ?? null,
-  };
+  // ✅ Vi visar bara TOTALEN för kunden (inte uppdelat)
+  const totalForCustomer: number | null = (() => {
+    const candidates = [
+      offer?.total_amount,
+      offer?.total_price,
+      breakdown?.grandTotal,
+    ];
 
-  // Offertkostnad som kunden ska se:
-  // - Om vi har legs → summera alla ben (enkel + ev. retur)
-  // - Annars → fall tillbaka på totals.sum
-  const offerCost = (() => {
-    if (breakdown?.legs && breakdown.legs.length > 0) {
-      return breakdown.legs.reduce((acc, leg) => acc + (leg.total ?? 0), 0);
+    for (const c of candidates) {
+      if (typeof c === "number" && Number.isFinite(c) && c > 0) return c;
     }
-    return totals.sum;
+    return null;
   })();
+
+  const tripLabel = roundTrip ? "Tur & retur" : "Enkelresa";
 
   // --- actions-state & handlers
   const [busy, setBusy] = useState<"accept" | "decline" | "change" | null>(null);
@@ -161,7 +142,6 @@ export default function OfferBesvarad({ offer }: any) {
         body: JSON.stringify({
           offerId: offer?.id ?? null,
           offerNumber: offer?.offer_number ?? null,
-          // valfria overrides kan skickas här:
           assigned_vehicle_id: null,
           assigned_driver_id: null,
           notes: offer?.notes ?? null,
@@ -171,7 +151,7 @@ export default function OfferBesvarad({ offer }: any) {
       if (!res.ok) throw new Error(j?.error || `HTTP ${res.status}`);
       return j?.booking ?? null;
     } catch {
-      return null; // misslyckas tyst (vi fortsätter ändå med godkännandeflödet)
+      return null;
     }
   }
 
@@ -183,26 +163,23 @@ export default function OfferBesvarad({ offer }: any) {
     try {
       setBusy("accept");
 
-      // 1) Markera som accepterad (din backend kan maila bekräftelse etc.)
       const res = await postWithFallback(
         `/api/offers/${offer.id}/accept`,
         `/api/offers/accept`,
         { customerEmail: email, offerNumber: offer.offer_number }
       );
+
       if (!res.ok) {
         const j = await res.json().catch(() => ({}));
         throw new Error(j?.error || `Kunde inte acceptera (HTTP ${res.status})`);
       }
 
-      // 2) Skapa bokning i admin baserat på offerten
       const booking = await createBookingFromOffer();
 
-      // 3) Skicka kunden till "godkänd"-vyn (inkl. boknings-ID om vi har det)
       const qBase = booking?.id
         ? `?view=godkand&bk=${encodeURIComponent(booking.id)}`
         : `?view=godkand`;
 
-      // ✅ FIX: lägg på token/t om det finns i URL:en
       const auth = getAuthQueryFromUrl();
       window.location.href = `/offert/${offer.offer_number}${qBase}${auth}`;
     } catch (e: any) {
@@ -219,23 +196,23 @@ export default function OfferBesvarad({ offer }: any) {
     }
     try {
       setBusy("decline");
-      // Din backend kan här: skicka notis + sätta status "makulerad"
+
       const res = await postWithFallback(
         `/api/offers/${offer.id}/decline`,
         `/api/offers/decline`,
         {
           customerEmail: email,
           offerNumber: offer.offer_number,
-          updateStatusTo: "makulerad", // hint till API:t (ignoreras om ej stöds)
-          notifyTeam: true, // hint till API:t (ignoreras om ej stöds)
+          updateStatusTo: "makulerad",
+          notifyTeam: true,
         }
       );
+
       if (!res.ok) {
         const j = await res.json().catch(() => ({}));
         throw new Error(j?.error || `Kunde inte avböja (HTTP ${res.status})`);
       }
 
-      // ✅ FIX: behåll token/t även här
       const auth = getAuthQueryFromUrl();
       window.location.href = `/offert/${offer.offer_number}?view=avbojd${auth}`;
     } catch (e: any) {
@@ -252,6 +229,7 @@ export default function OfferBesvarad({ offer }: any) {
     }
     try {
       setBusy("change");
+
       const res = await postWithFallback(
         `/api/offers/${offer.id}/change-request`,
         `/api/offers/change-request`,
@@ -262,6 +240,7 @@ export default function OfferBesvarad({ offer }: any) {
             "Kunden önskar ändringar i offerten. Kontakta kunden för detaljer.",
         }
       );
+
       if (!res.ok) {
         const j = await res.json().catch(() => ({}));
         throw new Error(
@@ -269,6 +248,7 @@ export default function OfferBesvarad({ offer }: any) {
             `Kunde inte skicka ändringsförfrågan (HTTP ${res.status})`
         );
       }
+
       alert("Tack! Vi återkommer med uppdaterad offert.");
     } catch (e: any) {
       alert(e?.message || "Tekniskt fel vid ändringsförfrågan.");
@@ -277,10 +257,9 @@ export default function OfferBesvarad({ offer }: any) {
     }
   }
 
-  // --- RENDER ---
   return (
     <div className="bg-[#f5f4f0] overflow-hidden">
-      {/* TOPPRAD (samma som inkommen) */}
+      {/* TOPPRAD */}
       <div style={{ height: TOPBAR_PX }}>
         <OfferTopBar
           offerNumber={offer?.offer_number ?? "HB25XXXX"}
@@ -293,15 +272,14 @@ export default function OfferBesvarad({ offer }: any) {
       {/* INNEHÅLLSYTA */}
       <div style={{ height: `calc(100vh - ${TOPBAR_PX}px)` }}>
         <div className="grid h-full grid-cols-1 lg:grid-cols-[280px_minmax(0,1fr)_550px] gap-0">
-          {/* VÄNSTER – fast vit panel */}
+          {/* VÄNSTER */}
           <div className="h-full">
             <OfferLeftSidebar />
           </div>
 
-          {/* MITTEN – resekort och text */}
+          {/* MITTEN */}
           <main className="h-full pl-4 lg:pl-6 pr-2 lg:pr-3 py-4 lg:py-6">
             <div className="h-full bg-white rounded-xl shadow flex flex-col">
-              {/* LOGO + TITEL + INTRO */}
               <div className="px-6 pt-6">
                 <Image
                   src="/mork_logo.png"
@@ -323,86 +301,62 @@ export default function OfferBesvarad({ offer }: any) {
                     <br />
                     Er offert är nu klar och sammanställer en tydlig plan för
                     resan. Nedan ser ni rutt och hållplatser, tider, bussmodell,
-                    pris och villkor. Kontrollera uppgifterna innan ni
-                    godkänner och klicka på{" "}
-                    <strong>Acceptera offert</strong> för att säkra kapacitet
-                    och planering. Önskar ni justera antal resenärer, bagage,
-                    barnstol/tillgänglighet eller service ombord? Maila{" "}
-                    <a
-                      className="underline"
-                      href="mailto:kundteam@helsingbuss.se"
-                    >
+                    pris och villkor. Kontrollera uppgifterna innan ni godkänner
+                    och klicka på <strong>Acceptera offert</strong> för att säkra
+                    kapacitet och planering. Önskar ni justera antal resenärer,
+                    bagage, barnstol/tillgänglighet eller service ombord? Maila{" "}
+                    <a className="underline" href="mailto:kundteam@helsingbuss.se">
                       kundteam@helsingbuss.se
                     </a>{" "}
-                    så uppdaterar vi direkt. Luta er tillbaka – vi ordnar
-                    resten.
+                    så uppdaterar vi direkt. Luta er tillbaka – vi ordnar resten.
                   </p>
                 </div>
 
-                {/* RESEKORT (ut/retur) */}
+                {/* RESEKORT – ✅ utan prisrader under varje resa */}
                 <div className="mt-5">
                   <TripLegGrid>
-                    {trips.map((trip, idx) => {
-                      const leg = breakdown?.legs?.[idx];
-                      return (
-                        <TripLegCard
-                          key={idx}
-                          title={
-                            withinSweden
-                              ? `Bussresa inom Sverige • ${trip.title}`
-                              : `Bussresa utomlands • ${trip.title}`
-                          }
-                          subtitle="Avstånd och tider baseras preliminärt"
-                          date={trip.date}
-                          time={trip.time}
-                          from={trip.from}
-                          to={trip.to}
-                          pax={trip.pax}
-                          extra={trip.extra}
-                          iconSrc="/busie.png"
-                          footer={
-                            breakdown?.legs ? (
-                              <div className="grid grid-cols-[1fr_auto] gap-x-4 gap-y-1 mt-3 text-[14px]">
-                                <div className="text-[#0f172a]/70">
-                                  Pris exkl. moms
-                                </div>
-                                <div>{money(leg?.subtotExVat)}</div>
-                                <div className="text-[#0f172a]/70">Moms</div>
-                                <div>{money(leg?.vat)}</div>
-                                <div className="text-[#0f172a]/70">Summa</div>
-                                <div>{money(leg?.total)}</div>
-                              </div>
-                            ) : null
-                          }
-                        />
-                      );
-                    })}
+                    {trips.map((trip, idx) => (
+                      <TripLegCard
+                        key={idx}
+                        title={
+                          withinSweden
+                            ? `Bussresa inom Sverige • ${trip.title}`
+                            : `Bussresa utomlands • ${trip.title}`
+                        }
+                        subtitle="Avstånd och tider baseras preliminärt"
+                        date={trip.date}
+                        time={trip.time}
+                        from={trip.from}
+                        to={trip.to}
+                        pax={trip.pax}
+                        extra={trip.extra}
+                        iconSrc="/busie.png"
+                        // footer borttagen medvetet
+                      />
+                    ))}
                   </TripLegGrid>
                 </div>
 
-                {/* INFOTEXTER */}
                 <div
                   className="mt-6 text-[14px] text-[#0f172a]/80"
                   style={{ lineHeight: LINE_HEIGHT }}
                 >
                   <p>
-                    Genom att godkänna offerten bekräftar ni att ni har tagit
-                    del av våra resevillkor (läs dem här). Observera att datum
-                    och tider är i mån av tillgänglighet; slutlig kapacitet
-                    kontrolleras vid bokning och bekräftas först genom en
-                    skriftlig bokningsbekräftelse från oss.
+                    Genom att godkänna offerten bekräftar ni att ni har tagit del
+                    av våra resevillkor (läs dem här). Observera att datum och
+                    tider är i mån av tillgänglighet; slutlig kapacitet kontrolleras
+                    vid bokning och bekräftas först genom en skriftlig bokningsbekräftelse
+                    från oss.
                   </p>
                   <p className="mt-3">
-                    Vill ni boka eller har frågor/ändringar? Kontakta oss så
-                    hjälper vi gärna. Våra öppettider är vardagar kl. 08:00–17:00.
-                    För akuta ärenden eller bokningar med kortare varsel än två
-                    arbetsdagar, ring vårt journummer:{" "}
-                    <strong>010–777 21 58</strong>.
+                    Vill ni boka eller har frågor/ändringar? Kontakta oss så hjälper
+                    vi gärna. Våra öppettider är vardagar kl. 08:00–17:00. För akuta
+                    ärenden eller bokningar med kortare varsel än två arbetsdagar,
+                    ring vårt journummer: <strong>010–777 21 58</strong>.
                   </p>
                 </div>
               </div>
 
-              {/* FOOTER (adress/bank) */}
               <div className="mt-auto px-6 pb-6">
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-[13px] text-[#0f172a]">
                   <div>
@@ -426,10 +380,9 @@ export default function OfferBesvarad({ offer }: any) {
             </div>
           </main>
 
-          {/* HÖGER – kund + pris + knappar */}
+          {/* HÖGER – kund + ✅ bara totalpris */}
           <aside className="h-full p-4 lg:p-6">
             <div className="h-full bg-white rounded-xl shadow flex flex-col">
-              {/* Kunduppgifter */}
               <div className="px-6 pt-6">
                 <div className="inline-flex items-center rounded-full bg-[#eef5f9] px-3 py-1 text-sm text-[#194C66] font-medium">
                   Kunduppgifter
@@ -444,71 +397,29 @@ export default function OfferBesvarad({ offer }: any) {
                   <DD>{v(offer?.internal_reference, "—")}</DD>
                   <DT>Namn:</DT>
                   <DD>{v(offer?.contact_person, "—")}</DD>
-
-                  {/* ✅ FIX: adress + telefon */}
                   <DT>Adress:</DT>
-                  <DD>{v(address, "—")}</DD>
+                  <DD>{v(offer?.customer_address, "—")}</DD>
                   <DT>Telefon:</DT>
-                  <DD>{v(phone, "—")}</DD>
-
+                  <DD>{v(offer?.contact_phone, "—")}</DD>
                   <DT>E-post:</DT>
                   <DD>{v(email, "—")}</DD>
                 </dl>
 
-                {/* Prisöversyn */}
                 <div className="mt-6">
                   <div className="font-semibold text-[#0f172a]">
                     Offertinformation om kostnad
                   </div>
 
-                  <div className="mt-3">
-                    <div
-                      className="grid"
-                      style={{
-                        gridTemplateColumns: roundTrip
-                          ? "1fr 1fr 1fr"
-                          : "1fr 1fr",
-                      }}
-                    >
-                      <div className="text-[#0f172a]/70 text-sm"> </div>
-                      <div className="text-[#0f172a]/70 text-sm font-semibold">
-                        Enkel
-                      </div>
-                      {roundTrip && (
-                        <div className="text-[#0f172a]/70 text-sm font-semibold">
-                          Tur&Retur
-                        </div>
-                      )}
+                  <div className="mt-3 rounded-xl border border-[#e2e8f0] bg-[#f8fafc] p-4">
+                    <div className="text-sm text-[#0f172a]/70">
+                      Resa: <span className="font-semibold text-[#0f172a]">{tripLabel}</span>
                     </div>
 
-                    <Row
-                      roundTrip={roundTrip}
-                      label="Summa exkl. moms"
-                      enkel={money(breakdown?.legs?.[0]?.subtotExVat ?? totals.ex)}
-                      retur={
-                        roundTrip
-                          ? money(breakdown?.legs?.[1]?.subtotExVat)
-                          : undefined
-                      }
-                    />
-                    <Row
-                      roundTrip={roundTrip}
-                      label="Moms"
-                      enkel={money(breakdown?.legs?.[0]?.vat ?? totals.vat)}
-                      retur={roundTrip ? money(breakdown?.legs?.[1]?.vat) : undefined}
-                    />
-                    <Row
-                      roundTrip={roundTrip}
-                      label="Totalsumma"
-                      enkel={money(breakdown?.legs?.[0]?.total ?? totals.sum)}
-                      retur={roundTrip ? money(breakdown?.legs?.[1]?.total) : undefined}
-                    />
-
-                    <div className="mt-3 grid grid-cols-[1fr_auto] items-baseline">
-                      <div className="text-[#0f172a]/70 text-sm">
-                        Offertkostnad för detta uppdrag
-                      </div>
-                      <div className="font-medium">{money(offerCost)}</div>
+                    <div className="mt-3 text-sm text-[#0f172a]/70">
+                      Totala kostnaden för denna offert är:
+                    </div>
+                    <div className="mt-1 text-2xl font-semibold text-[#0f172a]">
+                      {money(totalForCustomer)}
                     </div>
                   </div>
 
@@ -517,9 +428,8 @@ export default function OfferBesvarad({ offer }: any) {
                       Betalningsvillkor
                     </div>
                     <p>
-                      10 dagar netto om det är företag/förening, faktura kommer
-                      efter uppdrag. För privatperson ska fakturan vara betald
-                      minst 3 dagar innan uppdraget.
+                      10 dagar netto om det är företag/förening, faktura kommer efter uppdrag.
+                      För privatperson ska fakturan vara betald minst 3 dagar innan uppdraget.
                     </p>
                   </div>
                 </div>
@@ -570,28 +480,4 @@ function DT({ children }: { children: React.ReactNode }) {
 }
 function DD({ children }: { children: React.ReactNode }) {
   return <dd className="text-[#0f172a] break-words">{children}</dd>;
-}
-
-/* Rad i prisöversynen till höger */
-function Row({
-  roundTrip,
-  label,
-  enkel,
-  retur,
-}: {
-  roundTrip: boolean;
-  label: string;
-  enkel: string;
-  retur?: string;
-}) {
-  return (
-    <div
-      className="mt-1 grid items-baseline text-[14px]"
-      style={{ gridTemplateColumns: roundTrip ? "1fr 1fr 1fr" : "1fr 1fr" }}
-    >
-      <div className="text-[#0f172a]/70">{label}</div>
-      <div>{enkel}</div>
-      {roundTrip && <div>{retur ?? "—"}</div>}
-    </div>
-  );
 }
