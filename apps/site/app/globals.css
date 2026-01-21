@@ -196,13 +196,7 @@ body{
 /* HB_MOBILE_HEADER_FIX_END */
 
 
-/* --- Mobile fix: remove white corners at top, let hero go edge-to-edge --- */
-@media (max-width: 820px) {
-  html, body {
-    background: #000 !important;
-  }
-
-  /* Om du har wrapper som skapar "kortet" med rundade hörn */
+/* Om du har wrapper som skapar "kortet" med rundade hörn */
   .hb-hero,
   .hb-hero-card,
   .hb-hero-inner,
@@ -215,5 +209,59 @@ body{
   /* säkerställ att inget "luft" skapar vit remsa */
   body {
     margin: 0 !important;
+  }
+}
+
+/* --- Mobile fix: hero edge-to-edge (no visible band) + Avresa fits --- */
+@media (max-width: 820px) {
+
+  /* Viktigt: undvik att någon wrapper skapar "kortkänsla" med rundade hörn på mobilen */
+  .hb-hero,
+  .hb-hero-card,
+  .hb-hero-inner,
+  .hb-shell,
+  .hb-page,
+  main > section:first-child {
+    border-top-left-radius: 0 !important;
+    border-top-right-radius: 0 !important;
+    border-radius: 0 !important;
+    margin-top: 0 !important;
+  }
+
+  /* Se till att inget sticker ut och skapar kanter */
+  .hb-hero,
+  .hb-hero-card,
+  main > section:first-child {
+    width: 100% !important;
+    max-width: 100% !important;
+    overflow: hidden !important;
+  }
+
+  /* Fix: input/fält får inte trycka ut grid på mobil (Avresa-problemet) */
+  input,
+  select,
+  textarea {
+    max-width: 100% !important;
+    min-width: 0 !important;
+    box-sizing: border-box !important;
+  }
+
+  /* Extra: date-input kan vara extra "stelt" i iOS */
+  input[type="date"] {
+    width: 100% !important;
+    min-width: 0 !important;
+  }
+
+  /* Om din snabbstart-modul använder grid (vanligt i din kod) */
+  .hb-qam-grid,
+  .hb-quick-grid,
+  .hb-quickaction-grid {
+    min-width: 0 !important;
+  }
+
+  .hb-qam-grid > *,
+  .hb-quick-grid > *,
+  .hb-quickaction-grid > * {
+    min-width: 0 !important;
   }
 }
