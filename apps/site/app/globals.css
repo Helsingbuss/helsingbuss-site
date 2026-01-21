@@ -373,3 +373,19 @@ body{
 }
 
 
+
+
+/* --- Font-fix: samma typsnitt på CTA-knapp och "Gör en offertförfrågan" --- */
+.hb-quickmodule, 
+.hb-quickmodule * ,
+.hb-qam,
+.hb-qam * {
+  font-family: var(--font-open-sans), system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif !important;
+}
+
+.hb-qam button,
+.hb-qam a,
+.hb-quickmodule button,
+.hb-quickmodule a {
+  font-family: var(--font-open-sans), system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif !important;
+}
