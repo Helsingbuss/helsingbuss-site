@@ -195,3 +195,25 @@ body{
 }
 /* HB_MOBILE_HEADER_FIX_END */
 
+
+/* --- Mobile fix: remove white corners at top, let hero go edge-to-edge --- */
+@media (max-width: 820px) {
+  html, body {
+    background: #000 !important;
+  }
+
+  /* Om du har wrapper som skapar "kortet" med rundade hörn */
+  .hb-hero,
+  .hb-hero-card,
+  .hb-hero-inner,
+  .hb-shell,
+  .hb-page {
+    border-top-left-radius: 0 !important;
+    border-top-right-radius: 0 !important;
+  }
+
+  /* säkerställ att inget "luft" skapar vit remsa */
+  body {
+    margin: 0 !important;
+  }
+}
