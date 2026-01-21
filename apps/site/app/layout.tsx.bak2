@@ -1,0 +1,30 @@
+﻿import type { Metadata } from "next";
+import Header from "@/components/layout/Header";
+import "./globals.css";
+import Header from "@/components/layout/Header";
+import { Open_Sans } from "next/font/google";
+import Header from "@/components/layout/Header";
+
+const openSans = Open_Sans({
+  subsets: ["latin"],
+  weight: ["300", "400", "500", "600", "700", "800"],
+  variable: "--font-sans",
+});
+
+export const metadata: Metadata = {
+  title: "Helsingbuss",
+  description: "Helsingbuss",
+};
+
+export default function RootLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <html lang="sv">
+      <body className={openSans.variable}>
+        <Header />
+        {children}
+      </body>
+    </html>
+  );
+}
+
+

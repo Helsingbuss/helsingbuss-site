@@ -1,9 +1,9 @@
-﻿export default function Page() {
+﻿import HeroHeader from "@/components/home/HeroHeader";
+
+export default function HomePage() {
   return (
-    <main style={{ padding: 40, fontFamily: "system-ui" }}>
-      <h1>Helsingbuss – Staging</h1>
-      <p>Denna sida visas för att verifiera att staging.helsingbuss.se fungerar korrekt.</p>
-      <p>Status: OK</p>
+    <main style={{ width: "100%" }}>
+      <HeroHeader />
     </main>
   );
 }

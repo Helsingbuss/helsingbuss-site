@@ -1,26 +1,99 @@
-@import "tailwindcss";
-
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+﻿:root{
+  --hb-ui: var(--font-montserrat), ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, "Helvetica Neue", "Noto Sans";
+  --hb-menu: var(--hb-ui);
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+body{
+  margin:0;
+  font-family: var(--font-sans), system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+
+/* Helsingbuss Hero – Responsive */
+@media (max-width: 980px) {
+  .hb-quickquote {
+    grid-template-columns: 1fr 1fr !important;
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+@media (max-width: 560px) {
+  .hb-quickquote {
+    grid-template-columns: 1fr !important;
+  }
+}
+
+/* Hero title spacing on small screens */
+@media (max-width: 560px) {
+  .hb-hero-title {
+    font-size: 38px !important;
+    line-height: 1.12 !important;
+  }
+  .hb-hero-inner {
+    padding: 110px 16px 54px !important;
+  }
+}
+
+/* Mobile header: logo + burger only */
+@media (max-width: 560px) {
+  .hb-header-cta,
+  .hb-header-search {
+    display: none !important;
+  }
+
+  /* om du vill: gör burger lite större på mobil */
+  .hb-header-burger {
+    width: 46px !important;
+    height: 46px !important;
+    font-size: 20px !important;
+  }
+}
+
+/* hb-hero-title mobile tuning v2 */
+@media (max-width: 560px) {
+  .hb-hero-title{
+    font-size: 34px !important;
+    line-height: 1.12 !important;
+    letter-spacing: -0.02em !important;
+    max-width: 18ch !important;
+    text-wrap: balance;
+    word-break: normal;
+    hyphens: auto;
+  }
+}
+
+/* QuickActionModule responsive */
+@media (max-width: 980px) {
+  .hb-quick-module .hb-grid {
+    grid-template-columns: 1fr 1fr !important;
+  }
+}
+
+@media (max-width: 560px) {
+  .hb-quick-module {
+    max-width: 520px !important;
+  }
+  .hb-quick-module .hb-tabs {
+    grid-template-columns: 1fr !important;
+  }
+  .hb-quick-module .hb-grid {
+    grid-template-columns: 1fr !important;
+  }
+  .hb-quick-module a {
+    width: 100% !important;
+  }
+}
+
+/* QuickActionModule offer responsive */
+@media (max-width: 980px) {
+  .hb-quick-module .hb-grid {
+    grid-template-columns: 1fr 1fr !important;
+  }
+}
+@media (max-width: 560px) {
+  .hb-quick-module .hb-grid {
+    grid-template-columns: 1fr !important;
+  }
+  .hb-quick-module button {
+    width: 100% !important;
+  }
 }

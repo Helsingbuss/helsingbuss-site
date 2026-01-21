@@ -1,0 +1,183 @@
+"use client";
+
+import React, { useState } from "react";
+
+type TripType = "Hyra buss" | "Bröllopskörning" | "Event & Specialresor" | "";
+
+export default function QuickActionModule() {
+  const [tripType, setTripType] = useState<TripType>("");
+  const [date, setDate] = useState("");
+  const [pax, setPax] = useState("");
+
+  return (
+    <section style={s.wrap}>
+      <div style={s.kicker}>SNABBSTART</div>
+      <div style={s.title}>Gör en offertförfrågan</div>
+      <div style={s.subtitle}>Fyll i några uppgifter  på nästa steg kompletterar du resten.</div>
+
+      <div style={s.formCard}>
+        <div style={s.grid} className="qa-grid">
+          <div style={s.field}>
+            <label style={s.label}>Typ av resa?</label>
+            <select
+              style={s.control}
+              value={tripType}
+              onChange={(e) => setTripType(e.target.value as TripType)}
+            >
+              <option value="">Välj</option>
+              <option value="Hyra buss">Hyra buss</option>
+              <option value="Bröllopskörning">Bröllopskörning</option>
+              <option value="Event & Specialresor">Event & Specialresor</option>
+            </select>
+          </div>
+
+          <div style={s.field}>
+            <label style={s.label}>Avresa</label>
+            <input
+              style={s.control}
+              type="date"
+              value={date}
+              onChange={(e) => setDate(e.target.value)}
+              placeholder="åååå-mm-dd"
+            />
+          </div>
+
+          <div style={s.field}>
+            <label style={s.label}>Antal resenärer</label>
+            <input
+              style={s.control}
+              inputMode="numeric"
+              pattern="[0-9]*"
+              value={pax}
+              onChange={(e) => setPax(e.target.value.replace(/[^\d]/g, ""))}
+              placeholder="Ange antal"
+            />
+          </div>
+
+          <div style={s.btnCol}>
+            <button
+              type="button"
+              style={s.cta}
+              onClick={() => {
+                // Kopplar vi sen: skickar vidare till offert-sidan med query params
+                // ex: router.push(`/boka?typ=${encodeURIComponent(tripType)}&date=${date}&pax=${pax}`)
+              }}
+            >
+              Nästa
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <style jsx>{`
+        /* Desktop: 3 fält + knapp, ALLT med samma gap. Ingen overlap möjlig. */
+        .qa-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr) minmax(0, 1fr) 140px;
+  gap: 14px;              /* SAMMA gap överallt */
+  column-gap: 14px;
+  align-items: end;
+}
+.qa-grid > * { min-width: 0; }
+
+
+        /* Tablet: 2 kolumner */
+        @media (max-width: 980px) {
+          .qa-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr) minmax(0, 1fr) 140px;
+  gap: 14px;              /* SAMMA gap överallt */
+  column-gap: 14px;
+  align-items: end;
+}
+.qa-grid > * { min-width: 0; }
+
+        }
+
+        /* Mobil: allt staplas */
+        @media (max-width: 640px) {
+          .qa-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr) minmax(0, 1fr) 140px;
+  gap: 14px;              /* SAMMA gap överallt */
+  column-gap: 14px;
+  align-items: end;
+}
+.qa-grid > * { min-width: 0; }
+
+        }
+      `}</style>
+    </section>
+  );
+}
+
+const s: Record<string, React.CSSProperties> = {
+  wrap: {
+    marginTop: 34, // detta är avståndet från checklistan ovan  kan ökas om du vill
+    padding: 0,
+  },
+  kicker: {
+    fontSize: 12,
+    letterSpacing: 0.14 + "em",
+    textTransform: "uppercase",
+    color: "rgba(255,255,255,0.75)",
+    marginBottom: 8,
+  },
+  title: {
+    fontSize: 22,
+    fontWeight: 700,
+    color: "white",
+    marginBottom: 6,
+  },
+  subtitle: {
+    fontSize: 14,
+    color: "rgba(255,255,255,0.82)",
+    marginBottom: 18,
+  },
+  formCard: {
+    width: "100%",
+    borderRadius: 16,
+    background: "rgba(255,255,255,0.88)",
+    border: "1px solid rgba(255,255,255,0.25)",
+    boxShadow: "0 18px 48px rgba(0,0,0,0.25)",
+    padding: 14,
+  },
+  field: {
+    minWidth: 0,
+  },
+  label: {
+    display: "block",
+    fontSize: 12,
+    fontWeight: 700,
+    color: "rgba(15,23,42,0.75)",
+    marginBottom: 8,
+  },
+  control: {
+    width: "100%",
+    height: 44,
+    borderRadius: 12,
+    border: "1px solid rgba(15,23,42,0.14)",
+    background: "rgba(255,255,255,0.96)",
+    padding: "0 12px",
+    outline: "none",
+    fontSize: 14,
+    color: "#0f172a",
+    minWidth: 0,
+  },
+  btnCol: {
+    minWidth: 0,
+  },
+  cta: {
+    height: 44,
+    minWidth: 130,
+    width: "100%",
+    borderRadius: 12,
+    border: "none",
+    cursor: "pointer",
+    background: "linear-gradient(180deg, #c8923b 0%, #a97325 100%)",
+    color: "white",
+    fontWeight: 800,
+    boxShadow: "0 10px 24px rgba(0,0,0,0.22)",
+    whiteSpace: "nowrap",
+  },
+};

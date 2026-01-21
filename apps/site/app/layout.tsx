@@ -1,19 +1,34 @@
-﻿import type { Metadata } from "next";
+﻿import Header from "@/components/layout/Header";
+import type { Metadata } from "next";
+import "./globals.css";
+import { Open_Sans } from "next/font/google";
+const openSans = Open_Sans({
+  subsets: ["latin"],
+  weight: ["300", "400", "500", "600", "700", "800"],
+  variable: "--font-sans",
+});
 
 export const metadata: Metadata = {
-  title: "Helsingbuss – Staging",
-  description: "Staging-miljö för nya Helsingbuss.se",
-  robots: { index: false, follow: false },
+  title: "Helsingbuss",
+  description: "Helsingbuss",
 };
 
-export default function RootLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="sv">
-      <body style={{ margin: 0 }}>{children}</body>
+      <body className={openSans.variable}>
+        <Header />
+        {children}
+      </body>
     </html>
   );
 }
+
+
+
+
+
+
+
+
+

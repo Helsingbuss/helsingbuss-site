@@ -1,0 +1,32 @@
+﻿import type { Metadata } from "next";
+import SiteHeader from "@/components/layout/SiteHeader";
+import "./globals.css";
+import SiteHeader from "@/components/layout/SiteHeader";
+import { Open_Sans } from "next/font/google";
+import SiteHeader from "@/components/layout/SiteHeader";
+import SiteHeader from "@/components/layout/SiteHeader";
+import SiteHeader from "@/components/layout/SiteHeader";
+
+const openSans = Open_Sans({
+  subsets: ["latin"],
+  weight: ["300", "400", "500", "600", "700", "800"],
+  variable: "--font-sans",
+});
+
+export const metadata: Metadata = {
+  title: "Helsingbuss",
+  description: "Helsingbuss",
+};
+
+export default function RootLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <html lang="sv">
+      <body className={openSans.variable}>
+        <SiteHeader />
+        <SiteHeader variant="over-hero" />
+        {children}
+      </body>
+    </html>
+  );
+}
+
