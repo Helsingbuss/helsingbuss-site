@@ -1,5 +1,7 @@
+import SectionTitle from "../components/sections/SectionTitle.tsx";
+import ServiceCards from "../components/sections/ServiceCards.tsx";
+
 ﻿import HeroHeader from "../components/home/HeroHeader";
-import SectionTitle from "@/components/sections/SectionTitle";
 
 export default function HomePage() {
   return (
@@ -9,6 +11,7 @@ export default function HomePage() {
   title="Bekväma bussresor  skräddarsydda för dig"
   subtitle="Trygg beställningstrafik för små och stora grupper, med paketresor som gör allt enklare."
 />
+      <ServiceCards />
 </main>
   );
 }
