@@ -1,253 +1,261 @@
-﻿import React from "react";
-import Link from "next/link";
+import React from "react";
+import Image from "next/image";
 
-// =============================================
-// ======= HÄR ÄNDRAR DU STORLEKAR SNABBT =======
-// Desktop (dator/laptop):
-const DESKTOP_CARD_MIN = 240; // min-bredd per kort
-const DESKTOP_CARD_MAX = 280; // max-bredd per kort
-const DESKTOP_GAP = 18;       // <-- DU VILLE HA 18 mellan varje box
-
-// Mobil (karusell):
-const MOBILE_CARD_WIDTH = 300; // fast bredd så alla blir lika stora
-const MOBILE_CARD_MIN_H = 260; // fast höjd-ish (alla lika stora)
-const IMAGE_H = 100;           // bildhöjd (påverkar även ikonens placering)
-const ICON_SIZE = 46;          // ikon-cirkel storlek
-const ICON_IMG = 26;           // <-- ikonens bildstorlek (lite större)
-// =============================================
-
-type CardItem = {
+type Card = {
   title: string;
-  textTop: string;
-  textBottom: string;
-  buttonText: string;
-  href: string;
-  iconSrc: string; // /brand/icons/...
+  lead: string;
+  body: string;
+  button: { label: string; href: string };
+  imageSrc: string; // /public/...
+  iconSrc: string;  // /public/brand/icons/...
 };
 
-const items: CardItem[] = [
+//
+// ======= HÄR ÄNDRAR DU STORLEKAR SNABBT =======
+// Desktop (dator/laptop):
+const DESKTOP_CARD_MIN = 240; // behåll
+const DESKTOP_CARD_MAX = 280; // behåll
+const DESKTOP_GAP = 10;       // du vill ha 10 nu
+
+// Mobil (karusell):
+const MOBILE_CARD_WIDTH = 300;   // fast bredd så alla blir lika stora
+const MOBILE_CARD_MIN_H = 260;   // fast höjd-ish (alla lika stora)
+const IMAGE_H = 140;             // bildhöjd
+const ICON_SIZE = 46;            // ikon-cirkel storlek
+const ICON_TO_TITLE = 20;        // mellan cirkel och rubrik (du sa 20)
+
+// Bild/overlay lyx
+const IMAGE_BLUR_PX = 1.2;       // <-- ÄNDRA BLURR-STYRKA HÄR (t.ex 0.81.6)
+const OVERLAY_OPACITY = 0.85;    // <-- ÄNDRA OVERLAY-STYRKA HÄR (0.650.95)
+// =============================================
+
+const CARDS: Card[] = [
   {
     title: "Företagsresa",
-    textTop: "Smidig transport till möten, kundevent och personaldagar.",
-    textBottom: "Vi anpassar tider, stopp och komfort – ni fokuserar på dagen.",
-    buttonText: "Läs mer",
-    href: "/tjanster/foretagsresa",
+    lead: "Smidig transport till möten, kundevent och personaldagar.",
+    body: "Vi anpassar tider, stopp och komfort  ni fokuserar på dagen.",
+    button: { label: "Läs mer", href: "/tjanster/foretagsresa" },
+    imageSrc: "/company_bus.jpeg",
     iconSrc: "/brand/icons/trust-alt.png",
   },
   {
     title: "Skola & förening",
-    textTop: "Trygga resor för utflykter, cuper och läger.",
-    textBottom: "Tydlig planering, säkerhetsfokus och gott om plats för packning.",
-    buttonText: "Läs mer",
-    href: "/tjanster/skola-forening",
+    lead: "Trygga resor för utflykter, cuper och läger.",
+    body: "Tydlig planering, säkerhetsfokus och gott om plats för packning.",
+    button: { label: "Läs mer", href: "/tjanster/skola-forening" },
+    imageSrc: "/skola_bus.jpg",
     iconSrc: "/brand/icons/workshop.png",
   },
   {
     title: "Bröllop",
-    textTop: "Gör dagen enkel för gästerna och perfekt i tid.",
-    textBottom: "Transport mellan vigsel, fest och hotell – tryggt och bekvämt.",
-    buttonText: "Läs mer",
-    href: "/tjanster/brollop",
+    lead: "Gör dagen enkel för gästerna och perfekt i tid.",
+    body: "Transport mellan vigsel, fest och hotell  tryggt och bekvämt.",
+    button: { label: "Läs mer", href: "/tjanster/brollop" },
+    imageSrc: "/wedding_bus.jpeg",
     iconSrc: "/brand/icons/rings-wedding.png",
   },
   {
     title: "Sportresa",
-    textTop: "Lag- och supporterresor med smart logistik.",
-    textBottom: "Plats för utrustning och tidspassat upplägg till match eller cup.",
-    buttonText: "Läs mer",
-    href: "/tjanster/sportresa",
+    lead: "Lag- och supporterresor med smart logistik.",
+    body: "Plats för utrustning och tidspassat upplägg till match eller cup.",
+    button: { label: "Läs mer", href: "/tjanster/sportresa" },
+    imageSrc: "/sport_forening_bus.jpeg",
     iconSrc: "/brand/icons/running.png",
   },
   {
     title: "Transfer / Flygbuss",
-    textTop: "Smidig resa till flyg, från centrala Helsingborg.",
-    textBottom: "Boka enkelt via Helsingbuss Airport Shuttle.",
-    buttonText: "Till Airport Shuttle",
-    href: "https://hbshuttle.se",
+    lead: "Smidig resa till flyg, från centrala Helsingborg.",
+    body: "Boka enkelt via Helsingbuss Airport Shuttle.",
+    button: { label: "Till Airport Shuttle", href: "https://hbshuttle.se" },
+    imageSrc: "/flygbuss_bus.jpeg",
     iconSrc: "/brand/icons/airplane-journey.png",
   },
 ];
 
 export default function ServiceCards() {
-  const sectionStyle: React.CSSProperties = {
-    width: "100%",
-    overflowX: "clip",
-  };
-
-  // Center: maxWidth + auto margin => hela sektionen centrerad
-  const innerStyle: React.CSSProperties = {
-    maxWidth: 1400,
-    margin: "0 auto",
-    padding: "0 16px 26px",
-  };
-
-  // Desktop grid: lås kolumnerna så de INTE blir utdragna (det var orsaken)
-  // + center hela grid-blocket med justifyContent: "center"
-  const gridStyle: React.CSSProperties = {
-    display: "grid",
-    gridTemplateColumns: `repeat(5, minmax(${DESKTOP_CARD_MIN}px, ${DESKTOP_CARD_MAX}px))`,
-    gap: DESKTOP_GAP,
-    justifyContent: "center",
-    alignItems: "stretch",
-  };
-
-  // Mobil karusell
-  const carouselStyle: React.CSSProperties = {
-    display: "flex",
-    gap: 14,
-    overflowX: "auto",
-    padding: "2px 2px 10px",
-    scrollSnapType: "x mandatory",
-    WebkitOverflowScrolling: "touch",
-    overscrollBehaviorX: "contain",
-  };
-
   return (
-    <section style={sectionStyle}>
-      <div style={innerStyle}>
-        <div className="hb-servicecards-grid" style={gridStyle}>
-          {items.map((item) => (
-            <Card key={item.title} item={item} desktop />
-          ))}
-        </div>
-
-        <div className="hb-servicecards-carousel" style={carouselStyle}>
-          {items.map((item) => (
-            <Card key={item.title + "-m"} item={item} desktop={false} />
+    <section style={wrap}>
+      {/* Desktop grid */}
+      <div style={desktopWrap}>
+        <div style={desktopGrid}>
+          {CARDS.map((item) => (
+            <CardItem key={item.title} item={item} />
           ))}
         </div>
       </div>
 
-      <style>{`
-        @media (min-width: 900px) {
-          .hb-servicecards-grid { display: grid !important; }
-          .hb-servicecards-carousel { display: none !important; }
-        }
-        @media (max-width: 899px) {
-          .hb-servicecards-grid { display: none !important; }
-          .hb-servicecards-carousel { display: flex !important; }
-        }
-      `}</style>
+      {/* Mobile carousel */}
+      <div style={mobileWrap}>
+        <div style={mobileRail} aria-label="Tjänster (karusell)">
+          {CARDS.map((item) => (
+            <div key={item.title} style={mobileSnap}>
+              <CardItem item={item} mobile />
+            </div>
+          ))}
+        </div>
+      </div>
     </section>
   );
 }
 
-function Card({ item, desktop }: { item: CardItem; desktop: boolean }) {
-  const cardStyle: React.CSSProperties = {
-    position: "relative",
-    borderRadius: 18,
-    overflow: "hidden",
-    background: "rgba(255,255,255,0.86)",
-    boxShadow: "0 12px 30px rgba(0,0,0,0.10)",
-    border: "1px solid rgba(255,255,255,0.65)",
-    width: desktop ? "auto" : `${MOBILE_CARD_WIDTH}px`,
-    minHeight: desktop ? undefined : `${MOBILE_CARD_MIN_H}px`,
-    scrollSnapAlign: desktop ? undefined : "start",
-  };
-
-  const imageWrapStyle: React.CSSProperties = {
-    height: IMAGE_H,
-    width: "100%",
-    position: "relative",
-    overflow: "hidden",
-  };
-
-  // Kant-till-kant bildyta
-  const imageBgStyle: React.CSSProperties = {
-    position: "absolute",
-    inset: 0,
-    background:
-      "linear-gradient(180deg, rgba(210,224,224,0.95), rgba(240,248,248,0.80))",
-  };
-
-  // Ikon-cirkeln: centrerad + 50/50 överlapp
-  const iconCircleStyle: React.CSSProperties = {
-    position: "absolute",
-    left: "50%",
-    top: IMAGE_H,
-    transform: "translate(-50%, -50%)",
-    width: ICON_SIZE,
-    height: ICON_SIZE,
-    borderRadius: 999,
-    background: "rgba(255,255,255,0.95)",
-    boxShadow: "0 10px 18px rgba(0,0,0,0.12)",
-    display: "grid",
-    placeItems: "center",
-    zIndex: 3,
-    border: "1px solid rgba(0,0,0,0.06)",
-  };
-
-  // Mer luft mellan cirkel och rubrik (du bad om det)
-  const contentStyle: React.CSSProperties = {
-    padding: "22px 18px 18px",
-    paddingTop: 44,
-  };
-
-  const titleStyle: React.CSSProperties = {
-    fontSize: 18,
-    fontWeight: 800,
-    color: "#111827",
-    margin: "12px 0 8px",
-    lineHeight: 1.2,
-  };
-
-  const pStyle: React.CSSProperties = {
-    margin: "0 0 10px",
-    color: "rgba(17,24,39,0.72)",
-    fontSize: 13.5,
-    lineHeight: 1.55,
-  };
-
-  const btnStyle: React.CSSProperties = {
-    display: "inline-flex",
-    alignItems: "center",
-    justifyContent: "center",
-    padding: "10px 14px",
-    borderRadius: 12,
-    background: "rgba(17,24,39,0.82)",
-    color: "white",
-    fontWeight: 800,
-    fontSize: 13,
-    textDecoration: "none",
-    boxShadow: "0 10px 18px rgba(0,0,0,0.12)",
-    marginTop: 6,
-  };
-
-  const isExternal = item.href.startsWith("http");
-
+function CardItem({ item, mobile }: { item: Card; mobile?: boolean }) {
   return (
-    <div style={cardStyle}>
-      <div style={imageWrapStyle}>
-        <div style={imageBgStyle} />
-      </div>
+    <div
+      style={{
+        position: "relative",
+        borderRadius: 18,
+        overflow: "hidden",
+        background: "rgba(255,255,255,0.90)",
+        boxShadow: "0 12px 30px rgba(0,0,0,0.10)",
+        border: "1px solid rgba(255,255,255,0.70)",
+        width: mobile ? MOBILE_CARD_WIDTH : "100%",
+        minHeight: mobile ? MOBILE_CARD_MIN_H : undefined,
+      }}
+    >
+      {/* IMAGE */}
+      <div style={{ height: IMAGE_H, width: "100%", position: "relative", overflow: "hidden" }}>
+        <Image
+          src={item.imageSrc}
+          alt={item.title}
+          fill
+          sizes={mobile ? "320px" : "280px"}
+          style={{
+            objectFit: "cover",
+            transform: "scale(1.06)",
+            filter: `blur(${IMAGE_BLUR_PX}px) saturate(1.08) contrast(1.06)`,
+          }}
+          priority={false}
+        />
 
-      <div style={iconCircleStyle}>
-        {/* Vanlig img = minst strul + visar direkt om pathen stämmer */}
-        <img
-          src={item.iconSrc}
-          alt=""
-          width={ICON_IMG}
-          height={ICON_IMG}
-          style={{ display: "block", objectFit: "contain" }}
+        {/* LYXLIG OVERLAY */}
+        <div
+          aria-hidden="true"
+          style={{
+            position: "absolute",
+            inset: 0,
+            opacity: OVERLAY_OPACITY,
+            background:
+              "linear-gradient(180deg, rgba(0,0,0,0.28) 0%, rgba(0,0,0,0.08) 42%, rgba(0,0,0,0.30) 100%)," +
+              "radial-gradient(120% 80% at 22% 14%, rgba(255,255,255,0.38) 0%, rgba(255,255,255,0.00) 60%)," +
+              "radial-gradient(95% 70% at 78% 16%, rgba(196,154,72,0.28) 0%, rgba(196,154,72,0.00) 58%)," +
+              "linear-gradient(90deg, rgba(196,154,72,0.12) 0%, rgba(255,255,255,0.00) 40%, rgba(196,154,72,0.10) 100%)",
+            backdropFilter: "blur(2px)",
+            WebkitBackdropFilter: "blur(2px)",
+          }}
         />
       </div>
 
-      <div style={contentStyle}>
-        <div style={titleStyle}>{item.title}</div>
+      {/* ICON CIRCLE */}
+      <div
+        style={{
+          position: "absolute",
+          left: "50%",
+          top: IMAGE_H,
+          transform: "translate(-50%, -50%)",
+          width: ICON_SIZE,
+          height: ICON_SIZE,
+          borderRadius: 999,
+          background: "rgba(255,255,255,0.96)",
+          boxShadow: "0 10px 18px rgba(0,0,0,0.12)",
+          display: "grid",
+          placeItems: "center",
+          zIndex: 3,
+          border: "1px solid rgba(0,0,0,0.06)",
+        }}
+      >
+        <Image
+          src={item.iconSrc}
+          alt=""
+          width={26}
+          height={26}
+          style={{ opacity: 0.92 }}
+        />
+      </div>
 
-        <p style={pStyle}>{item.textTop}</p>
-        <p style={pStyle}>{item.textBottom}</p>
+      {/* CONTENT */}
+      <div
+        style={{
+          padding: "22px 18px 18px",
+          paddingTop: 22 + ICON_TO_TITLE,
+          display: "grid",
+          gap: 10, // mindre luft mellan textblock (som du vill)
+        }}
+      >
+        <div style={{ display: "grid", gap: 8 }}>
+          <div style={{ fontWeight: 800, fontSize: 18, color: "#0B1220" }}>{item.title}</div>
 
-        {isExternal ? (
-          <a href={item.href} target="_blank" rel="noreferrer" style={{ textDecoration: "none" }}>
-            <span style={btnStyle}>{item.buttonText}</span>
+          <div style={{ color: "rgba(11,18,32,0.70)", fontSize: 14, lineHeight: 1.5 }}>
+            {item.lead}
+          </div>
+
+          <div style={{ color: "rgba(11,18,32,0.62)", fontSize: 14, lineHeight: 1.5 }}>
+            {item.body}
+          </div>
+        </div>
+
+        <div style={{ marginTop: 4 }}>
+          <a
+            href={item.button.href}
+            target={item.button.href.startsWith("http") ? "_blank" : undefined}
+            rel={item.button.href.startsWith("http") ? "noopener noreferrer" : undefined}
+            style={{
+              display: "inline-block",
+              padding: "10px 16px",
+              borderRadius: 12,
+              background: "#2F3640",
+              color: "white",
+              fontWeight: 700,
+              fontSize: 13,
+              textDecoration: "none",
+              boxShadow: "0 10px 18px rgba(0,0,0,0.10)",
+            }}
+          >
+            {item.button.label}
           </a>
-        ) : (
-          <Link href={item.href} style={{ textDecoration: "none" }}>
-            <span style={btnStyle}>{item.buttonText}</span>
-          </Link>
-        )}
+        </div>
       </div>
     </div>
   );
 }
+
+/* Section spacing */
+const wrap: React.CSSProperties = {
+  width: "100%",
+  padding: "18px 16px 64px", // mer luft mellan rubriksektion och cards (du bad om det)
+};
+
+/* Desktop */
+const desktopWrap: React.CSSProperties = {
+  maxWidth: 1320,
+  margin: "0 auto",
+  display: "none",
+};
+
+const desktopGrid: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: `repeat(5, minmax(${DESKTOP_CARD_MIN}px, ${DESKTOP_CARD_MAX}px))`,
+  gap: DESKTOP_GAP,
+  justifyContent: "center",
+  alignItems: "start",
+};
+
+/* Mobile carousel */
+const mobileWrap: React.CSSProperties = {
+  display: "block",
+  margin: "0 auto",
+};
+
+const mobileRail: React.CSSProperties = {
+  display: "grid",
+  gridAutoFlow: "column",
+  gridAutoColumns: `${MOBILE_CARD_WIDTH}px`,
+  gap: 12,
+  overflowX: "auto",
+  paddingBottom: 8,
+  scrollSnapType: "x mandatory",
+  WebkitOverflowScrolling: "touch",
+};
+
+const mobileSnap: React.CSSProperties = {
+  scrollSnapAlign: "start",
+};

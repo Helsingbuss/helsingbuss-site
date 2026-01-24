@@ -1,10 +1,10 @@
-﻿import HeroHeader from "../components/home/HeroHeader";
+import HeroHeader from "../components/home/HeroHeader";
 import SectionTitle from "../components/sections/SectionTitle";
 import ServiceCards from "../components/sections/ServiceCards";
 
-export default function HomePage() {
+export default function Page() {
   return (
-    <main style={{ width: "100%" }}>
+    <main>
       <HeroHeader />
       <SectionTitle />
       <ServiceCards />
