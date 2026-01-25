@@ -1,151 +1,153 @@
-﻿import React from "react";
-import Image from "next/image";
+﻿"use client";
 
-type Card = {
-  title: string;
-  lead: string;
-  body: string;
-  button: { label: string; href: string };
-  imageSrc: string; // /public/...
-  iconSrc: string;  // /public/brand/icons/...
-};
+import React from "react";
+import Image from "next/image";
+import Link from "next/link";
 
 //
 // ======= HÄR ÄNDRAR DU STORLEKAR SNABBT =======
 // Desktop (dator/laptop):
-const DESKTOP_CARD_MIN = 240; // behåll
-const DESKTOP_CARD_MAX = 280; // behåll
-const DESKTOP_GAP = 10;       // du vill ha 10 nu
+const DESKTOP_CARD_MIN = 280; // gör större/mindre
+const DESKTOP_CARD_MAX = 280; // max-bredd per kort
+const DESKTOP_GAP = 15;       // avstånd mellan kort (DU VILLE HA 18)
 
 // Mobil (karusell):
-const MOBILE_CARD_WIDTH = 300;   // fast bredd så alla blir lika stora
-const MOBILE_CARD_MIN_H = 260;   // fast höjd-ish (alla lika stora)
-const IMAGE_H = 140;             // bildhöjd
-const ICON_SIZE = 50;            // ikon-cirkel storlek
-const ICON_TO_TITLE = 20;        // mellan cirkel och rubrik (du sa 20)
-
-// Bild/overlay lyx
-const IMAGE_BLUR_PX = 0.9;       // <-- ÄNDRA BLURR-STYRKA HÄR (t.ex 0.81.6)
-const OVERLAY_OPACITY = 0.50;    // <-- ÄNDRA OVERLAY-STYRKA HÄR (0.650.95)
+const MOBILE_CARD_WIDTH = 240; // lite större i mobilen
+const MOBILE_CARD_MIN_H = 260; // fast "höjd-ish"
+const IMAGE_H = 140;           // bildhöjd
+const ICON_SIZE = 50;          // cirkelstorlek
+const ICON_TO_TITLE = 20;      // luft mellan cirkel och rubrik
 // =============================================
 
-const CARDS: Card[] = [
+type CardItem = {
+  title: string;
+  desc1: string;
+  desc2?: string;
+  buttonText: string;
+  href: string;
+  imageSrc: string;
+  iconSrc: string;
+};
+
+const items: CardItem[] = [
   {
     title: "Företagsresa",
-    lead: "Smidig transport till möten, kundevent och personaldagar.",
-    body: "Vi anpassar tider, stopp och komfort  ni fokuserar på dagen.",
-    button: { label: "Läs mer", href: "/tjanster/foretagsresa" },
+    desc1: "Smidig transport till möten, kundevent och personaldagar.",
+    desc2: "Vi anpassar tider, stopp och komfort ni fokuserar på dagen.",
+    buttonText: "Läs mer",
+    href: "/boka",
     imageSrc: "/company_bus.jpeg",
     iconSrc: "/brand/icons/trust-alt.png",
   },
   {
     title: "Skola & förening",
-    lead: "Trygga resor för utflykter, cuper och läger.",
-    body: "Tydlig planering, säkerhetsfokus och gott om plats för packning.",
-    button: { label: "Läs mer", href: "/tjanster/skola-forening" },
+    desc1: "Trygga resor för utflykter, cuper och läger.",
+    desc2: "Tydlig planering, säkerhetsfokus och gott om plats för packning.",
+    buttonText: "Läs mer",
+    href: "/boka",
     imageSrc: "/skola_bus.jpg",
     iconSrc: "/brand/icons/workshop.png",
   },
   {
     title: "Bröllop",
-    lead: "Gör dagen enkel för gästerna och perfekt i tid.",
-    body: "Transport mellan vigsel, fest och hotell  tryggt och bekvämt.",
-    button: { label: "Läs mer", href: "/tjanster/brollop" },
+    desc1: "Gör dagen enkel för gästerna och perfekt i tid.",
+    desc2: "Transport mellan vigsel, fest och hotell  tryggt och bekvämt.",
+    buttonText: "Läs mer",
+    href: "/boka",
     imageSrc: "/wedding_bus.jpeg",
     iconSrc: "/brand/icons/rings-wedding.png",
   },
   {
     title: "Sportresa",
-    lead: "Lag- och supporterresor med smart logistik.",
-    body: "Plats för utrustning och tidspassat upplägg till match eller cup.",
-    button: { label: "Läs mer", href: "/tjanster/sportresa" },
+    desc1: "Lag- och supporterresor med smart logistik.",
+    desc2: "Plats för utrustning och tidspassat upplägg till match eller cup.",
+    buttonText: "Läs mer",
+    href: "/boka",
     imageSrc: "/sport_forening_bus.jpeg",
     iconSrc: "/brand/icons/running.png",
   },
   {
     title: "Transfer / Flygbuss",
-    lead: "Smidig resa till flyg, från centrala Helsingborg.",
-    body: "Boka enkelt via Helsingbuss Airport Shuttle.",
-    button: { label: "Till Airport Shuttle", href: "https://hbshuttle.se" },
+    desc1: "Smidig resa till flyg, från centrala Helsingborg.",
+    desc2: "Boka enkelt via Helsingbuss Airport Shuttle.",
+    buttonText: "Till Airport Shuttle",
+    href: "https://hbshuttle.se",
     imageSrc: "/flygbuss_bus.jpeg",
     iconSrc: "/brand/icons/airplane-journey.png",
   },
 ];
 
-export default function ServiceCards() {
-  return (
-    <section style={wrap}>
-      {/* Desktop grid */}
-      <div className="hb-desktop-only" style={desktopWrap}>
-        <div style={desktopGrid}>
-          {CARDS.map((item) => (
-            <CardItem key={item.title} item={item} />
-          ))}
-        </div>
-      </div>
-
-      {/* Mobile carousel */}
-      <div className="hb-mobile-only" style={mobileWrap}>
-        <div style={mobileRail} aria-label="Tjänster (karusell)">
-          {CARDS.map((item) => (
-            <div key={item.title} style={mobileSnap}>
-              <CardItem item={item} mobile />
-            </div>
-          ))}
-        </div>
-      </div>
-    </section>
-  );
-}
-
-function CardItem({ item, mobile }: { item: Card; mobile?: boolean }) {
+function Card({ item }: { item: CardItem }) {
   return (
     <div
       style={{
         position: "relative",
         borderRadius: 18,
         overflow: "hidden",
-        background: "rgba(255,255,255,0.90)",
-        boxShadow: "0 12px 30px rgba(0,0,0,0.10)",
-        border: "1px solid rgba(255,255,255,0.70)",
-        width: mobile ? MOBILE_CARD_WIDTH : "100%",
-        minHeight: mobile ? MOBILE_CARD_MIN_H : undefined,
+        background: "rgba(255,255,255,0.92)",
+        boxShadow: "0 16px 40px rgba(0,0,0,0.12)",
+        border: "1px solid rgba(255,255,255,0.65)",
+        minHeight: MOBILE_CARD_MIN_H,
+        width: "100%",
       }}
     >
       {/* IMAGE */}
-      <div style={{ height: IMAGE_H, width: "100%", position: "relative", overflow: "hidden" }}>
+      <div
+        style={{
+          height: IMAGE_H,
+          width: "100%",
+          position: "relative",
+          overflow: "hidden",
+          background: "#e9f1f1",
+        }}
+      >
         <Image
           src={item.imageSrc}
           alt={item.title}
           fill
-          sizes={mobile ? "320px" : "280px"}
+          sizes="(max-width: 768px) 320px, 280px"
           style={{
             objectFit: "cover",
+            filter: "blur(1.4px) saturate(1.05) contrast(1.05)",
             transform: "scale(1.06)",
-            filter: `blur(${IMAGE_BLUR_PX}px) saturate(1.08) contrast(1.06)`,
           }}
           priority={false}
         />
 
-        {/* LYXLIG OVERLAY */}
+        {/* Premium overlay (synlig men inte "hård") */}
         <div
           aria-hidden="true"
           style={{
             position: "absolute",
             inset: 0,
-            opacity: OVERLAY_OPACITY,
             background:
-              "linear-gradient(180deg, rgba(0,0,0,0.28) 0%, rgba(0,0,0,0.08) 42%, rgba(0,0,0,0.30) 100%)," +
-              "radial-gradient(120% 80% at 22% 14%, rgba(255,255,255,0.38) 0%, rgba(255,255,255,0.00) 60%)," +
-              "radial-gradient(95% 70% at 78% 16%, rgba(196,154,72,0.28) 0%, rgba(196,154,72,0.00) 58%)," +
-              "linear-gradient(90deg, rgba(196,154,72,0.12) 0%, rgba(255,255,255,0.00) 40%, rgba(196,154,72,0.10) 100%)",
-            backdropFilter: "blur(2px)",
-            WebkitBackdropFilter: "blur(2px)",
+              "linear-gradient(180deg, rgba(0,0,0,0.20) 0%, rgba(0,0,0,0.06) 45%, rgba(0,0,0,0.24) 100%)," +
+              "radial-gradient(120% 85% at 22% 12%, rgba(255,255,255,0.30) 0%, rgba(255,255,255,0.00) 62%)," +
+              "radial-gradient(100% 70% at 78% 14%, rgba(196,154,72,0.26) 0%, rgba(196,154,72,0.00) 60%)," +
+              "linear-gradient(90deg, rgba(196,154,72,0.10) 0%, rgba(255,255,255,0.00) 42%, rgba(196,154,72,0.08) 100%)",
+            opacity: 0.95,
+            mixBlendMode: "multiply",
+            pointerEvents: "none",
+          }}
+        />
+
+        {/* Soft seam så du INTE får streck mellan bild och vitt */}
+        <div
+          aria-hidden="true"
+          style={{
+            position: "absolute",
+            left: 0,
+            right: 0,
+            bottom: -1,
+            height: 26,
+            background:
+              "linear-gradient(180deg, rgba(255,255,255,0) 0%, rgba(255,255,255,0.85) 70%, rgba(255,255,255,0.95) 100%)",
+            pointerEvents: "none",
           }}
         />
       </div>
 
-      {/* ICON CIRCLE */}
+      {/* ICON CIRCLE (50/50 överlapp) */}
       <div
         style={{
           position: "absolute",
@@ -156,7 +158,7 @@ function CardItem({ item, mobile }: { item: Card; mobile?: boolean }) {
           height: ICON_SIZE,
           borderRadius: 999,
           background: "rgba(255,255,255,0.96)",
-          boxShadow: "0 10px 18px rgba(0,0,0,0.12)",
+          boxShadow: "0 12px 20px rgba(0,0,0,0.16)",
           display: "grid",
           placeItems: "center",
           zIndex: 3,
@@ -168,94 +170,119 @@ function CardItem({ item, mobile }: { item: Card; mobile?: boolean }) {
           alt=""
           width={26}
           height={26}
-          style={{ opacity: 0.92 }}
+          style={{ opacity: 0.95 }}
         />
       </div>
 
       {/* CONTENT */}
       <div
         style={{
-          padding: "22px 18px 18px",
-          paddingTop: 22 + ICON_TO_TITLE,
+          padding: "18px 18px 18px",
+          paddingTop: 18 + ICON_TO_TITLE,
           display: "grid",
-          gap: 10, // mindre luft mellan textblock (som du vill)
+          gap: 10, // mindre luft i texten (som du ville)
         }}
       >
-        <div style={{ display: "grid", gap: 8 }}>
-          <div style={{ fontWeight: 800, fontSize: 18, color: "#0B1220" }}>{item.title}</div>
+        <h3 style={{ fontSize: 16, fontWeight: 800, margin: 0, color: "#0F172A" }}>
+          {item.title}
+        </h3>
 
-          <div style={{ color: "rgba(11,18,32,0.70)", fontSize: 14, lineHeight: 1.5 }}>
-            {item.lead}
-          </div>
+        <p style={{ margin: 0, color: "#475569", lineHeight: 1.45, fontSize: 12.5 }}>
+          {item.desc1}
+        </p>
 
-          <div style={{ color: "rgba(11,18,32,0.62)", fontSize: 14, lineHeight: 1.5 }}>
-            {item.body}
-          </div>
-        </div>
+        {item.desc2 ? (
+          <p style={{ margin: 0, color: "#475569", lineHeight: 1.45, fontSize: 12.5 }}>
+            {item.desc2}
+          </p>
+        ) : null}
 
-        <div style={{ marginTop: 4 }}>
-          <a
-            href={item.button.href}
-            target={item.button.href.startsWith("http") ? "_blank" : undefined}
-            rel={item.button.href.startsWith("http") ? "noopener noreferrer" : undefined}
+        <div style={{ marginTop: 6 }}>
+          <Link
+            href={item.href}
+            target={item.href.startsWith("http") ? "_blank" : undefined}
             style={{
-              display: "inline-block",
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
               padding: "10px 16px",
               borderRadius: 12,
-              background: "#2F3640",
-              color: "white",
-              fontWeight: 700,
+              background: "#2B2F36",
+              color: "#fff",
+              fontWeight: 800,
               fontSize: 13,
               textDecoration: "none",
-              boxShadow: "0 10px 18px rgba(0,0,0,0.10)",
+              boxShadow: "0 10px 18px rgba(0,0,0,0.18)",
             }}
           >
-            {item.button.label}
-          </a>
+            {item.buttonText}
+          </Link>
         </div>
       </div>
     </div>
   );
 }
 
-/* Section spacing */
-const wrap: React.CSSProperties = {
-  width: "100%",
-  padding: "18px 16px 64px", // mer luft mellan rubriksektion och cards (du bad om det)
-};
+export default function ServiceCards() {
+  return (
+    <section
+      style={{
+        padding: "18px 16px 44px",
+        background: "transparent",
+      }}
+    >
+      {/* Desktop grid (visas bara på desktop via CSS i globals.css) */}
+      <div className="hb-servicecards hb-desktop">
+        <div
+          style={{
+            maxWidth: 1320,
+            margin: "0 auto",
+            display: "grid",
+            justifyContent: "center", // CENTRERAD
+            gridTemplateColumns: `repeat(5, minmax(${DESKTOP_CARD_MIN}px, ${DESKTOP_CARD_MAX}px))`,
+            gap: DESKTOP_GAP,
+          }}
+        >
+          {items.map((it) => (
+            <Card key={it.title} item={it} />
+          ))}
+        </div>
+      </div>
 
-/* Desktop */
-const desktopWrap: React.CSSProperties = {
-  maxWidth: 1320,
-  margin: "0 auto",
-  display: "block",
-};
-
-const desktopGrid: React.CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: `repeat(5, minmax(${DESKTOP_CARD_MIN}px, ${DESKTOP_CARD_MAX}px))`,
-  gap: DESKTOP_GAP,
-  justifyContent: "center",
-  alignItems: "start",
-};
-
-/* Mobile carousel */
-const mobileWrap: React.CSSProperties = {
-  display: "block",
-  margin: "0 auto",
-};
-
-const mobileRail: React.CSSProperties = {
-  display: "grid",
-  gridAutoFlow: "column",
-  gridAutoColumns: `${MOBILE_CARD_WIDTH}px`,
-  gap: 12,
-  overflowX: "auto",
-  paddingBottom: 8,
-  scrollSnapType: "x mandatory",
-  WebkitOverflowScrolling: "touch",
-};
-
-const mobileSnap: React.CSSProperties = {
-  scrollSnapAlign: "start",
-};
+      {/* Mobile carousel (visas bara på mobil via CSS i globals.css) */}
+      <div className="hb-servicecards hb-mobile">
+        <div
+          style={{
+            maxWidth: 1200,
+            margin: "0 auto",
+            overflowX: "auto",
+            paddingBottom: 10,
+            WebkitOverflowScrolling: "touch",
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              gap: 16,
+              padding: "0 8px",
+              scrollSnapType: "x mandatory",
+            }}
+          >
+            {items.map((it) => (
+              <div
+                key={it.title}
+                style={{
+                  width: MOBILE_CARD_WIDTH,
+                  flex: "0 0 auto",
+                  scrollSnapAlign: "center",
+                }}
+              >
+                <Card item={it} />
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
