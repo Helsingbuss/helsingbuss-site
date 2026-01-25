@@ -1,4 +1,4 @@
-﻿import type { Metadata } from "next";
+import type { Metadata } from "next";
 import "./globals.css";
 import { Open_Sans } from "next/font/google";
 
@@ -29,7 +29,7 @@ export default function RootLayout({
           content="width=device-width, initial-scale=1, viewport-fit=cover"
         />
       </head>
-      <body>
+      <body className={openSans.className}>
         <Header />
         {children}
       </body>

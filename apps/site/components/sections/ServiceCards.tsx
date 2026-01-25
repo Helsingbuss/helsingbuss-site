@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import React from "react";
 import Image from "next/image";
@@ -6,15 +6,19 @@ import Link from "next/link";
 
 //
 // ======= HÄR ÄNDRAR DU STORLEKAR SNABBT =======
+const BODY_FONT_PX = 12.5;
+const TITLE_FONT_PX = 16;
 // Desktop (dator/laptop):
 const DESKTOP_CARD_MIN = 280; // gör större/mindre
 const DESKTOP_CARD_MAX = 280; // max-bredd per kort
-const DESKTOP_GAP = 15;       // avstånd mellan kort (DU VILLE HA 18)
+const DESKTOP_GAP = 18;       // avstånd mellan kort (DU VILLE HA 18)
 
 // Mobil (karusell):
 const MOBILE_CARD_WIDTH = 240; // lite större i mobilen
 const MOBILE_CARD_MIN_H = 260; // fast "höjd-ish"
-const IMAGE_H = 140;           // bildhöjd
+const IMAGE_H = 140;
+const IMAGE_BLUR_PX = 4; // ÄNDRA HÄR: 0 = inget blur, 2-4 lagom, 6+ mycket
+           // bildhöjd
 const ICON_SIZE = 50;          // cirkelstorlek
 const ICON_TO_TITLE = 20;      // luft mellan cirkel och rubrik
 // =============================================
@@ -108,7 +112,7 @@ function Card({ item }: { item: CardItem }) {
           sizes="(max-width: 768px) 320px, 280px"
           style={{
             objectFit: "cover",
-            filter: "blur(1.4px) saturate(1.05) contrast(1.05)",
+            filter: "blur(${IMAGE_BLUR_PX}px)",
             transform: "scale(1.06)",
           }}
           priority={false}
@@ -120,8 +124,7 @@ function Card({ item }: { item: CardItem }) {
           style={{
             position: "absolute",
             inset: 0,
-            background:
-              "linear-gradient(180deg, rgba(0,0,0,0.20) 0%, rgba(0,0,0,0.06) 45%, rgba(0,0,0,0.24) 100%)," +
+            background: "linear-gradient(180deg, rgba(0,0,0,0.10) 0%, rgba(0,0,0,0.06) 55%, rgba(0,0,0,0.10) 100%), linear-gradient(90deg, rgba(214,179,92,0.10) 0%, rgba(255,255,255,0.00) 40%, rgba(214,179,92,0.08) 100%)" +
               "radial-gradient(120% 85% at 22% 12%, rgba(255,255,255,0.30) 0%, rgba(255,255,255,0.00) 62%)," +
               "radial-gradient(100% 70% at 78% 14%, rgba(196,154,72,0.26) 0%, rgba(196,154,72,0.00) 60%)," +
               "linear-gradient(90deg, rgba(196,154,72,0.10) 0%, rgba(255,255,255,0.00) 42%, rgba(196,154,72,0.08) 100%)",
@@ -140,8 +143,7 @@ function Card({ item }: { item: CardItem }) {
             right: 0,
             bottom: -1,
             height: 26,
-            background:
-              "linear-gradient(180deg, rgba(255,255,255,0) 0%, rgba(255,255,255,0.85) 70%, rgba(255,255,255,0.95) 100%)",
+            background: "linear-gradient(180deg, rgba(0,0,0,0.10) 0%, rgba(0,0,0,0.06) 55%, rgba(0,0,0,0.10) 100%), linear-gradient(90deg, rgba(214,179,92,0.10) 0%, rgba(255,255,255,0.00) 40%, rgba(214,179,92,0.08) 100%)",
             pointerEvents: "none",
           }}
         />
@@ -232,7 +234,7 @@ export default function ServiceCards() {
       }}
     >
       {/* Desktop grid (visas bara på desktop via CSS i globals.css) */}
-      <div className="hb-servicecards hb-desktop">
+      <div className="hb-desktop-only">
         <div
           style={{
             maxWidth: 1320,
@@ -250,7 +252,7 @@ export default function ServiceCards() {
       </div>
 
       {/* Mobile carousel (visas bara på mobil via CSS i globals.css) */}
-      <div className="hb-servicecards hb-mobile">
+      <div className="hb-mobile-only">
         <div
           style={{
             maxWidth: 1200,
