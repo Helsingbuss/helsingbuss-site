@@ -18,7 +18,7 @@ export default function TravelFeelingSection() {
 
           <div className="hb-feel__content">
             <h2 className="hb-feel__title">
-              Från Helsingborg till upplevelsen – bussresor som bara funkar
+              Från Helsingborg till upplevelsen – bussresor som är för alla!
             </h2>
 
             <p className="hb-feel__text">
@@ -32,13 +32,6 @@ export default function TravelFeelingSection() {
             <p className="hb-feel__text">
               Ni berättar vad ni vill uppleva. Vi tar hand om vägen dit  och ser till att resan blir en trygg del av upplevelsen, inte bara transporten.
             </p>
-
-            <div className="hb-feel__checks">
-              <div className="hb-feel__check"><span className="hb-feel__checkIcon"></span><span>Trygg planering med tydlig körplan & stopp</span></div>
-              <div className="hb-feel__check"><span className="hb-feel__checkIcon"></span><span>Snabb och tydlig offert, utan krångliga överraskningar</span></div>
-              <div className="hb-feel__check"><span className="hb-feel__checkIcon"></span><span>Punktlighet och helhetskoll så dagen flyter på smidigt</span></div>
-            </div>
-
             <div className="hb-feel__actions">
               <a className="hb-feel__btn" href="/boka">Till offertförfrågan</a>
             </div>
