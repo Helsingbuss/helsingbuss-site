@@ -1,8 +1,8 @@
-import HeroHeader from "../components/home/HeroHeader";
+﻿import HeroHeader from "../components/home/HeroHeader";
 import SectionTitle from "../components/sections/SectionTitle";
 import ServiceCards from "../components/sections/ServiceCards";
 import UpcomingTripsSection from "../components/sections/UpcomingTripsSection";
-import TravelFeelingSection from "@/components/sections/TravelFeelingSection";
+import TravelFeelingSection from "../components/sections/TravelFeelingSection";
 
 export default function Page() {
   return (
@@ -15,3 +15,4 @@ export default function Page() {
     </main>
   );
 }
+
